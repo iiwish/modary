@@ -1,0 +1,16 @@
+{
+  "request_id": "MBA.local/2ocVQMwrcC-000043",
+  "actor_id": "user_admin",
+  "actor_type": "user",
+  "channel": "http",
+  "action_id": "rulary.run.execute",
+  "workspace_id": "ws_default",
+  "input_hash": "sha256:f5d1dac406a380892c67cdd635ca75db3c8c42264d13267ec015a0f6323f7a9c",
+  "plan_hash": "sha256:eb69329460eea85ea51cff7241ca0bac2db3b932e054770f105801543fe6cdc3",
+  "decision": "allowed",
+  "result_summary": "processed 20 rows and wrote 0 results",
+  "error_code": "",
+  "reason": "",
+  "started_at": "2026-07-30T04:15:24.967516Z",
+  "finished_at": "2026-07-30T04:15:24.970763Z"
+}

@@ -1,0 +1,378 @@
+{
+  "actions": [
+    {
+      "id": "audit.query",
+      "title": "Query audit events",
+      "description": "Returns governed action audit events for the current workspace.",
+      "input_schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "actor_id": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "events"
+        ],
+        "additionalProperties": false
+      },
+      "permission": "audit.read",
+      "preview": "none",
+      "audit_level": "metadata",
+      "channels": [
+        "http",
+        "cli"
+      ],
+      "requires_idempotency": false
+    },
+    {
+      "id": "rulary.ruleset.create",
+      "title": "Create RuleSet",
+      "input_schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "spec": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "spec"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object"
+      },
+      "permission": "rulary.ruleset.create",
+      "preview": "none",
+      "audit_level": "detailed",
+      "channels": [
+        "http",
+        "cli"
+      ],
+      "requires_idempotency": true
+    },
+    {
+      "id": "rulary.ruleset.get",
+      "title": "Get RuleSet",
+      "input_schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "ruleset_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "ruleset_id"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object"
+      },
+      "permission": "rulary.ruleset.preview",
+      "preview": "none",
+      "audit_level": "detailed",
+      "channels": [
+        "http",
+        "cli"
+      ],
+      "requires_idempotency": false
+    },
+    {
+      "id": "rulary.ruleset.list",
+      "title": "List RuleSets",
+      "input_schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object"
+      },
+      "permission": "rulary.ruleset.preview",
+      "preview": "none",
+      "audit_level": "detailed",
+      "channels": [
+        "http",
+        "cli"
+      ],
+      "requires_idempotency": false
+    },
+    {
+      "id": "rulary.ruleset.preview",
+      "title": "Preview RuleSet",
+      "input_schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "ruleset_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "ruleset_id"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object"
+      },
+      "permission": "rulary.ruleset.preview",
+      "preview": "optional",
+      "audit_level": "detailed",
+      "channels": [
+        "http",
+        "cli",
+        "mcp"
+      ],
+      "requires_idempotency": false
+    },
+    {
+      "id": "rulary.ruleset.publish",
+      "title": "Publish RuleSet",
+      "input_schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "ruleset_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "ruleset_id"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object"
+      },
+      "permission": "rulary.ruleset.publish",
+      "preview": "required",
+      "audit_level": "detailed",
+      "channels": [
+        "http"
+      ],
+      "requires_idempotency": true
+    },
+    {
+      "id": "rulary.ruleset.update_draft",
+      "title": "Update RuleSet draft",
+      "input_schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "ruleset_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "spec": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "ruleset_id",
+          "spec"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object"
+      },
+      "permission": "rulary.ruleset.edit",
+      "preview": "none",
+      "audit_level": "detailed",
+      "channels": [
+        "http"
+      ],
+      "requires_idempotency": true
+    },
+    {
+      "id": "rulary.ruleset.validate",
+      "title": "Validate RuleSet",
+      "input_schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "ruleset_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "ruleset_id"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object"
+      },
+      "permission": "rulary.ruleset.preview",
+      "preview": "none",
+      "audit_level": "detailed",
+      "channels": [
+        "http",
+        "cli",
+        "mcp"
+      ],
+      "requires_idempotency": true
+    },
+    {
+      "id": "rulary.run.execute",
+      "title": "Execute published RuleSet",
+      "input_schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "ruleset_version_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "table": {
+                "const": "company_license"
+              }
+            },
+            "required": [
+              "table"
+            ],
+            "additionalProperties": false
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "table": {
+                "const": "company_address_labels"
+              }
+            },
+            "required": [
+              "table"
+            ],
+            "additionalProperties": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "ruleset_version_id",
+          "source",
+          "target",
+          "limit"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object"
+      },
+      "permission": "rulary.run.execute",
+      "preview": "required",
+      "audit_level": "detailed",
+      "channels": [
+        "http",
+        "cli",
+        "mcp"
+      ],
+      "requires_idempotency": true
+    },
+    {
+      "id": "rulary.run.get",
+      "title": "Get RuleRun",
+      "input_schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object"
+      },
+      "permission": "rulary.run.execute",
+      "preview": "none",
+      "audit_level": "detailed",
+      "channels": [
+        "http",
+        "cli"
+      ],
+      "requires_idempotency": false
+    }
+  ],
+  "schema_version": "modary.action-catalog/v1alpha1"
+}

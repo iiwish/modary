@@ -1,0 +1,11 @@
+schemaVersion: modary.module/v1alpha1
+id: authz-basic
+version: 0.1.0
+type: adapter
+requires:
+  - database
+  - identity
+provides:
+  - authorization
+migrations:
+  sqlite: migrations/sqlite

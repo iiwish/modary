@@ -1,0 +1,6 @@
+*
+!Dockerfile.release
+!dist/modary-rulary-linux-amd64
+!dist/modary-rulary-linux-arm64
+!dist/f0-integration-linux-amd64
+!dist/f0-integration-linux-arm64

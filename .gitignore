@@ -1,0 +1,12 @@
+.DS_Store
+.idea/
+.vscode/
+node_modules/
+web/node_modules/
+web/dist/
+data/
+/dist/
+coverage/
+playwright-report/
+test-results/
+*.prof

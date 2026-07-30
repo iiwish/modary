@@ -1,0 +1,34 @@
+schemaVersion: modary.module/v1alpha1
+id: rulary-core
+version: 0.1.0
+type: feature
+requires:
+  - database
+  - identity
+  - authorization
+  - audit
+provides:
+  - rulary
+actions:
+  - rulary.ruleset.list
+  - rulary.ruleset.get
+  - rulary.ruleset.create
+  - rulary.ruleset.update_draft
+  - rulary.ruleset.validate
+  - rulary.ruleset.preview
+  - rulary.ruleset.publish
+  - rulary.run.execute
+  - rulary.run.get
+migrations:
+  sqlite: migrations/sqlite
+ui:
+  routes:
+    - id: rulary.rules
+      path: /rulary/rules
+      entry: ./ui/routes.ts
+    - id: rulary.rules.detail
+      path: /rulary/rules/:rulesetId
+      entry: ./ui/routes.ts
+    - id: rulary.runs.detail
+      path: /rulary/runs/:runId
+      entry: ./ui/routes.ts

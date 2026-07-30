@@ -1,0 +1,42 @@
+[
+  {
+    "id": "audit.query",
+    "module": "audit"
+  },
+  {
+    "id": "rulary.ruleset.create",
+    "module": "rulary-core"
+  },
+  {
+    "id": "rulary.ruleset.get",
+    "module": "rulary-core"
+  },
+  {
+    "id": "rulary.ruleset.list",
+    "module": "rulary-core"
+  },
+  {
+    "id": "rulary.ruleset.preview",
+    "module": "rulary-core"
+  },
+  {
+    "id": "rulary.ruleset.publish",
+    "module": "rulary-core"
+  },
+  {
+    "id": "rulary.ruleset.update_draft",
+    "module": "rulary-core"
+  },
+  {
+    "id": "rulary.ruleset.validate",
+    "module": "rulary-core"
+  },
+  {
+    "id": "rulary.run.execute",
+    "module": "rulary-core"
+  },
+  {
+    "id": "rulary.run.get",
+    "module": "rulary-core"
+  }
+]

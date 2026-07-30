@@ -1,0 +1,10 @@
+schemaVersion: modary.module/v1alpha1
+id: identity-local
+version: 0.1.0
+type: adapter
+requires:
+  - database
+provides:
+  - identity
+migrations:
+  sqlite: migrations/sqlite

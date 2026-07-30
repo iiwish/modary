@@ -1,0 +1,111 @@
+[
+  {
+    "name": "complex filing address",
+    "input": "平顶山市卫东区建设路东段南4号院（移动公司办公楼西200米）；（经营地址备案：平顶山市黄河路与高新大道交叉口尼龙织造产业园内办公楼50号）",
+    "filing_marker": "经营地址备案",
+    "expected": {
+      "registered_address": "平顶山市卫东区建设路东段南4号院",
+      "business_address": "平顶山市黄河路与高新大道交叉口尼龙织造产业园内办公楼50号",
+      "address_note": "移动公司办公楼西200米",
+      "has_business_address_filing": true,
+      "address_quality_tag": "含经营地址备案",
+      "evidence": [
+        { "field": "registered_address", "text": "平顶山市卫东区建设路东段南4号院", "start": 0, "end": 16 },
+        { "field": "address_note", "text": "移动公司办公楼西200米", "start": 17, "end": 29 },
+        { "field": "business_address", "text": "平顶山市黄河路与高新大道交叉口尼龙织造产业园内办公楼50号", "start": 39, "end": 68 }
+      ]
+    }
+  },
+  {
+    "name": "no business address",
+    "input": "郑州市中原路1号",
+    "filing_marker": "经营地址备案",
+    "expected": {
+      "registered_address": "郑州市中原路1号",
+      "business_address": "",
+      "address_note": "",
+      "has_business_address_filing": false,
+      "address_quality_tag": "仅注册地址",
+      "evidence": [
+        { "field": "registered_address", "text": "郑州市中原路1号", "start": 0, "end": 8 }
+      ]
+    }
+  },
+  {
+    "name": "ascii parenthetical note",
+    "input": "郑州市中原路1号(大门东侧)",
+    "filing_marker": "经营地址备案",
+    "expected": {
+      "registered_address": "郑州市中原路1号",
+      "business_address": "",
+      "address_note": "大门东侧",
+      "has_business_address_filing": false,
+      "address_quality_tag": "仅注册地址",
+      "evidence": [
+        { "field": "registered_address", "text": "郑州市中原路1号", "start": 0, "end": 8 },
+        { "field": "address_note", "text": "大门东侧", "start": 9, "end": 13 }
+      ]
+    }
+  },
+  {
+    "name": "full-width semicolon and ascii colon",
+    "input": "郑州市中原路1号；（经营地址备案:郑州市高新区2号）",
+    "filing_marker": "经营地址备案",
+    "expected": {
+      "registered_address": "郑州市中原路1号",
+      "business_address": "郑州市高新区2号",
+      "address_note": "",
+      "has_business_address_filing": true,
+      "address_quality_tag": "含经营地址备案",
+      "evidence": [
+        { "field": "registered_address", "text": "郑州市中原路1号", "start": 0, "end": 8 },
+        { "field": "business_address", "text": "郑州市高新区2号", "start": 17, "end": 25 }
+      ]
+    }
+  },
+  {
+    "name": "ascii semicolon and parentheses",
+    "input": "洛阳市西工区1号;(经营地址备案：洛阳市高新区2号)",
+    "filing_marker": "经营地址备案",
+    "expected": {
+      "registered_address": "洛阳市西工区1号",
+      "business_address": "洛阳市高新区2号",
+      "address_note": "",
+      "has_business_address_filing": true,
+      "address_quality_tag": "含经营地址备案",
+      "evidence": [
+        { "field": "registered_address", "text": "洛阳市西工区1号", "start": 0, "end": 8 },
+        { "field": "business_address", "text": "洛阳市高新区2号", "start": 17, "end": 25 }
+      ]
+    }
+  },
+  {
+    "name": "multiple notes use first",
+    "input": "郑州市中原路1号（东侧）（二楼）",
+    "filing_marker": "经营地址备案",
+    "expected": {
+      "registered_address": "郑州市中原路1号",
+      "business_address": "",
+      "address_note": "东侧",
+      "has_business_address_filing": false,
+      "address_quality_tag": "仅注册地址",
+      "evidence": [
+        { "field": "registered_address", "text": "郑州市中原路1号", "start": 0, "end": 8 },
+        { "field": "address_note", "text": "东侧", "start": 9, "end": 11 }
+      ]
+    }
+  },
+  {
+    "name": "empty address",
+    "input": "",
+    "filing_marker": "经营地址备案",
+    "expected": {
+      "registered_address": "",
+      "business_address": "",
+      "address_note": "",
+      "has_business_address_filing": false,
+      "address_quality_tag": "仅注册地址",
+      "evidence": []
+    }
+  }
+]

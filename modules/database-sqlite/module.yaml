@@ -1,0 +1,8 @@
+schemaVersion: modary.module/v1alpha1
+id: database-sqlite
+version: 0.1.0
+type: adapter
+provides:
+  - database
+migrations:
+  sqlite: migrations/sqlite
