@@ -1,0 +1,9 @@
+Modary JSON Schema Engine
+
+This product contains a modified source copy of gojsonschema v1.2.0:
+https://github.com/xeipuuv/gojsonschema
+
+Copyright 2015 xeipuuv
+Licensed under the Apache License, Version 2.0.
+
+The Modary-specific modifications are described in README.modary.md.

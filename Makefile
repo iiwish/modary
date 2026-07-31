@@ -1,59 +1,134 @@
-.PHONY: bootstrap generate action-catalog verify test test-go test-go-strict test-performance test-web test-e2e build release-linux acceptance release-acceptance run clean
+GO ?= go
+CONSUMER_DIR := testdata/external-consumer
+GO_COMMAND_ENV := GO111MODULE=on GOTOOLCHAIN=local GOENV=off GOWORK=off GOFLAGS=
+CROSS_BUILD_TARGETS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
+REPEAT_PACKAGES := \
+	./action \
+	./adapters/... \
+	./appcmd \
+	./appkit \
+	./database \
+	./internal/actionruntime \
+	./internal/callbackcontract \
+	./internal/databasecontrol \
+	./internal/filepolicy \
+	./internal/jsonschema/... \
+	./internal/jsonvalue \
+	./internal/runtimecontrol \
+	./internal/safeerr \
+	./internal/sqlpolicy \
+	./internal/transactionoutcome \
+	./module \
+	./projecttool \
+	./transport/httpapi
+
+.PHONY: bootstrap format-check tidy-check diff-check docs-check verify check-generated neutrality \
+	test test-framework test-consumer vet race repeat fuzz-smoke build \
+	panicnil cross-build native-platform acceptance ci-gates ci clean
 
 bootstrap:
-	pnpm install
-	go mod download
+	$(GO_COMMAND_ENV) $(GO) mod download
+	cd $(CONSUMER_DIR) && $(GO_COMMAND_ENV) $(GO) mod download
 
-generate:
-	go run ./cmd/modary generate
+format-check:
+	@unformatted="$$(git ls-files --cached --others --exclude-standard -z -- '*.go' | xargs -0 sh -c 'for file do if test -f "$$file"; then gofmt -l "$$file"; fi; done' sh)"; \
+	if test -n "$$unformatted"; then printf 'gofmt required:\n%s\n' "$$unformatted"; exit 1; fi
 
-action-catalog:
-	MODARY_DATA_DIR=/tmp/modary-action-catalog MODARY_DATABASE_PATH=/tmp/modary-action-catalog/modary.db go run ./cmd/modary action catalog --output internal/generated/action_schemas.json
+tidy-check:
+	$(GO_COMMAND_ENV) $(GO) mod tidy -diff
+	cd $(CONSUMER_DIR) && $(GO_COMMAND_ENV) $(GO) mod tidy -diff
+
+diff-check:
+	./scripts/check-source-diff.sh
+
+docs-check:
+	./scripts/check-docs.sh
 
 verify:
-	go run ./cmd/modary verify
+	cd $(CONSUMER_DIR) && $(GO_COMMAND_ENV) $(GO) run ./tools/modary verify
 
-test: test-go test-web
+check-generated:
+	cd $(CONSUMER_DIR) && $(GO_COMMAND_ENV) $(GO) run ./tools/modary generate --check
+	cd $(CONSUMER_DIR) && $(GO_COMMAND_ENV) $(GO) run ./tools/modary check
 
-test-go:
-	go test ./...
+neutrality:
+	./scripts/check-neutrality.sh
 
-test-go-strict:
-	go vet ./...
-	go test -race ./...
+test: test-framework test-consumer
 
-test-performance:
-	GOMAXPROCS=2 go test ./tests/integration -run '^TestPreviewPerformance1000Rows$$' -count=1 -v
+test-framework:
+	$(GO_COMMAND_ENV) $(GO) test -count=1 ./...
 
-test-web:
-	pnpm --filter @modary/console test
-	pnpm --filter @modary/console typecheck
+test-consumer:
+	cd $(CONSUMER_DIR) && MODARY_EXTERNAL_CONSUMER_COPIED_OUT=0 $(GO_COMMAND_ENV) $(GO) test -count=1 -v ./...
 
-test-e2e:
-	pnpm --filter @modary/console test:e2e
+panicnil:
+	GODEBUG=panicnil=1 $(GO_COMMAND_ENV) $(GO) test -count=1 ./...
+
+vet:
+	$(GO_COMMAND_ENV) $(GO) vet ./...
+	cd $(CONSUMER_DIR) && $(GO_COMMAND_ENV) $(GO) vet ./...
+
+race:
+	$(GO_COMMAND_ENV) $(GO) test -count=1 -race ./...
+	cd $(CONSUMER_DIR) && MODARY_EXTERNAL_CONSUMER_COPIED_OUT=1 $(GO_COMMAND_ENV) $(GO) test -count=1 -race ./...
+
+repeat:
+	$(GO_COMMAND_ENV) $(GO) test -shuffle=on -count=20 $(REPEAT_PACKAGES)
+	cd $(CONSUMER_DIR) && MODARY_EXTERNAL_CONSUMER_COPIED_OUT=1 $(GO_COMMAND_ENV) $(GO) test -shuffle=on -count=20 ./...
+
+fuzz-smoke:
+	$(GO_COMMAND_ENV) $(GO) test ./projecttool -run='^$$' -fuzz=FuzzParseManifestFailsClosed -fuzztime=5s -parallel=1
+	$(GO_COMMAND_ENV) $(GO) test ./internal/jsonvalue -run='^$$' -fuzz=FuzzDecodeFailsClosed -fuzztime=5s -parallel=1
+	$(GO_COMMAND_ENV) $(GO) test ./internal/jsonschema -run='^$$' -fuzz=FuzzCompileAndValidateFlagFailsClosed -fuzztime=5s -parallel=1
+	$(GO_COMMAND_ENV) $(GO) test ./transport/httpapi -run='^$$' -fuzz=FuzzProtocolJSONDecodersFailClosed -fuzztime=5s -parallel=1
+	@if test "$$($(GO_COMMAND_ENV) $(GO) env GOOS)" = darwin; then \
+		$(GO_COMMAND_ENV) $(GO) test ./internal/filepolicy -run='^$$' -fuzz=FuzzParseExtendedSecurityResponse -fuzztime=5s -parallel=1; \
+		$(GO_COMMAND_ENV) $(GO) test ./internal/filepolicy -run='^$$' -fuzz=FuzzParseKauthFileSecurity -fuzztime=5s -parallel=1; \
+	fi
 
 build:
-	pnpm --filter @modary/console build
-	go run ./cmd/modary generate
-	mkdir -p dist
-	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/modary-rulary ./cmd/modary
+	$(GO_COMMAND_ENV) $(GO) build ./...
+	cd $(CONSUMER_DIR) && $(GO_COMMAND_ENV) $(GO) build ./...
 
-release-linux: build
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/modary-rulary-linux-amd64 ./cmd/modary
-	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/modary-rulary-linux-arm64 ./cmd/modary
+cross-build:
+	@set -eu; \
+	for target in $(CROSS_BUILD_TARGETS); do \
+		goos="$${target%/*}"; goarch="$${target#*/}"; \
+		GOOS="$$goos" GOARCH="$$goarch" CGO_ENABLED=0 $(GO_COMMAND_ENV) $(GO) build ./...; \
+		(cd $(CONSUMER_DIR) && GOOS="$$goos" GOARCH="$$goarch" CGO_ENABLED=0 $(GO_COMMAND_ENV) $(GO) build ./...); \
+	done; \
+	cross_test_dir="$$(mktemp -d /tmp/modary-cross-tests.XXXXXX)"; \
+	trap 'rm -rf "$$cross_test_dir"' EXIT HUP INT TERM; \
+	for goarch in amd64 arm64; do \
+		GOOS=windows GOARCH="$$goarch" CGO_ENABLED=0 $(GO_COMMAND_ENV) $(GO) test -c -o "$$cross_test_dir/appcmd-$$goarch.test.exe" ./appcmd; \
+		GOOS=windows GOARCH="$$goarch" CGO_ENABLED=0 $(GO_COMMAND_ENV) $(GO) test -c -o "$$cross_test_dir/projecttool-$$goarch.test.exe" ./projecttool; \
+		GOOS=windows GOARCH="$$goarch" CGO_ENABLED=0 $(GO_COMMAND_ENV) $(GO) test -c -o "$$cross_test_dir/sqlite-$$goarch.test.exe" ./adapters/sqlite; \
+		GOOS=darwin GOARCH="$$goarch" CGO_ENABLED=0 $(GO_COMMAND_ENV) $(GO) test -c -o "$$cross_test_dir/filepolicy-$$goarch.test" ./internal/filepolicy; \
+	done
 
-acceptance: verify generate action-catalog test test-e2e build
+native-platform: format-check tidy-check test panicnil vet build race fuzz-smoke
 
-release-acceptance: acceptance test-go-strict test-performance release-linux
-	docker build --platform linux/arm64 -f Dockerfile.release -t modary-f0:arm64 .
-	docker build --platform linux/amd64 -f Dockerfile.release -t modary-f0:amd64 .
-	./scripts/benchmark-release.zsh modary-f0:arm64 linux/arm64
-	PORT=18083 ./scripts/benchmark-release.zsh modary-f0:amd64 linux/amd64
-	./scripts/benchmark-preview.zsh modary-f0:amd64 linux/amd64
-	./scripts/release-smoke.zsh modary-f0:arm64 linux/arm64
+acceptance: format-check tidy-check diff-check docs-check test panicnil vet verify check-generated neutrality build cross-build
 
-run:
-	go run ./cmd/modary serve
+ci-gates: acceptance race repeat fuzz-smoke
+	$(MAKE) neutrality check-generated diff-check
+
+ci:
+	@set -eu; \
+	before="$$(mktemp /tmp/modary-source-before.XXXXXX)"; \
+	after="$$(mktemp /tmp/modary-source-after.XXXXXX)"; \
+	trap 'rm -f "$$before" "$$after"' EXIT HUP INT TERM; \
+	./scripts/source-state.sh >"$$before"; \
+	gate_status=0; \
+	$(MAKE) ci-gates || gate_status=$$?; \
+	./scripts/source-state.sh >"$$after"; \
+	if ! cmp -s "$$before" "$$after"; then \
+		printf '%s\n' 'CI gates modified repository source state:' >&2; \
+		diff -u "$$before" "$$after" >&2 || true; \
+		exit 1; \
+	fi; \
+	exit "$$gate_status"
 
 clean:
-	rm -rf dist web/dist
+	rm -rf $(CONSUMER_DIR)/dist $(CONSUMER_DIR)/data coverage

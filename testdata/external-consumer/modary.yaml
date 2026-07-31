@@ -1,0 +1,11 @@
+application:
+  id: counter-console
+  name: Counter Console
+  version: 0.1.0
+outputs:
+  graph: internal/generated/module_graph.json
+  actions: internal/generated/action_catalog.json
+  typescript: internal/generated/action_contracts.ts
+build:
+  package: ./cmd/counter-console
+  output: dist/counter-console

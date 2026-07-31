@@ -1,0 +1,120 @@
+schema_version: 1
+packet_id: EP-002-T015
+task_id: T015
+feature_id: 002-framework-decoupling
+mode: execute_one_task
+adapter: codex-subagent
+
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  product_contract: .ai-platform/docs/product-design.md
+  feature_spec: .ai-platform/specs/002-framework-decoupling/spec.md
+  requirements_checklist: .ai-platform/specs/002-framework-decoupling/checklists/requirements.md
+  technical_decisions: .ai-platform/specs/002-framework-decoupling/plan.md
+  work_graph: .ai-platform/specs/002-framework-decoupling/tasks.md
+  analysis: .ai-platform/specs/002-framework-decoupling/analysis.md
+  approval_gates:
+    constitution: Confirmed by user
+    product_or_spec: Confirmed by user
+    technical_plan_and_work_graph: Confirmed by user
+    analysis: No unresolved Critical or High finding
+
+work_unit:
+  title: Prove Independent Consumer And Remove Domain Coupling
+  goal: Prove copied-out independent consumption and leave an active domain-neutral Go framework.
+  requirements: [FR-001, FR-002, FR-005, FR-006, FR-007, FR-008, FR-009, FR-011, FR-012, NFR-001, NFR-002, NFR-003, NFR-007]
+  priority: P0
+  depends_on: [T012, T013, T014]
+  blocks: [T016]
+  parallel: false
+  conflicts_with: [T013, active application tree cleanup]
+
+codebase_context:
+  relevant_files:
+    - testdata/external-consumer/**
+    - Makefile
+    - .github/workflows/ci.yml
+    - scripts/**
+    - README.md
+    - docs/**
+  existing_patterns:
+    - one consumer composition function feeds appcmd and projecttool
+    - public framework packages expose no internal import requirement
+    - official Adapters require explicit options and provision no rows by default
+  interfaces_or_contracts:
+    - .ai-platform/specs/002-framework-decoupling/spec.md
+    - docs/framework-f0.md
+  forbidden_changes:
+    - consumer code inside framework production packages
+    - Node-family dependency in framework or copied-out acceptance
+    - edits to checksum-protected external archives
+
+execution_constraints:
+  branch_or_worktree: current
+  allowed_files:
+    - testdata/external-consumer/**
+    - scripts/**
+    - Makefile
+    - .github/**
+    - .gitignore
+    - README.md
+    - docs/**
+    - application-owned path removals
+    - .ai-platform/specs/002-framework-decoupling/packets/T015.yaml
+    - .ai-platform/specs/002-framework-decoupling/tasks.md
+    - .ai-platform/evidence/T015/**
+  test_targets:
+    - testdata/external-consumer/**/*_test.go
+    - scripts/check-neutrality.sh
+    - scripts/check-docs.sh
+  ownership_notes:
+    - preserve internal/authority and public framework packages during application-tree cleanup
+
+tdd_plan:
+  required: true
+  exception: null
+  red:
+    command: copied-out and neutrality tests before consumer composition and cleanup
+    expected_failure: external import, generated drift, channel, or active-domain boundary is incomplete
+  green:
+    command: make acceptance
+    expected_signal: framework and copied consumer acceptance passes with Go alone
+  refactor:
+    command: git diff --check
+    expected_signal: canonical build, CI, documentation, and boundary checks remain green
+
+validation_loop:
+  commands:
+    - make acceptance
+    - make test-consumer
+    - ./scripts/check-neutrality.sh
+    - ./scripts/check-docs.sh
+    - python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 002-framework-decoupling --task-id T015 --strict
+    - git diff --check
+  retry_budget: 3
+  failure_policy:
+    first_failure: repair the directly related consumer or cleanup boundary
+    second_failure: run the focused package or script gate and re-audit scope
+    beyond_budget: stop only for an external archive mismatch or required source edit
+
+evidence_contract:
+  summary: .ai-platform/evidence/T015/summary.md
+  diff: .ai-platform/evidence/T015/diff.patch
+  test_results: .ai-platform/evidence/T015/test-results.md
+  required: [changed_files, archive_checks, red_green_refactor, validation, boundary_review, residual_risk]
+
+review_contract:
+  required_passes: [spec_compliance, independent_consumer, active_tree_neutrality, build_and_ci, engineering_quality]
+  acceptance_rule: T015 completes only after independent review reports no unresolved P0 through P2 finding
+
+handoff:
+  external_issue: null
+  pull_request: null
+  next_tasks: [T016]
+  finish_options: [keep current branch for T016]
+
+stop_conditions:
+  - independent consumer requires a framework source edit or private import
+  - a Node-family executable is invoked by the copied-out gate
+  - either preservation archive fails checksum validation
+  - active framework build or release paths require a consumer application

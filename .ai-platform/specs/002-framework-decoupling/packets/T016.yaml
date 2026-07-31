@@ -1,0 +1,126 @@
+schema_version: 1
+packet_id: EP-002-T016
+task_id: T016
+feature_id: 002-framework-decoupling
+mode: execute_one_task
+adapter: codex-orchestrator
+
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  product_contract: .ai-platform/docs/product-design.md
+  feature_spec: .ai-platform/specs/002-framework-decoupling/spec.md
+  requirements_checklist: .ai-platform/specs/002-framework-decoupling/checklists/requirements.md
+  technical_decisions: .ai-platform/specs/002-framework-decoupling/plan.md
+  work_graph: .ai-platform/specs/002-framework-decoupling/tasks.md
+  analysis: .ai-platform/specs/002-framework-decoupling/analysis.md
+  approval_gates:
+    constitution: Confirmed by user
+    product_or_spec: Confirmed by user
+    technical_plan_and_work_graph: Confirmed by user
+    analysis: No unresolved Critical or High finding
+
+work_unit:
+  title: Full Review And F0 Acceptance
+  goal: Repair all review findings, pass every framework gate, and publish truthful F0 evidence.
+  requirements: [FR-001, FR-002, FR-003, FR-004, FR-005, FR-006, FR-007, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, NFR-001, NFR-002, NFR-003, NFR-004, NFR-005, NFR-006, NFR-007, NFR-008, NFR-009, NFR-010]
+  priority: P0
+  depends_on: [T015]
+  blocks: []
+  parallel: false
+  conflicts_with: [all active implementation tasks]
+
+codebase_context:
+  relevant_files:
+    - public framework packages
+    - testdata/external-consumer/**
+    - Makefile
+    - .github/**
+    - scripts/**
+    - README.md
+    - docs/**
+    - .ai-platform/evidence/T010/**
+    - .ai-platform/evidence/T011/**
+    - .ai-platform/evidence/T012/**
+    - .ai-platform/evidence/T013/**
+    - .ai-platform/evidence/T014/**
+    - .ai-platform/evidence/T015/**
+    - .ai-platform/evidence/T016/**
+  existing_patterns:
+    - fail-closed public contracts with bounded inputs and explicit ownership
+    - focused tests plus race, repeated, fuzz, and copied-out conformance
+    - current-state canonical documentation
+  interfaces_or_contracts:
+    - .ai-platform/specs/002-framework-decoupling/spec.md
+    - docs/framework-f0.md
+  forbidden_changes:
+    - unresolved P0, P1, or P2 review findings
+    - skipped or weakened acceptance gates
+    - a remote release or compatibility claim without a published version tag
+
+execution_constraints:
+  branch_or_worktree: current
+  allowed_files:
+    - repository-wide reviewed fixes
+    - .ai-platform/evidence/T016/**
+    - .ai-platform/specs/002-framework-decoupling/tasks.md
+    - .ai-platform/specs/002-framework-decoupling/packets/T016.yaml
+    - .ai-platform/docs/**
+    - docs/**
+    - README.md
+  test_targets:
+    - all root and external consumer tests
+    - build, CI, generated, neutrality, docs, and governance gates
+  ownership_notes:
+    - preserve completed T010 evidence and unrelated user work
+
+tdd_plan:
+  required: true
+  exception: documentation-only review fixes use direct validation
+  red:
+    command: focused reproduction for each review or full-gate finding
+    expected_failure: the finding is observed before its repair
+  green:
+    command: focused regression followed by make acceptance
+    expected_signal: the finding and full acceptance gate pass
+  refactor:
+    command: make ci
+    expected_signal: race, repeated, fuzz, and source-clean gates remain green
+
+validation_loop:
+  commands:
+    - make acceptance
+    - make ci
+    - python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 002-framework-decoupling --task-id T016 --strict
+    - rerun the corresponding exact strict validation commands recorded by T010 through T015
+    - git diff --check
+  retry_budget: 3
+  failure_policy:
+    first_failure: classify and repair the direct root cause with a focused regression
+    second_failure: request a fresh independent review of the repaired boundary
+    beyond_budget: report a blocker only when progress requires external state or user input
+
+evidence_contract:
+  summary: .ai-platform/evidence/T016/summary.md
+  diff: .ai-platform/evidence/T016/diff.patch
+  test_results: .ai-platform/evidence/T016/test-results.md
+  review_one: .ai-platform/evidence/T016/review-1.md
+  review_two: .ai-platform/evidence/T016/review-2.md
+  required: [changed_files, red_green_refactor, full_validation, two_review_passes, acceptance_matrix, residual_risk]
+
+review_contract:
+  required_passes: [spec_compliance, architecture, public_api, security, concurrency, filesystem, protocol, consumer_conformance, build_and_release, engineering_quality]
+  freshness: both reviews identify different reviewers, start at or after one implementation freeze, and reference the same lowercase SHA-256 frozen-tree digest
+  required_metadata: [reviewer, started_at_utc, frozen_tree, scope, commands, verdict, P0, P1, P2]
+  invalidation: any implementation or canonical contract edit after the freeze invalidates both reviews
+  acceptance_rule: complete only when two independent passes report no unresolved P0 through P2 finding
+
+handoff:
+  external_issue: null
+  pull_request: null
+  next_tasks: []
+  finish_options: [keep branch for user review]
+
+stop_conditions:
+  - a required acceptance or CI gate fails after focused repair
+  - an independent review retains a P0, P1, or P2 finding
+  - acceptance would require claiming an unpublished remote tag

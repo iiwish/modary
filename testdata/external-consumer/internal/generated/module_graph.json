@@ -1,0 +1,125 @@
+{
+  "schema_version": "modary.module-graph/v1alpha1",
+  "application": {
+    "id": "counter-console",
+    "name": "Counter Console",
+    "version": "0.1.0"
+  },
+  "modules": [
+    {
+      "id": "counter",
+      "version": "0.1.0",
+      "type": "feature",
+      "requires": [
+        "counter.clock",
+        "database"
+      ],
+      "migrations": [
+        "sqlite"
+      ]
+    },
+    {
+      "id": "local-identity",
+      "version": "0.1.0",
+      "type": "adapter",
+      "requires": [
+        "database"
+      ],
+      "provides": [
+        "identity"
+      ],
+      "migrations": [
+        "sqlite"
+      ]
+    },
+    {
+      "id": "rbac",
+      "version": "0.1.0",
+      "type": "adapter",
+      "requires": [
+        "database"
+      ],
+      "provides": [
+        "authorization"
+      ],
+      "migrations": [
+        "sqlite"
+      ]
+    },
+    {
+      "id": "sql-audit",
+      "version": "0.1.0",
+      "type": "adapter",
+      "requires": [
+        "database"
+      ],
+      "provides": [
+        "audit"
+      ],
+      "migrations": [
+        "sqlite"
+      ]
+    },
+    {
+      "id": "sqlite",
+      "version": "0.1.0",
+      "type": "adapter",
+      "provides": [
+        "database"
+      ],
+      "migrations": [
+        "sqlite"
+      ]
+    },
+    {
+      "id": "system-clock",
+      "version": "0.1.0",
+      "type": "adapter",
+      "provides": [
+        "counter.clock"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "counter",
+      "to": "sqlite",
+      "capability": "database"
+    },
+    {
+      "from": "counter",
+      "to": "system-clock",
+      "capability": "counter.clock"
+    },
+    {
+      "from": "local-identity",
+      "to": "sqlite",
+      "capability": "database"
+    },
+    {
+      "from": "rbac",
+      "to": "sqlite",
+      "capability": "database"
+    },
+    {
+      "from": "sql-audit",
+      "to": "sqlite",
+      "capability": "database"
+    }
+  ],
+  "order": [
+    "sqlite",
+    "system-clock",
+    "counter",
+    "local-identity",
+    "rbac",
+    "sql-audit"
+  ],
+  "provides": {
+    "audit": "sql-audit",
+    "authorization": "rbac",
+    "counter.clock": "system-clock",
+    "database": "sqlite",
+    "identity": "local-identity"
+  }
+}

@@ -1,0 +1,109 @@
+{
+  "schema_version": "modary.action-catalog/v1alpha1",
+  "application": {
+    "id": "counter-console",
+    "name": "Counter Console",
+    "version": "0.1.0"
+  },
+  "actions": [
+    {
+      "descriptor": {
+        "id": "counter.increment",
+        "version": "1.0.0",
+        "title": "Increment counter",
+        "description": "Atomically increments the Counter in one execution scope.",
+        "input_schema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "additionalProperties": false,
+          "properties": {
+            "amount": {
+              "description": "Positive increment amount.",
+              "maximum": 1000000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "expected_version": {
+              "description": "Current optimistic version; zero creates the Counter.",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "amount",
+            "expected_version"
+          ],
+          "type": "object"
+        },
+        "preview_schema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "additionalProperties": false,
+          "properties": {
+            "current_value": {
+              "description": "Value observed by Preview.",
+              "type": "integer"
+            },
+            "current_version": {
+              "description": "Version observed by Preview.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "next_value": {
+              "description": "Value after execution.",
+              "type": "integer"
+            },
+            "next_version": {
+              "description": "Version after execution.",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "current_value",
+            "current_version",
+            "next_value",
+            "next_version"
+          ],
+          "type": "object"
+        },
+        "output_schema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "description": "Committed Counter value.",
+              "type": "integer"
+            },
+            "version": {
+              "description": "Committed optimistic version.",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "value",
+            "version"
+          ],
+          "type": "object"
+        },
+        "permission": "counter.increment",
+        "preview": "required",
+        "audit_level": "detailed",
+        "channels": [
+          "cli",
+          "http",
+          "mcp",
+          "test"
+        ],
+        "errors": [
+          {
+            "code": "COUNTER.VERSION_CONFLICT",
+            "kind": "conflict"
+          }
+        ],
+        "requires_idempotency": true
+      },
+      "module_id": "counter",
+      "contract_hash": "sha256:8e8333b1e3e8540afe480d2bfe7b82c570901fbd341c4ad051fb31902ad7353d"
+    }
+  ]
+}

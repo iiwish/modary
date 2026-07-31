@@ -1,0 +1,104 @@
+schema_version: 1
+packet_id: EP-002-T012
+task_id: T012
+feature_id: 002-framework-decoupling
+mode: execute_one_task
+adapter: codex-subagent
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  spec: .ai-platform/specs/002-framework-decoupling/spec.md
+  checklist: .ai-platform/specs/002-framework-decoupling/checklists/requirements.md
+  plan: .ai-platform/specs/002-framework-decoupling/plan.md
+  analysis: .ai-platform/specs/002-framework-decoupling/analysis.md
+  work_graph: .ai-platform/specs/002-framework-decoupling/tasks.md
+  approval: explicit user approval and autonomous completion request on 2026-07-30
+work_unit:
+  title: Build Public AppKit And Explicit Transports
+  goal: Publish lifecycle-safe application assembly, explicit HTTP/MCP/UI mounts, and a governed consumer command helper without exposing Kernel internals.
+  requirements: [FR-005, FR-006, FR-007, FR-010, NFR-001, NFR-004, NFR-005, NFR-007]
+  dependencies: [T011]
+codebase_context:
+  relevant_files:
+    - appkit/appkit.go
+    - appkit/metadata.go
+    - appkit/identity.go
+    - appcmd/run.go
+    - appcmd/serve.go
+    - appcmd/action.go
+    - transport/httpapi/api.go
+    - transport/httpapi/mcp.go
+    - transport/httpapi/spa.go
+    - module/host.go
+    - module/services.go
+    - action/runtime.go
+    - identity/identity.go
+  invariants:
+    - Application exposes no Host, Registry, concrete database, raw Handler, or generic service resolver
+    - every Action invocation from HTTP, MCP, and CLI flows only through the governed Runtime
+    - HTTP, MCP, and CLI validate authenticator-produced Actors before discovery or execution
+    - dependency error classification is bounded and never invokes caller-defined Is, As, or Unwrap methods
+    - application metadata, HTTP API, MCP, and UI assets are supplied and mounted explicitly by the consumer
+    - transport availability never depends on concrete Module IDs
+    - AppKit resolves required governance services fail-closed and cleans every post-start assembly failure
+    - HTTP shutdown drains requests before AppKit revokes Runtime and cleans Module resources
+    - Actor execution uses scope.Execution with no consumer-specific workspace field
+execution_constraints:
+  allowed_files:
+    - appkit/**
+    - appcmd/**
+    - transport/**
+    - internal/app/**
+    - internal/transport/**
+    - .ai-platform/specs/002-framework-decoupling/packets/T012.yaml
+    - .ai-platform/specs/002-framework-decoupling/tasks.md
+    - .ai-platform/evidence/T012/**
+  forbidden_changes:
+    - public Host, Registry, database, Handler, installation Scope, or generic Resolver escape
+    - imports of consumer modules, core/config, internal/webui, or any consumer domain
+    - implicit UI or MCP mounting, Module-ID route switches, or hard-coded application metadata
+    - Action execution outside action.Runtime
+    - dynamic module discovery or Adapter provisioning policy
+    - project verify, generate, check, or build behavior owned by T013
+  worktree: build on all T011 changes; do not reset or restore the integrated application
+  delegation: workers may implement disjoint AppKit, HTTP, MCP/UI, or appcmd surfaces and may not edit outside T012 scope
+tdd_plan:
+  red:
+    - add AppKit metadata, pure preflight, missing-service cleanup, shutdown, and public-surface tests
+    - add strict HTTP session/CSRF/body/catalog/Action/error contract tests
+    - add MCP authentication/Actor/metadata/tool/schema/Action/error contract tests
+    - add hostile dependency-error tests proving custom Is, As, and Unwrap methods are not invoked
+    - add explicit SPA and appcmd startup/drain/cleanup/CLI Runtime tests
+  green:
+    - implement the smallest opaque Application, explicit handlers, and command orchestration satisfying the contracts
+  refactor:
+    - remove old internal application and transport implementations instead of adding compatibility escapes
+validation_loop:
+  commands:
+    - go test ./appkit ./appcmd ./transport/httpapi
+    - go test -race ./appkit ./appcmd ./transport/httpapi
+    - go vet ./appkit ./appcmd ./transport/httpapi
+    - go test -race ./action ./identity ./module ./scope
+    - rg 'WorkspaceID|AllowedActions|agent-mcp|console-react|modary-rulary|internal/webui|rulary' appkit appcmd transport
+    - python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 002-framework-decoupling --task-id T012 --strict
+    - git diff --check
+  expected_signals:
+    - preflight failures invoke no Start or Handler factory
+    - post-start assembly and server failures clean resources exactly once
+    - public reflection and external compile probes expose no lifecycle or Handler escape
+    - unmounted HTTP, MCP, and UI routes remain absent
+    - malformed authenticator Actors fail before catalog or tool discovery and hostile dependency error methods remain uncalled
+    - all channel projections preserve scope, Action contract, error, and audit behavior
+  retry_budget: 3
+evidence_contract:
+  path: .ai-platform/evidence/T012/summary.md
+  required: [changed_files, red_result, green_result, validation, public_api_review, transport_review, residual_risk]
+review_contract:
+  layers: [spec_compliance, public_api, security_and_protocol, concurrency_and_lifecycle, engineering_quality]
+handoff:
+  next_tasks: [T013, T014]
+  task_status_after_review: Needs_Review
+stop_conditions:
+  - a normal consumer needs a Modary internal import or source edit
+  - a public API would expose Host, Registry, concrete database, Handler, or generic service resolution
+  - a transport would invoke business behavior outside Runtime or select behavior from a concrete Module ID
+  - clean shutdown cannot drain requests before Module resources are released

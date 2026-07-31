@@ -1,0 +1,2 @@
+# Preserve the byte-identical upstream JSON Schema Test Suite snapshot.
+internal/jsonschema/testdata/json-schema-test-suite/draft7/*.json -whitespace

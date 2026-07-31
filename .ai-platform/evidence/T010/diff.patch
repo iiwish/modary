@@ -1,0 +1,688 @@
+diff --git a/.ai-platform/memory/constitution.md b/.ai-platform/memory/constitution.md
+new file mode 100644
+index 0000000..90ebd5a
+--- /dev/null
++++ b/.ai-platform/memory/constitution.md
+@@ -0,0 +1,54 @@
++# Modary Delivery Constitution
++
++- Version: 2.0
++- Status: Confirmed
++- Last updated: 2026-07-30
++- Approval source: user-approved framework decoupling analysis
++
++## Product Boundary
++
++Modary is an independent Go-first governed application framework. Consumer
++applications depend on public Modary packages. Modary production source,
++configuration, generation, CI, release assets, and active product contracts do
++not depend on any consumer domain.
++
++## Principles
++
++- A business Action has one Handler and may be projected through HTTP, CLI,
++  tasks, and Agent channels only through the governed Runtime.
++- Module composition is explicit Go code. Definitions are pure and inspectable;
++  installation owns runtime side effects.
++- Authorization, Preview, plan binding, idempotency, transaction, and audit
++  semantics fail closed and remain consistent across channels.
++- Public APIs expose capabilities and read-only catalogs, not raw handlers,
++  registries, databases, or lifecycle internals.
++- Module lifecycle is deterministic, reversible for process resources, and
++  observable. Forward-only migrations are atomic and retryable per module.
++- Official adapters are neutral and configured explicitly by consumers. They do
++  not create users, roles, permissions, grants, domain records, or secrets by
++  default.
++- The default F0 runtime is a single durable SQLite store. Distributed
++  transaction or arbitrary storage transparency is not claimed.
++- Headless consumers build and run with Go alone. UI assets and branding belong
++  to the consumer; optional Modary UI packages remain domain-neutral.
++- Generated artifacts are deterministic, atomic, consumer-owned, and produced
++  without starting modules or touching persistent state.
++
++## Quality Gates
++
++Behavior changes use focused RED/GREEN/REFACTOR tests. Framework acceptance
++requires public API tests, lifecycle and race tests, independent-module
++conformance, deterministic generation, transport contract tests, neutrality
++checks, vet, race, and build evidence.
++
++## Git And Review Policy
++
++Preserve user work, retain a verified copy of consumer-owned prototype assets
++before removing them from this repository, avoid destructive commands, and
++complete spec-compliance and engineering-quality reviews before acceptance.
++
++## Change Process
++
++Constitution changes require explicit user approval. The canonical product
++contract is `.ai-platform/specs/002-framework-decoupling/spec.md`.
++
+diff --git a/.ai-platform/docs/product-design.md b/.ai-platform/docs/product-design.md
+new file mode 100644
+index 0000000..1303d7a
+--- /dev/null
++++ b/.ai-platform/docs/product-design.md
+@@ -0,0 +1,16 @@
++# Current Product Contract
++
++- Version: 2.0
++- Status: Confirmed
++- Last updated: 2026-07-30
++- Source: explicit user approval of the framework-decoupling analysis
++
++Modary is a Go-first modular application kernel, SDK, and build tool. Independent
++applications compose public Module packages and execute typed Actions through a
++single governed Runtime across human and Agent channels. Consumer applications
++own their domain, branding, migrations, policy, bootstrap data, UI, and release
++artifacts.
++
++The authoritative F0 product and acceptance contract is
++`.ai-platform/specs/002-framework-decoupling/spec.md`.
++
+diff --git a/.ai-platform/docs/technology-decision-record.md b/.ai-platform/docs/technology-decision-record.md
+new file mode 100644
+index 0000000..e86a769
+--- /dev/null
++++ b/.ai-platform/docs/technology-decision-record.md
+@@ -0,0 +1,11 @@
++# Current Technology Decisions
++
++- Version: 2.0
++- Status: Confirmed
++- Last updated: 2026-07-30
++
++The authoritative framework architecture, alternatives, migration strategy,
++risks, and validation plan are recorded in
++`.ai-platform/specs/002-framework-decoupling/plan.md`. Accepted ADRs remain
++authoritative only where they conform to that plan.
++
+diff --git a/.ai-platform/docs/tasks.md b/.ai-platform/docs/tasks.md
+new file mode 100644
+index 0000000..fe83cf5
+--- /dev/null
++++ b/.ai-platform/docs/tasks.md
+@@ -0,0 +1,48 @@
++# Current Delivery Work Graph
++
++- Version: 2.0
++- Status: Confirmed
++- Last updated: 2026-07-30
++
++The authoritative work graph is
++`.ai-platform/specs/002-framework-decoupling/tasks.md`. It defines T010 through
++T016, their ordering, ownership, validation commands, evidence, and completion
++conditions.
++
++## T010: Freeze Contract And Preserve Consumer Assets
++
++Status: Needs_Review
++Priority: P0
++Depends on: None
++Blocks: T011, T012, T013, T014, T015, T016
++Story / Requirement: FR-001, FR-002, FR-012, NFR-007
++Parallel: No
++Conflicts with: T011, T015
++
++Goal: Establish the framework SSOT, canonical import path, preservation
++inventory, and neutral package plan.
++
++Deliverables: Confirmed spec, plan, checklist, analysis, work graph, execution
++packets, and checksum-verified prototype snapshot.
++
++Allowed files: `.ai-platform/**`, `docs/**`,
++`/Users/iiwish/self/rulary/**`, and `go.mod`.
++
++Test targets: Delivery artifact structure and source-to-snapshot file checksums.
++
++Acceptance criteria: Current framework decisions are canonical and every source
++file in the preserved prototype inventory has a byte-identical destination.
++
++Definition of Done: Artifact validation, checksum comparison, and
++`git diff --check` pass with reviewed evidence.
++
++Validation commands: `python3 .../validate_delivery_artifacts.py`; checksum
++manifest comparison; `git diff --check`.
++
++TDD plan: RED artifact validator on incomplete records; GREEN canonical
++artifacts and verified snapshot; REFACTOR concise pointers and ownership text.
++
++Packet path: `.ai-platform/specs/002-framework-decoupling/packets/T010.yaml`
++
++Evidence required: changed files, validation results, checksum result, review,
++and residual risk.
+diff --git a/.ai-platform/specs/002-framework-decoupling/spec.md b/.ai-platform/specs/002-framework-decoupling/spec.md
+new file mode 100644
+index 0000000..c496ef7
+--- /dev/null
++++ b/.ai-platform/specs/002-framework-decoupling/spec.md
+@@ -0,0 +1,115 @@
++# Modary Framework Decoupling F0
++
++- Version: 1.0
++- Status: Confirmed
++- Source: user-approved framework-decoupling analysis and autonomous execution request
++- Last updated: 2026-07-30
++- Governing constitution: `../../memory/constitution.md`
++
++## Objective
++
++Deliver Modary as an independently consumable governed application framework.
++A separate Go module must be able to define, inspect, generate, build, start,
++and exercise its own application without modifying or copying Modary source.
++
++## Users
++
++- Application developers building private or local-first operational products.
++- Module authors contributing typed governed Actions and durable data behavior.
++- Operators exposing the same business behavior to people, HTTP clients, CLI
++  automation, and Agents under consistent policy and audit controls.
++
++## Functional Requirements
++
++- FR-001: Public packages use the canonical module path
++  `github.com/iiwish/modary`; consumers import no Modary `internal` package.
++- FR-002: Consumer-owned Go code is the sole Module composition source. Module
++  Definitions are pure and include metadata, Action descriptors, migrations,
++  and handler factories without starting resources.
++- FR-003: Module services use typed keys and capability-scoped installation.
++  A module cannot access undeclared capabilities or forge Action ownership.
++- FR-004: Module lifecycle validates before side effects, rolls back partial
++  process resources, shuts down in reverse dependency/LIFO order, joins cleanup
++  errors, and is exactly-once.
++- FR-005: Public AppKit assembles the governed Runtime without exposing Host,
++  mutable Registry, raw handlers, or a concrete database.
++- FR-006: Public HTTP and MCP transports are mounted explicitly and receive
++  consumer metadata and assets. They do not inspect concrete Module IDs.
++- FR-007: Consumer application commands provide serve and governed CLI Action
++  execution; Modary project tooling provides pure verify, generate, check, and
++  build behavior.
++- FR-008: Generated graph, Action catalog, and optional TypeScript contracts are
++  deterministic, atomically written, consumer-owned, and require no Installer.
++- FR-009: SQLite, local Identity, RBAC, and Audit adapters accept explicit
++  options and install no users, policy, grants, secrets, or domain data by default.
++- FR-010: The public execution boundary uses an opaque execution scope rather
++  than a consumer-specific workspace field.
++- FR-011: An independent neutral consumer contributes its own migration and a
++  governed write Action exercised through Runtime, HTTP, CLI, and MCP.
++- FR-012: Modary production code, active contracts, CI, build, and release paths
++  contain no Rulary domain dependency.
++
++## Non-Functional Requirements
++
++- NFR-001: Public contracts fail closed with deterministic errors.
++- NFR-002: Definition inspection and generation perform no database, migration,
++  seed, network, or module-start side effect.
++- NFR-003: Headless consumer validation installs and invokes no Node tooling.
++- NFR-004: Startup failure and shutdown remain race-safe and leak-free.
++- NFR-005: Action schemas compile once; Runtime Preview, authorization recheck,
++  plan binding, idempotency, transaction, and audit invariants remain covered.
++- NFR-006: The SQLite F0 profile provides one durable transactional store. No
++  distributed or arbitrary-adapter atomicity claim is made.
++- NFR-007: Public APIs and generated formats are documented as alpha contracts
++  and covered by external-consumer tests.
++
++## Scope
++
++- Public kernel packages, Module Definition and lifecycle, AppKit, HTTP/MCP
++  transport, application command helper, project tool helper, neutral adapters,
++  deterministic generators, independent consumer fixture, CI, and documentation.
++- Transfer-safe removal of Rulary-owned source and delivery artifacts from the
++  Modary product boundary.
++
++## Non-Goals
++
++- Rulary MVP feature development.
++- Dynamic plugins, module marketplace, workflow engine, scheduler, PostgreSQL,
++  distributed transactions, SSO, or advanced IAM.
++- Automatic runtime discovery of arbitrary Go packages.
++- Go-driven cross-repository React route imports. Consumer applications own UI
++  composition and pass built assets or handlers explicitly.
++- Claiming that tagged remote installation has occurred before a release exists.
++
++## Acceptance Criteria
++
++1. A copied-out independent fixture with its own `go.mod` imports only public
++   canonical Modary packages and completes verify, generate, check, test, build,
++   and run using a local `replace` during source validation.
++2. Definition inspection succeeds when every Installer and handler factory is
++   configured to fail if invoked.
++3. Repeated generation is byte-identical; check mode reports drift without
++   modifying files.
++4. Headless validation succeeds with failing `node`, `npm`, and `pnpm` shims.
++5. Module lifecycle contract tests cover partial failure, cancellation cleanup,
++   reverse order, LIFO, joined errors, invalid state transitions, and race safety.
++6. The neutral Action uses Preview, authorization, plan binding, idempotency,
++   transaction, and Audit consistently through Runtime, HTTP, CLI, and MCP.
++7. Installing official adapters with empty provisioning produces no user,
++   policy, binding, grant, or domain record.
++8. MCP initialization reports consumer-provided name and version. MCP and UI
++   routes are absent unless explicitly mounted.
++9. Modary CI and release checks pass with no Rulary source, schema, fixture,
++   database, E2E, binary, or downstream repository dependency.
++10. `go test ./...`, `go vet ./...`, `go test -race ./...`, generator drift,
++    neutrality, external-consumer, and framework build gates all pass.
++
++## Stop Conditions
++
++- The consumer needs a Modary source edit, copied Kernel code, or an `internal`
++  import to add its Module or Action.
++- Generation needs application startup or persistent state.
++- A generic Adapter needs consumer domain policy or seed data.
++- Framework abstraction introduces dynamic discovery or global state to avoid
++  explicit Go composition.
++
+diff --git a/.ai-platform/specs/002-framework-decoupling/plan.md b/.ai-platform/specs/002-framework-decoupling/plan.md
+new file mode 100644
+index 0000000..22f8870
+--- /dev/null
++++ b/.ai-platform/specs/002-framework-decoupling/plan.md
+@@ -0,0 +1,83 @@
++# Framework Decoupling F0 Technical Plan
++
++- Version: 1.0
++- Status: Confirmed
++- Last updated: 2026-07-30
++
++## Decisions
++
++1. Use `github.com/iiwish/modary` as the canonical Go module path.
++2. Move public kernel APIs to top-level packages and add public `appkit`,
++   `transport/httpapi`, `appcmd`, and `projecttool` packages.
++3. Use explicit consumer Go composition. `modary.yaml` contains application and
++   output metadata but does not list Modules.
++4. Model Module registration as a pure Definition plus runtime Start and Action
++   bindings. Handler ownership is assigned by the Host.
++5. Use generic service keys, a sealed Scope, and a strict Host state machine.
++6. Represent tenancy as `scope.Execution{Kind, ID}`. The SQLite F0 adapter stores
++   both values and remains the documented durable profile.
++7. Keep migrations forward-only and atomically retryable per module. Lifecycle
++   rollback covers process resources and service bindings, not committed schema.
++8. Make transports explicit application wiring. Consumer assets are passed as an
++   `fs.FS` or handler; Modary does not embed consumer UI.
++9. Preserve Rulary prototype assets outside Modary before removing them. The
++   active Modary repository remains fully neutral and independently testable.
++
++## Consumer Shape
++
++```text
++consumer/
++  go.mod
++  modary.yaml
++  cmd/<app>/main.go
++  tools/modary/main.go
++  internal/project/project.go
++  modules/<domain>/
++  internal/generated/
++```
++
++Both entry points import the same `internal/project.Definition()` function. The
++application entry uses `appcmd`; the tool entry uses `projecttool`.
++
++## Project Commands
++
++- `verify`: validate metadata, Definitions, dependency graph, capabilities,
++  Action schemas, migrations, and configured outputs without writes or startup.
++- `generate`: write module graph, Action catalog, and optional TypeScript types.
++- `generate --check`: compare expected bytes and report drift without writes.
++- `build`: run verify and generated checks, then build the consumer command to
++  `dist/<app.id>` or its configured output. Tests and optional frontend builds
++  remain consumer CI responsibilities.
++
++## Migration Strategy
++
++- Preserve the current consumer-owned Rulary prototype in
++  `/Users/iiwish/self/rulary` with a transfer manifest and checksums.
++- Remove Rulary domain modules, UI, fixtures, contracts, CI, and release behavior
++  from active Modary paths.
++- Reset Modary's pre-release Adapter schema to the neutral execution-scope
++  contract. The transferred Rulary prototype retains its original migration
++  lineage for future application work.
++
++## Validation Strategy
++
++- Focused TDD for lifecycle, typed capabilities, AppKit, project tooling,
++  transports, and Adapter provisioning.
++- External module copied to a temporary directory with `GOWORK=off` and an
++  absolute local `replace` to the current Modary checkout.
++- Fake Node executables for the Go-only gate.
++- HTTP/MCP/CLI conformance against one neutral write Action.
++- Repository neutrality scan and generated drift scan.
++- Full Go tests, vet, race, builds, and optional neutral Console checks.
++
++## Risks
++
++- Large API rewrite can hide regressions: retain Action Runtime tests and add an
++  external end-to-end conformance test before deleting the integrated app.
++- Partial-start cleanup can obscure the primary error: attempt every cleanup and
++  return joined, inspectable errors.
++- Consumer transfer can lose uncommitted work: checksum and compare every copied
++  file before source removal.
++- Global CLI cannot import arbitrary project code safely: use a consumer-owned
++  pinned tool entry for F0 rather than runtime discovery.
++
+diff --git a/.ai-platform/specs/002-framework-decoupling/checklists/requirements.md b/.ai-platform/specs/002-framework-decoupling/checklists/requirements.md
+new file mode 100644
+index 0000000..c552a61
+--- /dev/null
++++ b/.ai-platform/specs/002-framework-decoupling/checklists/requirements.md
+@@ -0,0 +1,22 @@
++# Framework Decoupling Requirements Checklist
++
++- Version: 1.0
++- Status: Completed
++- Source spec: `../spec.md`
++- Last updated: 2026-07-30
++
++- [x] Framework and consumer ownership are explicit.
++- [x] Canonical import path and public package boundary are decided.
++- [x] Composition has one SSOT and avoids dynamic package discovery.
++- [x] Pure Definition and side-effecting Start phases are separated.
++- [x] Lifecycle rollback and migration rollback promises are distinguished.
++- [x] Typed capability, handler ownership, and catalog exposure are defined.
++- [x] Execution scope and SQLite transaction promises are explicit.
++- [x] Headless, generation, transport, Adapter, and neutrality gates are measurable.
++- [x] Consumer prototype preservation precedes removal.
++- [x] Every F0 requirement has automated or reviewable acceptance evidence.
++- [x] Deferred platform features are explicit non-goals.
++- [x] User approval authorizes autonomous execution through F0 acceptance.
++
++Findings: 0 Critical, 0 High, 0 unresolved Medium.
++
+diff --git a/.ai-platform/specs/002-framework-decoupling/analysis.md b/.ai-platform/specs/002-framework-decoupling/analysis.md
+new file mode 100644
+index 0000000..60dec28
+--- /dev/null
++++ b/.ai-platform/specs/002-framework-decoupling/analysis.md
+@@ -0,0 +1,37 @@
++# Framework Decoupling Pre-Execution Analysis
++
++- Version: 1.0
++- Status: Completed
++- Last updated: 2026-07-30
++
++## Inputs
++
++- User-approved framework boundary analysis.
++- Current Kernel, Module Host, application bootstrap, transports, CLI, adapters,
++  Console, CI, tests, delivery records, and Rulary assets.
++- Three independent read-only reviews of Kernel contracts, consumer tooling, and
++  domain neutrality.
++
++## Findings Resolved By Plan
++
++- Public application assembly replaces the inaccessible `internal/app` entry.
++- Explicit consumer composition replaces same-repository scanning and generated
++  Go registries.
++- Pure Definitions replace database-backed catalog generation.
++- Typed scoped services, automatic Action ownership, and lifecycle state enforce
++  the Module boundary mechanically.
++- Explicit transport wiring replaces concrete Module-ID switches.
++- Configurable neutral adapters replace embedded users, policy, secrets, and grants.
++- An independent consumer and neutrality gate replace Rulary-based framework CI.
++
++## Worktree
++
++The worktree contains the preceding F0 prototype and hardening work from the same
++continuing delivery. No unrelated user-owned change was identified. Rulary-owned
++assets must be transferred and checksum-verified before removal. The implementation
++must build on the current Runtime improvements without resetting the worktree.
++
++## Execution Decision
++
++Critical: 0. High: 0 unresolved. Execution may proceed in T010 through T016 order.
++
+diff --git a/.ai-platform/specs/002-framework-decoupling/tasks.md b/.ai-platform/specs/002-framework-decoupling/tasks.md
+new file mode 100644
+index 0000000..7de998a
+--- /dev/null
++++ b/.ai-platform/specs/002-framework-decoupling/tasks.md
+@@ -0,0 +1,91 @@
++# Framework Decoupling F0 Work Graph
++
++- Version: 1.0
++- Status: Confirmed
++- Last updated: 2026-07-30
++
++## T010: Freeze Contract And Preserve Consumer Assets
++
++Status: Needs_Review
++Priority: P0
++Depends on: None
++Blocks: T011, T012, T013, T014, T015, T016
++Story / Requirement: FR-001, FR-002, FR-012, NFR-007
++Parallel: No
++Conflicts with: T011, T015
++Goal: Establish the framework SSOT, canonical path, preservation inventory, and neutral package plan.
++Deliverables: Confirmed spec, plan, checklist, analysis, work graph, execution packets, and checksum-verified prototype snapshot.
++Allowed files: `.ai-platform/**`, `docs/**`, `/Users/iiwish/self/rulary/**`, `go.mod`.
++Test targets: Delivery artifact structure and source-to-snapshot file checksums.
++Acceptance criteria: Current framework decisions are canonical and every source file in the preserved prototype inventory has a byte-identical destination.
++Definition of Done: current contract is canonical and every Rulary-owned source artifact has a verified destination before removal.
++Validation commands: artifact validator, transfer checksum comparison, `git diff --check`.
++TDD plan: RED incomplete artifact validation; GREEN complete artifacts and verified copy; REFACTOR canonical pointers.
++Packet path: `packets/T010.yaml`
++Evidence required: changed files, validation results, checksum result, review, and residual risk.
++
++## T011: Build Public Kernel And Lifecycle
++
++Status: Pending
++Priority: P0
++Depends on: T010
++Goal: Publish top-level Kernel packages, pure Module Definitions, typed services, safe lifecycle, Action binding ownership, and execution scope.
++Allowed files: public Kernel directories, former `core/**`, Kernel tests, neutral Adapter schema migrations.
++Validation: focused Kernel tests, `go test ./...`, `go test -race` for Module and Action.
++Definition of Done: lifecycle and capability contracts pass with no raw handler escape through AppKit-facing APIs.
++Packet: `packets/T011.yaml`
++
++## T012: Build Public AppKit And Transports
++
++Status: Pending
++Priority: P0
++Depends on: T011
++Goal: Add public AppKit, app command helper, HTTP/MCP transport, explicit metadata/assets, and clean shutdown.
++Allowed files: `appkit/**`, `appcmd/**`, `transport/**`, transport tests, former `internal/app/**` and `internal/transport/**`.
++Validation: AppKit failure-path tests, HTTP/MCP contract tests, `go test -race` on affected packages.
++Definition of Done: an external consumer can assemble and run without internal imports or concrete Module-ID checks.
++Packet: `packets/T012.yaml`
++
++## T013: Build Pure Consumer Tooling
++
++Status: Pending
++Priority: P0
++Depends on: T011
++Goal: Replace repository scanning and application-bound CLI with pure verify/generate/check/build tooling.
++Allowed files: `projecttool/**`, `cmd/modary/**`, project manifest/generator packages and tests.
++Validation: no-side-effect, deterministic, drift, metadata, and build tests.
++Definition of Done: tooling consumes a supplied Definition, writes only configured consumer artifacts, and never starts a Module.
++Packet: `packets/T013.yaml`
++
++## T014: Neutralize Official Adapters
++
++Status: Pending
++Priority: P0
++Depends on: T011
++Goal: Parameterize SQLite, local Identity, RBAC, and Audit adapters and remove all implicit provisioning.
++Allowed files: `adapters/**`, `modules/audit/**`, Adapter tests and neutral migrations.
++Validation: empty-provisioning, explicit-provisioning, migration, transaction, and restart tests.
++Definition of Done: official adapters contain no consumer policy or data and expose explicit typed options.
++Packet: `packets/T014.yaml`
++
++## T015: Prove Independent Consumer And Remove Domain Coupling
++
++Status: Pending
++Priority: P0
++Depends on: T012, T013, T014
++Goal: Add the copied-out neutral consumer conformance suite and remove Rulary from active Modary code, UI, CI, build, and release paths.
++Allowed files: `testdata/external-consumer/**`, `scripts/**`, `tests/**`, `web/**`, `Makefile`, `.github/**`, active docs, Rulary-owned source removal.
++Validation: external source copy, fake-Node headless build, multichannel conformance, neutrality scan, generated drift.
++Definition of Done: independent consumer passes every AC and Modary has no active Rulary dependency.
++Packet: `packets/T015.yaml`
++
++## T016: Full Review And F0 Acceptance
++
++Status: Pending
++Priority: P0
++Depends on: T015
++Goal: Run two-pass architecture/code review, repair all P0-P2 findings, and publish truthful acceptance evidence.
++Allowed files: repository-wide fixes, `.ai-platform/evidence/T010-T016/**`, current README/release report/ADRs.
++Validation: `make acceptance`, `make ci`, `git diff --check`, clean neutrality and generated checks.
++Definition of Done: no unresolved P0/P1/P2, all automated gates pass, and the acceptance report distinguishes local replace proof from a future tagged release.
++Packet: `packets/T016.yaml`
+diff --git a/.ai-platform/specs/002-framework-decoupling/packets/T010.yaml b/.ai-platform/specs/002-framework-decoupling/packets/T010.yaml
+new file mode 100644
+index 0000000..1b4ef17
+--- /dev/null
++++ b/.ai-platform/specs/002-framework-decoupling/packets/T010.yaml
+@@ -0,0 +1,68 @@
++schema_version: 1
++packet_id: EP-002-T010
++task_id: T010
++feature_id: 002-framework-decoupling
++mode: execute_one_task
++adapter: codex
++governance_inputs:
++  constitution: .ai-platform/memory/constitution.md
++  spec: .ai-platform/specs/002-framework-decoupling/spec.md
++  checklist: .ai-platform/specs/002-framework-decoupling/checklists/requirements.md
++  plan: .ai-platform/specs/002-framework-decoupling/plan.md
++  analysis: .ai-platform/specs/002-framework-decoupling/analysis.md
++  work_graph: .ai-platform/specs/002-framework-decoupling/tasks.md
++  approval: explicit user approval and autonomous completion request on 2026-07-30
++work_unit:
++  title: Freeze Contract And Preserve Consumer Assets
++  goal: Establish the canonical framework contract and preserve the integrated prototype before removal.
++  requirements: [FR-001, FR-002, FR-012, NFR-007]
++  dependencies: []
++codebase_context:
++  relevant_files:
++    - .ai-platform/memory/constitution.md
++    - .ai-platform/docs/product-design.md
++    - .ai-platform/specs/002-framework-decoupling/spec.md
++    - /Users/iiwish/self/rulary/prototype/modary-integrated-f0
++  invariants:
++    - consumer assets are copied before source removal
++    - active Modary contracts describe an independent framework
++    - no implementation begins with unresolved Critical or High contract findings
++execution_constraints:
++  allowed_files:
++    - .ai-platform/**
++    - docs/**
++    - /Users/iiwish/self/rulary/**
++    - go.mod
++  forbidden_changes:
++    - deleting consumer assets before checksum verification
++    - editing preserved snapshot content after manifest creation
++  worktree: current codex/f0-hardening worktree; existing changes belong to the continuing delivery
++  direct_execute_reason: primary agent owns canonical governance artifacts and preservation capture
++tdd_plan:
++  red:
++    - run the artifact validator against incomplete new records
++  green:
++    - complete the canonical records and byte-identical snapshot
++  refactor:
++    - keep current pointers concise and avoid duplicated product state
++validation_loop:
++  commands:
++    - python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 002-framework-decoupling --task-id T010
++    - diff source and destination SHA-256 manifests
++    - git diff --check
++  expected_signals:
++    - artifact validator reports no errors
++    - checksum diff is empty
++    - no whitespace errors
++  retry_budget: 3
++evidence_contract:
++  path: .ai-platform/evidence/T010/summary.md
++  required: [changed_files, validation, checksum_result, review, residual_risk]
++review_contract:
++  layers: [spec_compliance, engineering_quality, preservation_acceptance]
++handoff:
++  next_task: T011
++  task_status_after_review: Needs_Review
++stop_conditions:
++  - unidentified user-owned changes overlap preservation scope
++  - any source file lacks a byte-identical destination
+diff --git a/.ai-platform/specs/002-framework-decoupling/packets/T011.yaml b/.ai-platform/specs/002-framework-decoupling/packets/T011.yaml
+new file mode 100644
+index 0000000..690abd9
+--- /dev/null
++++ b/.ai-platform/specs/002-framework-decoupling/packets/T011.yaml
+@@ -0,0 +1,8 @@
++task_id: T011
++goal: Implement the public Kernel, Definition, typed service, lifecycle, Action ownership, and execution scope contracts.
++dependencies: [T010]
++allowed_files: [action/**, audit/**, authz/**, database/**, identity/**, module/**, scope/**, core/**, related tests and migrations]
++validation: [go test focused packages, go test -race focused packages, go test ./...]
++stop_conditions: [runtime invariant regression, unpreserved migration dependency]
++evidence: [.ai-platform/evidence/T011/summary.md, .ai-platform/evidence/T011/test-results.md]
++
+diff --git a/.ai-platform/specs/002-framework-decoupling/packets/T012.yaml b/.ai-platform/specs/002-framework-decoupling/packets/T012.yaml
+new file mode 100644
+index 0000000..898a23a
+--- /dev/null
++++ b/.ai-platform/specs/002-framework-decoupling/packets/T012.yaml
+@@ -0,0 +1,8 @@
++task_id: T012
++goal: Implement public AppKit, app command, and explicit HTTP/MCP transports.
++dependencies: [T011]
++allowed_files: [appkit/**, appcmd/**, transport/**, internal/app/**, internal/transport/**, related tests]
++validation: [go test affected packages, go test -race affected packages]
++stop_conditions: [internal import required by consumer, handler exposed outside Runtime]
++evidence: [.ai-platform/evidence/T012/summary.md, .ai-platform/evidence/T012/test-results.md]
++
+diff --git a/.ai-platform/specs/002-framework-decoupling/packets/T013.yaml b/.ai-platform/specs/002-framework-decoupling/packets/T013.yaml
+new file mode 100644
+index 0000000..505ce11
+--- /dev/null
++++ b/.ai-platform/specs/002-framework-decoupling/packets/T013.yaml
+@@ -0,0 +1,8 @@
++task_id: T013
++goal: Implement pure deterministic project tooling and separate it from application commands.
++dependencies: [T011]
++allowed_files: [projecttool/**, cmd/modary/**, module project files, related tests]
++validation: [verify read-only test, generate determinism/check test, consumer build test]
++stop_conditions: [Installer invocation, persistent side effect, second Module composition SSOT]
++evidence: [.ai-platform/evidence/T013/summary.md, .ai-platform/evidence/T013/test-results.md]
++
+diff --git a/.ai-platform/specs/002-framework-decoupling/packets/T014.yaml b/.ai-platform/specs/002-framework-decoupling/packets/T014.yaml
+new file mode 100644
+index 0000000..566fd79
+--- /dev/null
++++ b/.ai-platform/specs/002-framework-decoupling/packets/T014.yaml
+@@ -0,0 +1,8 @@
++task_id: T014
++goal: Make official adapters explicit, neutral, durable, and independently testable.
++dependencies: [T011]
++allowed_files: [adapters/**, modules/audit/**, former adapter modules, related tests]
++validation: [adapter tests, empty provisioning test, migration/restart test]
++stop_conditions: [implicit secret or policy, consumer domain identifier]
++evidence: [.ai-platform/evidence/T014/summary.md, .ai-platform/evidence/T014/test-results.md]
++
+diff --git a/.ai-platform/specs/002-framework-decoupling/packets/T015.yaml b/.ai-platform/specs/002-framework-decoupling/packets/T015.yaml
+new file mode 100644
+index 0000000..4e5dbbb
+--- /dev/null
++++ b/.ai-platform/specs/002-framework-decoupling/packets/T015.yaml
+@@ -0,0 +1,8 @@
++task_id: T015
++goal: Prove independent consumption and remove active consumer-domain coupling.
++dependencies: [T012, T013, T014]
++allowed_files: [testdata/external-consumer/**, scripts/**, tests/**, web/**, Makefile, .github/**, active docs, consumer-domain removals]
++validation: [copied-out consumer gate, fake-Node build, HTTP/CLI/MCP conformance, neutrality and generation checks]
++stop_conditions: [consumer source edit in Modary, failed preservation checksum]
++evidence: [.ai-platform/evidence/T015/summary.md, .ai-platform/evidence/T015/test-results.md]
++
+diff --git a/.ai-platform/specs/002-framework-decoupling/packets/T016.yaml b/.ai-platform/specs/002-framework-decoupling/packets/T016.yaml
+new file mode 100644
+index 0000000..0761f9d
+--- /dev/null
++++ b/.ai-platform/specs/002-framework-decoupling/packets/T016.yaml
+@@ -0,0 +1,7 @@
++task_id: T016
++goal: Complete architecture review, fixes, full validation, and truthful F0 acceptance evidence.
++dependencies: [T015]
++allowed_files: [repository-wide reviewed fixes, current docs and evidence]
++validation: [make acceptance, make ci, git diff --check]
++stop_conditions: [unresolved P0/P1/P2, failed required gate, tagged-release claim without tag]
++evidence: [.ai-platform/evidence/T016/summary.md, .ai-platform/evidence/T016/test-results.md, .ai-platform/docs/release-report.md]

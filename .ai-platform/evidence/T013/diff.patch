@@ -1,0 +1,5305 @@
+diff --git a/projecttool/generate.go b/projecttool/generate.go
+new file mode 100644
+index 0000000..bb3d2db
+--- /dev/null
++++ b/projecttool/generate.go
+@@ -0,0 +1,779 @@
++package projecttool
++
++import (
++	"bytes"
++	"context"
++	"crypto/rand"
++	"encoding/hex"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"io/fs"
++	"os"
++	"path"
++	"runtime"
++	"sort"
++	"strings"
++	"sync"
++	"unicode/utf8"
++
++	"github.com/iiwish/modary/action"
++	"github.com/iiwish/modary/appkit"
++	"github.com/iiwish/modary/module"
++)
++
++const (
++	// GraphSchemaVersion identifies the alpha generated Module graph format.
++	GraphSchemaVersion = "modary.module-graph/v1alpha1"
++	// CatalogSchemaVersion identifies the alpha generated Action catalog format.
++	CatalogSchemaVersion = "modary.action-catalog/v1alpha1"
++	// MaximumGeneratedArtifactBytes bounds both rendered and existing artifacts.
++	MaximumGeneratedArtifactBytes = int64(64 << 20)
++)
++
++type projectRootGate struct {
++	semaphore  chan struct{}
++	references int
++}
++
++var projectRootGates = struct {
++	sync.Mutex
++	byRoot map[string]*projectRootGate
++}{byRoot: make(map[string]*projectRootGate)}
++
++func acquireProjectRoot(ctx context.Context, root string) (func(), error) {
++	projectRootGates.Lock()
++	gate := projectRootGates.byRoot[root]
++	if gate == nil {
++		gate = &projectRootGate{semaphore: make(chan struct{}, 1)}
++		projectRootGates.byRoot[root] = gate
++	}
++	gate.references++
++	projectRootGates.Unlock()
++
++	releaseReference := func() {
++		projectRootGates.Lock()
++		gate.references--
++		if gate.references == 0 {
++			delete(projectRootGates.byRoot, root)
++		}
++		projectRootGates.Unlock()
++	}
++	select {
++	case gate.semaphore <- struct{}{}:
++		var once sync.Once
++		return func() {
++			once.Do(func() {
++				<-gate.semaphore
++				releaseReference()
++			})
++		}, nil
++	case <-ctx.Done():
++		releaseReference()
++		return nil, ctx.Err()
++	}
++}
++
++func projectRoot(project *Project) string {
++	if project == nil {
++		return ""
++	}
++	return project.root
++}
++
++// Generation reports deterministic relative paths changed or already current.
++type Generation struct {
++	Written   []string `json:"written"`
++	Unchanged []string `json:"unchanged"`
++}
++
++type artifact struct {
++	path string
++	data []byte
++}
++
++// GraphDocument is the alpha on-disk Module graph contract identified by
++// GraphSchemaVersion.
++type GraphDocument struct {
++	SchemaVersion string             `json:"schema_version"`
++	Application   appkit.Metadata    `json:"application"`
++	Modules       []ModuleInfo       `json:"modules"`
++	Edges         []module.GraphEdge `json:"edges"`
++	Order         []string           `json:"order"`
++	Provides      map[string]string  `json:"provides"`
++}
++
++// CatalogDocument is the alpha on-disk Action contract identified by
++// CatalogSchemaVersion.
++type CatalogDocument struct {
++	SchemaVersion string                `json:"schema_version"`
++	Application   appkit.Metadata       `json:"application"`
++	Actions       []action.CatalogEntry `json:"actions"`
++}
++
++func (project *Project) prepare(ctx context.Context, root *os.Root, definition appkit.Definition) (Snapshot, []artifact, error) {
++	if ctx == nil {
++		return Snapshot{}, nil, ErrContextRequired
++	}
++	if project == nil {
++		return Snapshot{}, nil, fmt.Errorf("project is required")
++	}
++	if root == nil {
++		return Snapshot{}, nil, fmt.Errorf("verified project root is required")
++	}
++	if err := project.validateFilesystemPathsContext(ctx, root); err != nil {
++		return Snapshot{}, nil, err
++	}
++	snapshot, err := InspectContext(ctx, definition)
++	if err != nil {
++		return Snapshot{}, nil, err
++	}
++	if snapshot.Application != project.manifest.Application {
++		return Snapshot{}, nil, fmt.Errorf("project manifest application identity does not match the supplied Definition")
++	}
++	artifacts, err := project.renderContext(ctx, snapshot)
++	if err != nil {
++		return Snapshot{}, nil, err
++	}
++	return snapshot, artifacts, nil
++}
++
++func (project *Project) render(snapshot Snapshot) ([]artifact, error) {
++	return project.renderContext(context.Background(), snapshot)
++}
++
++func (project *Project) renderContext(ctx context.Context, snapshot Snapshot) ([]artifact, error) {
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++	graphData, err := marshalGeneratedJSON(GraphDocument{
++		SchemaVersion: GraphSchemaVersion,
++		Application:   snapshot.Application,
++		Modules:       append([]ModuleInfo(nil), snapshot.Modules...),
++		Edges:         append([]module.GraphEdge(nil), snapshot.Graph.Edges...),
++		Order:         append([]string(nil), snapshot.Graph.Order...),
++		Provides:      cloneStringMap(snapshot.Graph.Provides),
++	})
++	if err != nil {
++		return nil, fmt.Errorf("render Module graph: %w", err)
++	}
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++	catalogData, err := marshalGeneratedJSON(CatalogDocument{
++		SchemaVersion: CatalogSchemaVersion,
++		Application:   snapshot.Application,
++		Actions:       cloneCatalog(snapshot.Actions),
++	})
++	if err != nil {
++		return nil, fmt.Errorf("render Action catalog: %w", err)
++	}
++	result := []artifact{
++		{path: project.manifest.Outputs.Graph, data: graphData},
++		{path: project.manifest.Outputs.Actions, data: catalogData},
++	}
++	if project.manifest.Outputs.TypeScript != "" {
++		descriptors := make([]action.Descriptor, len(snapshot.Actions))
++		for index, entry := range snapshot.Actions {
++			if err := ctx.Err(); err != nil {
++				return nil, err
++			}
++			descriptors[index] = entry.Descriptor
++		}
++		typescript, err := action.GenerateTypeScriptCatalog(descriptors)
++		if err != nil {
++			return nil, fmt.Errorf("render TypeScript Action contracts: %w", err)
++		}
++		if err := ctx.Err(); err != nil {
++			return nil, err
++		}
++		result = append(result, artifact{path: project.manifest.Outputs.TypeScript, data: append([]byte(nil), typescript...)})
++	}
++	sort.Slice(result, func(i, j int) bool { return result[i].path < result[j].path })
++	for _, item := range result {
++		if err := ctx.Err(); err != nil {
++			return nil, err
++		}
++		if int64(len(item.data)) > MaximumGeneratedArtifactBytes {
++			return nil, fmt.Errorf("generated artifact %s exceeds %d bytes", item.path, MaximumGeneratedArtifactBytes)
++		}
++	}
++	return result, nil
++}
++
++func marshalGeneratedJSON(value any) ([]byte, error) {
++	data, err := json.MarshalIndent(value, "", "  ")
++	if err != nil {
++		return nil, err
++	}
++	return append(data, '\n'), nil
++}
++
++func cloneStringMap(values map[string]string) map[string]string {
++	clone := make(map[string]string, len(values))
++	for key, value := range values {
++		clone[key] = value
++	}
++	return clone
++}
++
++// Generate validates and renders the complete batch before writing. Changed
++// files are prepared in their destination directories and atomically renamed;
++// a commit failure attempts a complete rollback and removes temporary files.
++func (project *Project) Generate(definition appkit.Definition) (Generation, error) {
++	return project.GenerateContext(context.Background(), definition)
++}
++
++// GenerateContext is the cancelable form of Generate. Cancellation before
++// commit removes all prepared files and leaves every configured artifact at
++// its baseline state.
++func (project *Project) GenerateContext(ctx context.Context, definition appkit.Definition) (Generation, error) {
++	if ctx == nil {
++		return Generation{}, ErrContextRequired
++	}
++	if project == nil {
++		return Generation{}, fmt.Errorf("project is required")
++	}
++	if err := ctx.Err(); err != nil {
++		return Generation{}, err
++	}
++	release, err := acquireProjectRoot(ctx, projectRoot(project))
++	if err != nil {
++		return Generation{}, err
++	}
++	defer release()
++	root, err := project.openVerifiedRoot(ctx)
++	if err != nil {
++		return Generation{}, err
++	}
++	defer root.Close()
++	_, artifacts, err := project.prepare(ctx, root, definition)
++	if err != nil {
++		return Generation{}, err
++	}
++	if err := project.validateFilesystemPathsContext(ctx, root); err != nil {
++		return Generation{}, err
++	}
++
++	baselines := make([]artifactBaseline, 0, len(artifacts))
++	changes := make([]replacement, 0, len(artifacts))
++	result := Generation{Written: make([]string, 0), Unchanged: make([]string, 0)}
++	for _, item := range artifacts {
++		if err := ctx.Err(); err != nil {
++			return Generation{}, err
++		}
++		current, mode, exists, err := readArtifactContext(ctx, root, item)
++		if err != nil {
++			return Generation{}, err
++		}
++		if exists && bytes.Equal(current, item.data) {
++			result.Unchanged = append(result.Unchanged, item.path)
++			baselines = append(baselines, artifactBaseline{artifact: item, data: current, mode: mode, exists: true})
++			continue
++		}
++		baselines = append(baselines, artifactBaseline{artifact: item, data: current, mode: mode, exists: exists})
++		changes = append(changes, replacement{
++			artifact: item, previous: current, previousMode: mode,
++			existed: exists, canRecreate: exists,
++		})
++	}
++	if len(changes) == 0 {
++		if err := project.verifyRootPathBinding(root); err != nil {
++			return Generation{}, err
++		}
++		if err := ctx.Err(); err != nil {
++			return Generation{}, err
++		}
++		return result, nil
++	}
++
++	createdDirectories := make([]string, 0)
++	cleanupPrepared := func() error {
++		var cleanupErr error
++		for _, change := range changes {
++			if change.temporary != "" {
++				if err := root.Remove(change.temporary); err != nil && !errors.Is(err, fs.ErrNotExist) {
++					cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove temporary artifact %s: %w", change.temporary, err))
++				}
++			}
++			if change.backup != "" {
++				if err := root.Remove(change.backup); err != nil && !errors.Is(err, fs.ErrNotExist) {
++					cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove backup artifact %s: %w", change.backup, err))
++				}
++			}
++		}
++		removeEmptyDirectories(root, createdDirectories)
++		return cleanupErr
++	}
++	for index := range changes {
++		if err := ctx.Err(); err != nil {
++			return Generation{}, errors.Join(err, cleanupPrepared())
++		}
++		created, err := ensureArtifactDirectoriesContext(ctx, root, path.Dir(changes[index].artifact.path))
++		createdDirectories = append(createdDirectories, created...)
++		if err != nil {
++			return Generation{}, errors.Join(err, cleanupPrepared())
++		}
++		temporary, file, err := createSiblingTemporaryContext(ctx, root, changes[index].artifact.path, ".tmp")
++		if err != nil {
++			return Generation{}, errors.Join(err, cleanupPrepared())
++		}
++		changes[index].temporary = temporary
++		writeErr := writeGeneratedContext(ctx, file, changes[index].artifact.data, 0o644)
++		if writeErr != nil {
++			return Generation{}, errors.Join(
++				fmt.Errorf("prepare generated artifact %s: %w", changes[index].artifact.path, writeErr),
++				cleanupPrepared(),
++			)
++		}
++	}
++
++	if err := project.validateFilesystemPathsContext(ctx, root); err != nil {
++		return Generation{}, errors.Join(err, cleanupPrepared())
++	}
++	if err := project.verifyRootPathBinding(root); err != nil {
++		return Generation{}, errors.Join(err, cleanupPrepared())
++	}
++	for _, baseline := range baselines {
++		if err := ctx.Err(); err != nil {
++			return Generation{}, errors.Join(err, cleanupPrepared())
++		}
++		current, mode, exists, err := readArtifactContext(ctx, root, baseline.artifact)
++		if err != nil || exists != baseline.exists || !bytes.Equal(current, baseline.data) {
++			cleanupErr := cleanupPrepared()
++			if err != nil {
++				return Generation{}, errors.Join(err, cleanupErr)
++			}
++			return Generation{}, errors.Join(fmt.Errorf("generated artifact %s changed concurrently", baseline.artifact.path), cleanupErr)
++		}
++		if exists && mode != baseline.mode {
++			return Generation{}, errors.Join(
++				fmt.Errorf("generated artifact %s changed concurrently", baseline.artifact.path),
++				cleanupPrepared(),
++			)
++		}
++	}
++	if err := project.verifyRootPathBinding(root); err != nil {
++		return Generation{}, errors.Join(err, cleanupPrepared())
++	}
++	if err := ctx.Err(); err != nil {
++		return Generation{}, errors.Join(err, cleanupPrepared())
++	}
++
++	// No cancellation checks occur after this point: commit and rollback form a
++	// single transaction and must run to completion once the first rename starts.
++	for index := range changes {
++		if changes[index].existed {
++			backup, err := unusedSiblingName(root, changes[index].artifact.path, ".bak")
++			if err != nil {
++				rollbackErr := rollbackReplacements(root, changes[:index])
++				return Generation{}, errors.Join(err, rollbackErr, cleanupPrepared())
++			}
++			changes[index].backup = backup
++			if err := root.Rename(changes[index].artifact.path, backup); err != nil {
++				rollbackErr := rollbackReplacements(root, changes[:index])
++				return Generation{}, errors.Join(
++					fmt.Errorf("backup generated artifact %s: %w", changes[index].artifact.path, err),
++					rollbackErr,
++					cleanupPrepared(),
++				)
++			}
++			changes[index].backedUp = true
++		}
++		if err := root.Rename(changes[index].temporary, changes[index].artifact.path); err != nil {
++			rollbackErr := rollbackReplacements(root, changes[:index+1])
++			return Generation{}, errors.Join(
++				fmt.Errorf("replace generated artifact %s: %w", changes[index].artifact.path, err),
++				rollbackErr,
++				cleanupPrepared(),
++			)
++		}
++		changes[index].temporary = ""
++		changes[index].installed = true
++	}
++
++	if err := syncArtifactDirectories(root, changes); err != nil {
++		rollbackErr := rollbackReplacements(root, changes)
++		return Generation{}, errors.Join(
++			fmt.Errorf("sync generated artifact directories: %w", err),
++			rollbackErr,
++			cleanupPrepared(),
++		)
++	}
++	if err := project.verifyRootPathBinding(root); err != nil {
++		rollbackErr := rollbackReplacements(root, changes)
++		return Generation{}, errors.Join(err, rollbackErr, cleanupPrepared())
++	}
++
++	var cleanupErr error
++	for index := range changes {
++		if changes[index].backup != "" {
++			if err := root.Remove(changes[index].backup); err != nil && !errors.Is(err, fs.ErrNotExist) {
++				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove generated backup: %w", err))
++			} else {
++				changes[index].backup = ""
++			}
++		}
++	}
++	if cleanupErr != nil {
++		rollbackErr := rollbackReplacements(root, changes)
++		return Generation{}, errors.Join(cleanupErr, rollbackErr, cleanupPrepared())
++	}
++	for _, change := range changes {
++		result.Written = append(result.Written, change.artifact.path)
++	}
++	return result, nil
++}
++
++type artifactBaseline struct {
++	artifact artifact
++	data     []byte
++	mode     fs.FileMode
++	exists   bool
++}
++
++type replacement struct {
++	artifact     artifact
++	previous     []byte
++	previousMode fs.FileMode
++	existed      bool
++	canRecreate  bool
++	temporary    string
++	backup       string
++	backedUp     bool
++	installed    bool
++}
++
++func readArtifact(root *os.Root, expected artifact) ([]byte, fs.FileMode, bool, error) {
++	return readArtifactContext(context.Background(), root, expected)
++}
++
++func readArtifactContext(ctx context.Context, root *os.Root, expected artifact) ([]byte, fs.FileMode, bool, error) {
++	if err := ctx.Err(); err != nil {
++		return nil, 0, false, err
++	}
++	before, err := root.Lstat(expected.path)
++	if errors.Is(err, fs.ErrNotExist) {
++		return nil, 0, false, nil
++	}
++	if err != nil {
++		return nil, 0, false, fmt.Errorf("inspect generated artifact %s: %w", expected.path, err)
++	}
++	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
++		return nil, 0, false, fmt.Errorf("generated artifact %s must be a regular non-symlink file", expected.path)
++	}
++	if before.Size() > MaximumGeneratedArtifactBytes {
++		return nil, 0, false, fmt.Errorf("generated artifact %s exceeds %d bytes", expected.path, MaximumGeneratedArtifactBytes)
++	}
++	file, err := root.Open(expected.path)
++	if err != nil {
++		return nil, 0, false, fmt.Errorf("open generated artifact %s: %w", expected.path, err)
++	}
++	openedBefore, statErr := file.Stat()
++	data, readErr := readAllContext(ctx, &io.LimitedReader{R: file, N: MaximumGeneratedArtifactBytes + 1})
++	openedAfter, restatErr := file.Stat()
++	closeErr := file.Close()
++	after, lstatErr := root.Lstat(expected.path)
++	if statErr != nil || readErr != nil || restatErr != nil || closeErr != nil || lstatErr != nil {
++		return nil, 0, false, fmt.Errorf(
++			"read generated artifact %s consistently: %w",
++			expected.path,
++			errors.Join(statErr, readErr, restatErr, closeErr, lstatErr),
++		)
++	}
++	if int64(len(data)) > MaximumGeneratedArtifactBytes {
++		return nil, 0, false, fmt.Errorf("generated artifact %s exceeds %d bytes", expected.path, MaximumGeneratedArtifactBytes)
++	}
++	if after.Mode()&os.ModeSymlink != 0 || !after.Mode().IsRegular() ||
++		!sameFileState(before, openedBefore) || !sameFileState(openedBefore, openedAfter) || !sameFileState(openedAfter, after) {
++		return nil, 0, false, fmt.Errorf("generated artifact %s changed while it was read", expected.path)
++	}
++	return data, openedAfter.Mode(), true, nil
++}
++
++func ensureArtifactDirectories(root *os.Root, directory string) ([]string, error) {
++	return ensureArtifactDirectoriesContext(context.Background(), root, directory)
++}
++
++func ensureArtifactDirectoriesContext(ctx context.Context, root *os.Root, directory string) ([]string, error) {
++	if directory == "." || directory == "" {
++		return nil, nil
++	}
++	created := make([]string, 0)
++	components := strings.Split(directory, "/")
++	for index := range components {
++		if err := ctx.Err(); err != nil {
++			return created, err
++		}
++		current := strings.Join(components[:index+1], "/")
++		info, err := root.Lstat(current)
++		if errors.Is(err, fs.ErrNotExist) {
++			if mkdirErr := root.Mkdir(current, 0o755); mkdirErr != nil {
++				if errors.Is(mkdirErr, fs.ErrExist) {
++					concurrentInfo, inspectErr := root.Lstat(current)
++					if inspectErr == nil && concurrentInfo.Mode()&os.ModeSymlink == 0 && concurrentInfo.IsDir() {
++						continue
++					}
++					if inspectErr != nil {
++						return created, fmt.Errorf("inspect concurrently created directory %s: %w", current, inspectErr)
++					}
++					return created, fmt.Errorf("concurrently created path %s must be a non-symlink directory", current)
++				}
++				return created, fmt.Errorf("create generated directory %s: %w", current, mkdirErr)
++			}
++			created = append(created, current)
++			continue
++		}
++		if err != nil {
++			return created, fmt.Errorf("inspect generated directory %s: %w", current, err)
++		}
++		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
++			return created, fmt.Errorf("generated directory %s must be a non-symlink directory", current)
++		}
++	}
++	return created, nil
++}
++
++func createSiblingTemporary(root *os.Root, target, suffix string) (string, *os.File, error) {
++	return createSiblingTemporaryContext(context.Background(), root, target, suffix)
++}
++
++func createSiblingTemporaryContext(ctx context.Context, root *os.Root, target, suffix string) (string, *os.File, error) {
++	for attempts := 0; attempts < 32; attempts++ {
++		if err := ctx.Err(); err != nil {
++			return "", nil, err
++		}
++		candidate, err := randomSiblingName(target, suffix)
++		if err != nil {
++			return "", nil, err
++		}
++		file, err := root.OpenFile(candidate, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
++		if errors.Is(err, fs.ErrExist) {
++			continue
++		}
++		if err != nil {
++			return "", nil, fmt.Errorf("create temporary artifact beside %s: %w", target, err)
++		}
++		return candidate, file, nil
++	}
++	return "", nil, fmt.Errorf("allocate temporary artifact beside %s", target)
++}
++
++func unusedSiblingName(root *os.Root, target, suffix string) (string, error) {
++	for attempts := 0; attempts < 32; attempts++ {
++		candidate, err := randomSiblingName(target, suffix)
++		if err != nil {
++			return "", err
++		}
++		if _, err := root.Lstat(candidate); errors.Is(err, fs.ErrNotExist) {
++			return candidate, nil
++		} else if err != nil {
++			return "", err
++		}
++	}
++	return "", fmt.Errorf("allocate backup beside %s", target)
++}
++
++func randomSiblingName(target, suffix string) (string, error) {
++	var random [12]byte
++	if _, err := rand.Read(random[:]); err != nil {
++		return "", fmt.Errorf("generate temporary name: %w", err)
++	}
++	base := path.Base(target)
++	if len(base) > 80 {
++		for len(base) > 80 {
++			_, size := utf8.DecodeLastRuneInString(base)
++			base = base[:len(base)-size]
++		}
++	}
++	return path.Join(path.Dir(target), ".modary-"+base+"-"+hex.EncodeToString(random[:])+suffix), nil
++}
++
++func writeGenerated(file *os.File, data []byte, mode fs.FileMode) error {
++	return writeGeneratedContext(context.Background(), file, data, mode)
++}
++
++func writeGeneratedContext(ctx context.Context, file *os.File, data []byte, mode fs.FileMode) error {
++	if file == nil {
++		return fmt.Errorf("temporary artifact is unavailable")
++	}
++	var result error
++	if err := ctx.Err(); err != nil {
++		result = errors.Join(result, err)
++	} else if err := file.Chmod(mode); err != nil {
++		result = errors.Join(result, err)
++	} else {
++		for offset := 0; offset < len(data); {
++			if err := ctx.Err(); err != nil {
++				result = errors.Join(result, err)
++				break
++			}
++			end := offset + 32<<10
++			if end > len(data) {
++				end = len(data)
++			}
++			written, err := file.Write(data[offset:end])
++			if err != nil {
++				result = errors.Join(result, err)
++				break
++			}
++			if written != end-offset {
++				result = errors.Join(result, io.ErrShortWrite)
++				break
++			}
++			offset = end
++		}
++		if result == nil {
++			if err := ctx.Err(); err != nil {
++				result = errors.Join(result, err)
++			} else if err := file.Sync(); err != nil {
++				result = errors.Join(result, err)
++			}
++		}
++	}
++	if err := file.Close(); err != nil {
++		result = errors.Join(result, err)
++	}
++	return result
++}
++
++func rollbackReplacements(root *os.Root, changes []replacement) error {
++	var result error
++	for index := len(changes) - 1; index >= 0; index-- {
++		change := changes[index]
++		if change.installed {
++			if err := root.Remove(change.artifact.path); err != nil && !errors.Is(err, fs.ErrNotExist) {
++				result = errors.Join(result, fmt.Errorf("remove replacement %s: %w", change.artifact.path, err))
++			}
++		}
++		if change.backedUp {
++			var restoreErr error
++			if change.backup == "" {
++				restoreErr = fs.ErrNotExist
++			} else {
++				restoreErr = root.Rename(change.backup, change.artifact.path)
++			}
++			if restoreErr != nil {
++				if !errors.Is(restoreErr, fs.ErrNotExist) || !change.existed || !change.canRecreate {
++					result = errors.Join(result, fmt.Errorf("restore generated artifact %s: %w", change.artifact.path, restoreErr))
++					continue
++				}
++				temporary, file, createErr := createSiblingTemporary(root, change.artifact.path, ".restore")
++				if createErr == nil {
++					createErr = writeGenerated(file, change.previous, change.previousMode.Perm())
++				}
++				if createErr == nil {
++					createErr = root.Rename(temporary, change.artifact.path)
++				}
++				if createErr != nil {
++					if temporary != "" {
++						_ = root.Remove(temporary)
++					}
++					result = errors.Join(result, fmt.Errorf("recreate generated artifact %s: %w", change.artifact.path, createErr))
++				}
++			}
++		}
++	}
++	return result
++}
++
++func removeEmptyDirectories(root *os.Root, directories []string) {
++	for index := len(directories) - 1; index >= 0; index-- {
++		_ = root.Remove(directories[index])
++	}
++}
++
++func syncArtifactDirectories(root *os.Root, changes []replacement) error {
++	directories := make(map[string]struct{})
++	for _, change := range changes {
++		directories[path.Dir(change.artifact.path)] = struct{}{}
++	}
++	names := make([]string, 0, len(directories))
++	for name := range directories {
++		names = append(names, name)
++	}
++	sort.Strings(names)
++	var result error
++	for _, name := range names {
++		file, err := root.Open(name)
++		if err != nil {
++			result = errors.Join(result, fmt.Errorf("open generated directory %s for sync: %w", name, err))
++			continue
++		}
++		if err := file.Sync(); err != nil && runtime.GOOS != "windows" {
++			result = errors.Join(result, fmt.Errorf("sync generated directory %s: %w", name, err))
++		}
++		if err := file.Close(); err != nil {
++			result = errors.Join(result, fmt.Errorf("close generated directory %s: %w", name, err))
++		}
++	}
++	return result
++}
++
++// Check compares every expected artifact without creating a directory or file.
++// Drift entries are sorted by path.
++func (project *Project) Check(definition appkit.Definition) ([]Drift, error) {
++	return project.CheckContext(context.Background(), definition)
++}
++
++// CheckContext is the cancelable form of Check.
++func (project *Project) CheckContext(ctx context.Context, definition appkit.Definition) ([]Drift, error) {
++	if ctx == nil {
++		return nil, ErrContextRequired
++	}
++	if project == nil {
++		return nil, fmt.Errorf("project is required")
++	}
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++	release, err := acquireProjectRoot(ctx, projectRoot(project))
++	if err != nil {
++		return nil, err
++	}
++	defer release()
++	root, err := project.openVerifiedRoot(ctx)
++	if err != nil {
++		return nil, err
++	}
++	defer root.Close()
++	_, artifacts, err := project.prepare(ctx, root, definition)
++	if err != nil {
++		return nil, err
++	}
++	drift, err := checkArtifactsContext(ctx, root, artifacts)
++	if err != nil {
++		return nil, err
++	}
++	if err := project.verifyRootPathBinding(root); err != nil {
++		return nil, err
++	}
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++	return drift, nil
++}
++
++func checkArtifacts(root *os.Root, artifacts []artifact) ([]Drift, error) {
++	return checkArtifactsContext(context.Background(), root, artifacts)
++}
++
++func checkArtifactsContext(ctx context.Context, root *os.Root, artifacts []artifact) ([]Drift, error) {
++	drift := make([]Drift, 0)
++	for _, item := range artifacts {
++		if err := ctx.Err(); err != nil {
++			return nil, err
++		}
++		current, _, exists, err := readArtifactContext(ctx, root, item)
++		if err != nil {
++			return nil, err
++		}
++		if !exists {
++			drift = append(drift, Drift{Path: item.path, Status: DriftMissing})
++		} else if !bytes.Equal(current, item.data) {
++			drift = append(drift, Drift{Path: item.path, Status: DriftDifferent})
++		}
++	}
++	return drift, ctx.Err()
++}
+diff --git a/projecttool/config.go b/projecttool/config.go
+new file mode 100644
+index 0000000..d000de5
+--- /dev/null
++++ b/projecttool/config.go
+@@ -0,0 +1,626 @@
++package projecttool
++
++import (
++	"bytes"
++	"context"
++	"crypto/sha256"
++	"errors"
++	"fmt"
++	"io"
++	"io/fs"
++	"os"
++	"path"
++	"path/filepath"
++	"strings"
++	"unicode/utf8"
++
++	"github.com/iiwish/modary/appkit"
++	"gopkg.in/yaml.v3"
++)
++
++const (
++	// ProjectManifestName is the fixed consumer project manifest name.
++	ProjectManifestName = "modary.yaml"
++	// MaximumManifestBytes bounds configuration input before YAML decoding.
++	MaximumManifestBytes     = int64(1 << 20)
++	maximumConfiguredPathLen = 1024
++	maximumPathComponentLen  = 180
++	portablePathGrammar      = "[A-Za-z0-9._-]+"
++	maximumYAMLNodes         = 4096
++	maximumYAMLDepth         = 32
++)
++
++// Manifest is the strict consumer project file. Go Definition composition is
++// deliberately absent: application code remains the sole Module source.
++type Manifest struct {
++	Application appkit.Metadata `yaml:"application" json:"application"`
++	Outputs     Outputs         `yaml:"outputs" json:"outputs"`
++	Build       BuildTarget     `yaml:"build" json:"build"`
++}
++
++// Outputs declares consumer-owned generated artifact locations. Paths use `/`
++// separators and portable ASCII components matching [A-Za-z0-9._-]+.
++type Outputs struct {
++	Graph      string `yaml:"graph" json:"graph"`
++	Actions    string `yaml:"actions" json:"actions"`
++	TypeScript string `yaml:"typescript,omitempty" json:"typescript,omitempty"`
++}
++
++// BuildTarget declares the consumer Go package and final binary location using
++// the same portable path grammar as Outputs.
++type BuildTarget struct {
++	Package string `yaml:"package" json:"package"`
++	Output  string `yaml:"output" json:"output"`
++}
++
++// Project is an immutable validated project-root and output policy. It stores
++// no Module composition and owns no open resource.
++type Project struct {
++	root         string
++	rootIdentity fs.FileInfo
++	manifestHash [sha256.Size]byte
++	manifest     Manifest
++}
++
++// ParseManifest parses exactly one strict YAML document. YAML aliases and
++// anchors are rejected so configuration meaning is local and reviewable.
++func ParseManifest(data []byte) (Manifest, error) {
++	if len(data) == 0 {
++		return Manifest{}, fmt.Errorf("project manifest is empty")
++	}
++	if int64(len(data)) > MaximumManifestBytes {
++		return Manifest{}, fmt.Errorf("project manifest exceeds %d bytes", MaximumManifestBytes)
++	}
++	if !utf8.Valid(data) {
++		return Manifest{}, fmt.Errorf("project manifest must be valid UTF-8")
++	}
++
++	var document yaml.Node
++	decoder := yaml.NewDecoder(bytes.NewReader(data))
++	if err := decoder.Decode(&document); err != nil {
++		return Manifest{}, fmt.Errorf("parse project manifest: %w", err)
++	}
++	if err := requireYAMLEOF(decoder); err != nil {
++		return Manifest{}, err
++	}
++	if err := rejectYAMLAliases(&document); err != nil {
++		return Manifest{}, err
++	}
++
++	var manifest Manifest
++	strict := yaml.NewDecoder(bytes.NewReader(data))
++	strict.KnownFields(true)
++	if err := strict.Decode(&manifest); err != nil {
++		return Manifest{}, fmt.Errorf("parse project manifest: %w", err)
++	}
++	if err := requireYAMLEOF(strict); err != nil {
++		return Manifest{}, err
++	}
++	if err := validateManifest(manifest); err != nil {
++		return Manifest{}, err
++	}
++	return manifest, nil
++}
++
++func requireYAMLEOF(decoder *yaml.Decoder) error {
++	var extra yaml.Node
++	if err := decoder.Decode(&extra); err != io.EOF {
++		if err == nil {
++			return fmt.Errorf("project manifest must contain exactly one YAML document")
++		}
++		return fmt.Errorf("parse project manifest: %w", err)
++	}
++	return nil
++}
++
++func rejectYAMLAliases(value *yaml.Node) error {
++	if value == nil {
++		return nil
++	}
++	type pendingNode struct {
++		value *yaml.Node
++		depth int
++	}
++	pending := []pendingNode{{value: value, depth: 0}}
++	visited := 0
++	for len(pending) != 0 {
++		current := pending[len(pending)-1]
++		pending = pending[:len(pending)-1]
++		visited++
++		if visited > maximumYAMLNodes || current.depth > maximumYAMLDepth {
++			return fmt.Errorf("project manifest YAML structure is too complex")
++		}
++		if current.value.Kind == yaml.AliasNode || current.value.Alias != nil || current.value.Anchor != "" {
++			return fmt.Errorf("project manifest aliases and anchors are not allowed")
++		}
++		for _, child := range current.value.Content {
++			pending = append(pending, pendingNode{value: child, depth: current.depth + 1})
++		}
++	}
++	return nil
++}
++
++func validateManifest(manifest Manifest) error {
++	if err := appkit.ValidateMetadata(manifest.Application); err != nil {
++		return fmt.Errorf("project application: %w", err)
++	}
++	paths := []struct {
++		name     string
++		value    string
++		required bool
++	}{
++		{"outputs.graph", manifest.Outputs.Graph, true},
++		{"outputs.actions", manifest.Outputs.Actions, true},
++		{"outputs.typescript", manifest.Outputs.TypeScript, false},
++		{"build.output", manifest.Build.Output, true},
++	}
++	for _, configured := range paths {
++		if err := validateRelativePath(configured.name, configured.value, configured.required); err != nil {
++			return err
++		}
++	}
++	if err := validateBuildPackage(manifest.Build.Package); err != nil {
++		return err
++	}
++	outputs := configuredOutputs(manifest)
++	packagePath := strings.TrimPrefix(manifest.Build.Package, "./")
++	for index, first := range outputs {
++		if aliasesPath(first, ProjectManifestName) {
++			return fmt.Errorf("configured output %q aliases %s", first, ProjectManifestName)
++		}
++		if aliasesPath(first, packagePath) {
++			return fmt.Errorf("configured output %q and build.package %q alias or contain one another", first, manifest.Build.Package)
++		}
++		for _, second := range outputs[index+1:] {
++			if aliasesPath(first, second) {
++				return fmt.Errorf("configured outputs %q and %q alias or contain one another", first, second)
++			}
++		}
++	}
++	if aliasesPath(packagePath, ProjectManifestName) {
++		return fmt.Errorf("build.package %q aliases or contains %s", manifest.Build.Package, ProjectManifestName)
++	}
++	return nil
++}
++
++func validateRelativePath(field, value string, required bool) error {
++	if value == "" && !required {
++		return nil
++	}
++	if value == "" || len(value) > maximumConfiguredPathLen || !utf8.ValidString(value) ||
++		strings.TrimSpace(value) != value || strings.Contains(value, "\\") ||
++		strings.ContainsRune(value, '\x00') {
++		return fmt.Errorf("project %s path is invalid", field)
++	}
++	if strings.HasPrefix(value, "/") || strings.HasPrefix(value, "//") || filepath.IsAbs(value) || filepath.VolumeName(value) != "" || looksLikeWindowsVolume(value) {
++		return fmt.Errorf("project %s path must be relative to the consumer root", field)
++	}
++	if value == "." || path.Clean(value) != value {
++		return fmt.Errorf("project %s path must be canonical", field)
++	}
++	for _, component := range strings.Split(value, "/") {
++		if component == "" || component == "." || component == ".." || len(component) > maximumPathComponentLen ||
++			!isPortablePathComponent(component) || strings.HasSuffix(component, ".") ||
++			isWindowsDeviceName(component) {
++			return fmt.Errorf("project %s path component must match portable grammar %s", field, portablePathGrammar)
++		}
++	}
++	return nil
++}
++
++func isPortablePathComponent(component string) bool {
++	for index := 0; index < len(component); index++ {
++		value := component[index]
++		if (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') ||
++			(value >= '0' && value <= '9') || value == '.' || value == '_' || value == '-' {
++			continue
++		}
++		return false
++	}
++	return component != ""
++}
++
++func looksLikeWindowsVolume(value string) bool {
++	return len(value) >= 2 && ((value[0] >= 'a' && value[0] <= 'z') || (value[0] >= 'A' && value[0] <= 'Z')) && value[1] == ':'
++}
++
++func isWindowsDeviceName(component string) bool {
++	base := component
++	if index := strings.IndexByte(base, '.'); index >= 0 {
++		base = base[:index]
++	}
++	base = strings.ToUpper(base)
++	if base == "CON" || base == "PRN" || base == "AUX" || base == "NUL" || base == "CONIN$" || base == "CONOUT$" {
++		return true
++	}
++	return len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) && base[3] >= '1' && base[3] <= '9'
++}
++
++func validateBuildPackage(value string) error {
++	if !strings.HasPrefix(value, "./") || value == "./" {
++		return fmt.Errorf("project build.package must be a non-root relative Go package")
++	}
++	packagePath := strings.TrimPrefix(value, "./")
++	if err := validateRelativePath("build.package", packagePath, true); err != nil {
++		return err
++	}
++	for _, component := range strings.Split(packagePath, "/") {
++		if component == "..." {
++			return fmt.Errorf("project build.package must identify one Go package")
++		}
++	}
++	return nil
++}
++
++func configuredOutputs(manifest Manifest) []string {
++	result := []string{manifest.Outputs.Graph, manifest.Outputs.Actions, manifest.Build.Output}
++	if manifest.Outputs.TypeScript != "" {
++		result = append(result, manifest.Outputs.TypeScript)
++	}
++	return result
++}
++
++func aliasesPath(first, second string) bool {
++	firstParts := strings.Split(first, "/")
++	secondParts := strings.Split(second, "/")
++	shared := len(firstParts)
++	if len(secondParts) < shared {
++		shared = len(secondParts)
++	}
++	for index := 0; index < shared; index++ {
++		if !strings.EqualFold(firstParts[index], secondParts[index]) {
++			return false
++		}
++	}
++	return true
++}
++
++// Load validates the canonical root, its strict modary.yaml, output aliases,
++// and every existing output path component without following symlinks.
++func Load(root string) (*Project, error) {
++	return LoadContext(context.Background(), root)
++}
++
++// LoadContext is the cancelable form of Load. The root directory is opened
++// before its identity is inspected, and that verified handle is used for the
++// entire load operation.
++func LoadContext(ctx context.Context, root string) (*Project, error) {
++	if ctx == nil {
++		return nil, ErrContextRequired
++	}
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++	canonicalRoot, err := canonicalProjectRoot(root)
++	if err != nil {
++		return nil, err
++	}
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++	rootHandle, err := os.OpenRoot(canonicalRoot)
++	if err != nil {
++		return nil, fmt.Errorf("open project root: %w", err)
++	}
++	closeRoot := true
++	defer func() {
++		if closeRoot {
++			_ = rootHandle.Close()
++		}
++	}()
++	openedRoot, err := rootHandle.Stat(".")
++	if err != nil {
++		return nil, fmt.Errorf("inspect opened project root: %w", err)
++	}
++	if !openedRoot.IsDir() {
++		return nil, fmt.Errorf("project root is not a directory")
++	}
++	currentRoot, err := os.Stat(canonicalRoot)
++	if err != nil {
++		return nil, fmt.Errorf("inspect project root pathname: %w", err)
++	}
++	if !os.SameFile(openedRoot, currentRoot) {
++		return nil, fmt.Errorf("project root changed while it was loaded")
++	}
++	data, err := readRootRegularFileContext(ctx, rootHandle, ProjectManifestName, MaximumManifestBytes)
++	if err != nil {
++		return nil, err
++	}
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++	manifest, err := ParseManifest(data)
++	if err != nil {
++		return nil, err
++	}
++	project := &Project{
++		root:         canonicalRoot,
++		rootIdentity: openedRoot,
++		manifestHash: sha256.Sum256(data),
++		manifest:     manifest,
++	}
++	if err := project.validateFilesystemPathsContext(ctx, rootHandle); err != nil {
++		return nil, err
++	}
++	if err := project.verifyRootPathBinding(rootHandle); err != nil {
++		return nil, err
++	}
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++	closeRoot = false
++	if err := rootHandle.Close(); err != nil {
++		return nil, fmt.Errorf("close project root: %w", err)
++	}
++	return project, nil
++}
++
++func canonicalProjectRoot(root string) (string, error) {
++	if root == "" {
++		root = "."
++	}
++	absolute, err := filepath.Abs(root)
++	if err != nil {
++		return "", fmt.Errorf("resolve project root: %w", err)
++	}
++	canonical, err := filepath.EvalSymlinks(absolute)
++	if err != nil {
++		return "", fmt.Errorf("resolve project root symlinks: %w", err)
++	}
++	return filepath.Clean(canonical), nil
++}
++
++func readRootRegularFile(root *os.Root, name string, limit int64) ([]byte, error) {
++	return readRootRegularFileContext(context.Background(), root, name, limit)
++}
++
++func readRootRegularFileContext(ctx context.Context, root *os.Root, name string, limit int64) ([]byte, error) {
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++	before, err := root.Lstat(name)
++	if err != nil {
++		return nil, fmt.Errorf("inspect %s: %w", name, err)
++	}
++	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
++		return nil, fmt.Errorf("%s must be a regular non-symlink file", name)
++	}
++	if before.Size() > limit {
++		return nil, fmt.Errorf("%s exceeds %d bytes", name, limit)
++	}
++	file, err := root.Open(name)
++	if err != nil {
++		return nil, fmt.Errorf("open %s: %w", name, err)
++	}
++	openedBefore, statErr := file.Stat()
++	data, readErr := readAllContext(ctx, &io.LimitedReader{R: file, N: limit + 1})
++	openedAfter, restatErr := file.Stat()
++	closeErr := file.Close()
++	after, lstatErr := root.Lstat(name)
++	if statErr != nil || readErr != nil || restatErr != nil || closeErr != nil || lstatErr != nil {
++		return nil, fmt.Errorf("read %s consistently: %w", name, errors.Join(statErr, readErr, restatErr, closeErr, lstatErr))
++	}
++	if after.Mode()&os.ModeSymlink != 0 || !after.Mode().IsRegular() ||
++		!sameFileState(before, openedBefore) || !sameFileState(openedBefore, openedAfter) || !sameFileState(openedAfter, after) {
++		return nil, fmt.Errorf("%s changed while it was read", name)
++	}
++	if int64(len(data)) > limit {
++		return nil, fmt.Errorf("%s exceeds %d bytes", name, limit)
++	}
++	return data, nil
++}
++
++func readAllContext(ctx context.Context, reader io.Reader) ([]byte, error) {
++	var data bytes.Buffer
++	buffer := make([]byte, 32<<10)
++	for {
++		if err := ctx.Err(); err != nil {
++			return nil, err
++		}
++		read, err := reader.Read(buffer)
++		if read > 0 {
++			_, _ = data.Write(buffer[:read])
++		}
++		if err == io.EOF {
++			return data.Bytes(), nil
++		}
++		if err != nil {
++			return nil, err
++		}
++		if read == 0 {
++			return nil, io.ErrNoProgress
++		}
++	}
++}
++
++func sameFileState(first, second fs.FileInfo) bool {
++	return first != nil && second != nil && os.SameFile(first, second) &&
++		first.Mode() == second.Mode() && first.Size() == second.Size() && first.ModTime().Equal(second.ModTime())
++}
++
++func (project *Project) openVerifiedRoot(ctx context.Context) (*os.Root, error) {
++	if ctx == nil {
++		return nil, ErrContextRequired
++	}
++	if project == nil {
++		return nil, fmt.Errorf("project is required")
++	}
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++	root, err := os.OpenRoot(project.root)
++	if err != nil {
++		return nil, fmt.Errorf("open project root: %w", err)
++	}
++	closeOnError := true
++	defer func() {
++		if closeOnError {
++			_ = root.Close()
++		}
++	}()
++	if err := project.verifyRootPathBinding(root); err != nil {
++		return nil, err
++	}
++	if err := project.validateFilesystemPathsContext(ctx, root); err != nil {
++		return nil, err
++	}
++	if err := project.verifyRootPathBinding(root); err != nil {
++		return nil, err
++	}
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++	closeOnError = false
++	return root, nil
++}
++
++func (project *Project) verifyRootPathBinding(root *os.Root) error {
++	if project == nil || project.rootIdentity == nil || root == nil {
++		return fmt.Errorf("project is required")
++	}
++	openedRoot, err := root.Stat(".")
++	if err != nil {
++		return fmt.Errorf("inspect opened project root: %w", err)
++	}
++	if !openedRoot.IsDir() || !os.SameFile(project.rootIdentity, openedRoot) {
++		return fmt.Errorf("project root handle changed after it was loaded")
++	}
++	currentRoot, err := os.Stat(project.root)
++	if err != nil {
++		return fmt.Errorf("inspect project root pathname: %w", err)
++	}
++	if !currentRoot.IsDir() || !os.SameFile(openedRoot, currentRoot) {
++		return fmt.Errorf("project root pathname changed after it was loaded")
++	}
++	return nil
++}
++
++func (project *Project) validateFilesystemPathsContext(ctx context.Context, root *os.Root) error {
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	manifestData, err := readRootRegularFileContext(ctx, root, ProjectManifestName, MaximumManifestBytes)
++	if err != nil {
++		return err
++	}
++	if sha256.Sum256(manifestData) != project.manifestHash {
++		return fmt.Errorf("%s changed after the project was loaded", ProjectManifestName)
++	}
++	manifestInfo, err := root.Lstat(ProjectManifestName)
++	if err != nil {
++		return fmt.Errorf("inspect %s: %w", ProjectManifestName, err)
++	}
++	if manifestInfo.Mode()&os.ModeSymlink != 0 || !manifestInfo.Mode().IsRegular() {
++		return fmt.Errorf("%s must be a regular non-symlink file", ProjectManifestName)
++	}
++	paths := configuredOutputs(project.manifest)
++	infos := make(map[string]fs.FileInfo, len(paths))
++	for _, name := range paths {
++		if err := ctx.Err(); err != nil {
++			return err
++		}
++		info, err := validateExistingOutputPathContext(ctx, root, name)
++		if err != nil {
++			return err
++		}
++		if info != nil {
++			if os.SameFile(manifestInfo, info) {
++				return fmt.Errorf("configured output %q refers to %s", name, ProjectManifestName)
++			}
++			infos[name] = info
++		}
++	}
++	for index, first := range paths {
++		firstInfo := infos[first]
++		if firstInfo == nil {
++			continue
++		}
++		for _, second := range paths[index+1:] {
++			if secondInfo := infos[second]; secondInfo != nil && os.SameFile(firstInfo, secondInfo) {
++				return fmt.Errorf("configured outputs %q and %q refer to the same file", first, second)
++			}
++		}
++	}
++	if err := validateConfiguredDirectoryPathContext(ctx, root, strings.TrimPrefix(project.manifest.Build.Package, "./"), false); err != nil {
++		return fmt.Errorf("validate build package: %w", err)
++	}
++	return ctx.Err()
++}
++
++func validateExistingOutputPath(root *os.Root, name string) (fs.FileInfo, error) {
++	return validateExistingOutputPathContext(context.Background(), root, name)
++}
++
++func validateExistingOutputPathContext(ctx context.Context, root *os.Root, name string) (fs.FileInfo, error) {
++	components := strings.Split(name, "/")
++	for index := range components {
++		if err := ctx.Err(); err != nil {
++			return nil, err
++		}
++		current := strings.Join(components[:index+1], "/")
++		info, err := root.Lstat(current)
++		if errors.Is(err, fs.ErrNotExist) {
++			return nil, nil
++		}
++		if err != nil {
++			return nil, fmt.Errorf("inspect configured path %s: %w", name, err)
++		}
++		if info.Mode()&os.ModeSymlink != 0 {
++			return nil, fmt.Errorf("configured path %s traverses symbolic link %s", name, current)
++		}
++		if index < len(components)-1 && !info.IsDir() {
++			return nil, fmt.Errorf("configured path %s has non-directory component %s", name, current)
++		}
++		if index == len(components)-1 {
++			if !info.Mode().IsRegular() {
++				return nil, fmt.Errorf("configured output %s is not a regular file", name)
++			}
++			return info, nil
++		}
++	}
++	return nil, nil
++}
++
++func validateConfiguredDirectoryPath(root *os.Root, name string, required bool) error {
++	return validateConfiguredDirectoryPathContext(context.Background(), root, name, required)
++}
++
++func validateConfiguredDirectoryPathContext(ctx context.Context, root *os.Root, name string, required bool) error {
++	components := strings.Split(name, "/")
++	for index := range components {
++		if err := ctx.Err(); err != nil {
++			return err
++		}
++		current := strings.Join(components[:index+1], "/")
++		info, err := root.Lstat(current)
++		if errors.Is(err, fs.ErrNotExist) {
++			if required {
++				return fmt.Errorf("configured directory %s does not exist", name)
++			}
++			return nil
++		}
++		if err != nil {
++			return fmt.Errorf("inspect configured directory %s: %w", name, err)
++		}
++		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
++			return fmt.Errorf("configured directory %s traverses non-directory or symbolic link %s", name, current)
++		}
++	}
++	return nil
++}
++
++// Root returns the canonical consumer root captured by Load.
++func (project *Project) Root() string {
++	if project == nil {
++		return ""
++	}
++	return project.root
++}
++
++// Manifest returns the validated, output-only consumer manifest.
++func (project *Project) Manifest() Manifest {
++	if project == nil {
++		return Manifest{}
++	}
++	return project.manifest
++}
+diff --git a/projecttool/generate_test.go b/projecttool/generate_test.go
+new file mode 100644
+index 0000000..9e8ae4e
+--- /dev/null
++++ b/projecttool/generate_test.go
+@@ -0,0 +1,451 @@
++package projecttool
++
++import (
++	"bytes"
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io/fs"
++	"os"
++	"path/filepath"
++	"reflect"
++	"runtime"
++	"sort"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++)
++
++func TestGenerateIsDeterministicAtomicAndIdempotent(t *testing.T) {
++	root := writeFixtureProject(t, validProjectManifest)
++	project := loadFixtureProject(t, root)
++	firstCounters := &inspectionCounters{}
++	first, err := project.Generate(fixtureDefinition(firstCounters, false))
++	if err != nil {
++		t.Fatalf("Generate: %v", err)
++	}
++	wantPaths := []string{
++		"internal/generated/action_catalog.json",
++		"internal/generated/module_graph.json",
++		"web/src/generated/actionContracts.ts",
++	}
++	if !reflect.DeepEqual(first.Written, wantPaths) || len(first.Unchanged) != 0 {
++		t.Fatalf("first Generation = %#v, want Written %v", first, wantPaths)
++	}
++	if first.Unchanged == nil {
++		t.Fatal("first Generation returned a nil unchanged list")
++	}
++	assertNoInspectionSideEffects(t, firstCounters)
++
++	before := make(map[string][]byte, len(wantPaths))
++	modTimes := make(map[string]time.Time, len(wantPaths))
++	for _, name := range wantPaths {
++		before[name] = append([]byte(nil), readFixtureFile(t, root, name)...)
++		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(name)))
++		if err != nil {
++			t.Fatal(err)
++		}
++		modTimes[name] = info.ModTime()
++		if name != project.Manifest().Outputs.TypeScript {
++			var document map[string]any
++			if err := json.Unmarshal(before[name], &document); err != nil {
++				t.Fatalf("generated %s is not JSON: %v", name, err)
++			}
++			if document["schema_version"] == "" {
++				t.Fatalf("generated %s has no schema version", name)
++			}
++		}
++	}
++	if typescript := string(before[project.Manifest().Outputs.TypeScript]); !strings.Contains(typescript, `"records.archive"`) || !strings.Contains(typescript, `"records.create"`) {
++		t.Fatalf("TypeScript catalog is incomplete:\n%s", typescript)
++	}
++	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(project.Manifest().Build.Output))); !os.IsNotExist(err) {
++		t.Fatalf("Generate created build output: %v", err)
++	}
++
++	time.Sleep(5 * time.Millisecond)
++	secondCounters := &inspectionCounters{}
++	second, err := project.Generate(fixtureDefinition(secondCounters, true))
++	if err != nil {
++		t.Fatalf("Generate shuffled Definition: %v", err)
++	}
++	if len(second.Written) != 0 || !reflect.DeepEqual(second.Unchanged, wantPaths) {
++		t.Fatalf("second Generation = %#v, want Unchanged %v", second, wantPaths)
++	}
++	if second.Written == nil {
++		t.Fatal("second Generation returned a nil written list")
++	}
++	assertNoInspectionSideEffects(t, secondCounters)
++	for _, name := range wantPaths {
++		if after := readFixtureFile(t, root, name); !bytes.Equal(after, before[name]) {
++			t.Fatalf("%s changed across identical generation", name)
++		}
++		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(name)))
++		if err != nil {
++			t.Fatal(err)
++		}
++		if !info.ModTime().Equal(modTimes[name]) {
++			t.Fatalf("%s was replaced despite byte equality", name)
++		}
++	}
++	drift, err := project.Check(fixtureDefinition(&inspectionCounters{}, true))
++	if err != nil || len(drift) != 0 {
++		t.Fatalf("Check after generation = %#v, %v", drift, err)
++	}
++	assertNoTemporaryArtifacts(t, root)
++}
++
++func TestCheckReportsAllSortedDriftWithoutWrites(t *testing.T) {
++	root := writeFixtureProject(t, validProjectManifest)
++	project := loadFixtureProject(t, root)
++	definition := fixtureDefinition(&inspectionCounters{}, false)
++
++	before := snapshotTree(t, root)
++	drift, err := project.Check(definition)
++	if err != nil {
++		t.Fatalf("Check missing artifacts: %v", err)
++	}
++	wantMissing := []Drift{
++		{Path: "internal/generated/action_catalog.json", Status: DriftMissing},
++		{Path: "internal/generated/module_graph.json", Status: DriftMissing},
++		{Path: "web/src/generated/actionContracts.ts", Status: DriftMissing},
++	}
++	if !reflect.DeepEqual(drift, wantMissing) {
++		t.Fatalf("missing drift = %#v, want %#v", drift, wantMissing)
++	}
++	driftErr := &DriftError{Items: drift}
++	if got, want := driftErr.Error(), "generated artifact drift: internal/generated/action_catalog.json (missing), internal/generated/module_graph.json (missing), web/src/generated/actionContracts.ts (missing)"; got != want {
++		t.Fatalf("DriftError = %q, want %q", got, want)
++	}
++	if !errors.Is(driftErr, ErrDrift) {
++		t.Fatal("DriftError does not unwrap to ErrDrift")
++	}
++	if after := snapshotTree(t, root); !reflect.DeepEqual(after, before) {
++		t.Fatalf("Check mutated project\nbefore: %#v\nafter:  %#v", before, after)
++	}
++
++	if _, err := project.Generate(definition); err != nil {
++		t.Fatal(err)
++	}
++	actions := filepath.Join(root, filepath.FromSlash(project.Manifest().Outputs.Actions))
++	if err := os.WriteFile(actions, []byte("different"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	graph := filepath.Join(root, filepath.FromSlash(project.Manifest().Outputs.Graph))
++	if err := os.Remove(graph); err != nil {
++		t.Fatal(err)
++	}
++	before = snapshotTree(t, root)
++	drift, err = project.Check(definition)
++	if err != nil {
++		t.Fatal(err)
++	}
++	want := []Drift{
++		{Path: project.Manifest().Outputs.Actions, Status: DriftDifferent},
++		{Path: project.Manifest().Outputs.Graph, Status: DriftMissing},
++	}
++	if !reflect.DeepEqual(drift, want) {
++		t.Fatalf("drift = %#v, want %#v", drift, want)
++	}
++	if after := snapshotTree(t, root); !reflect.DeepEqual(after, before) {
++		t.Fatalf("drift Check mutated project\nbefore: %#v\nafter:  %#v", before, after)
++	}
++}
++
++func TestGenerateValidationFailurePreservesEveryArtifact(t *testing.T) {
++	root := writeFixtureProject(t, validProjectManifest)
++	project := loadFixtureProject(t, root)
++	valid := fixtureDefinition(&inspectionCounters{}, false)
++	if _, err := project.Generate(valid); err != nil {
++		t.Fatal(err)
++	}
++	before := snapshotTree(t, root)
++	invalid := fixtureDefinition(&inspectionCounters{}, false)
++	invalid.Modules[1].Definition.Actions[0].Descriptor.OutputSchema = []byte(`{"type":false}`)
++	if _, err := project.Generate(invalid); err == nil {
++		t.Fatal("Generate accepted an invalid Definition")
++	}
++	if after := snapshotTree(t, root); !reflect.DeepEqual(after, before) {
++		t.Fatalf("validation failure changed project\nbefore: %#v\nafter:  %#v", before, after)
++	}
++	assertNoTemporaryArtifacts(t, root)
++}
++
++func TestGeneratedArtifactSizeLimitFailsClosed(t *testing.T) {
++	root := writeFixtureProject(t, validProjectManifest)
++	project := loadFixtureProject(t, root)
++	graph := filepath.Join(root, filepath.FromSlash(project.Manifest().Outputs.Graph))
++	if err := os.MkdirAll(filepath.Dir(graph), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	file, err := os.OpenFile(graph, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o644)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := file.Truncate(MaximumGeneratedArtifactBytes + 1); err != nil {
++		_ = file.Close()
++		t.Fatal(err)
++	}
++	if err := file.Close(); err != nil {
++		t.Fatal(err)
++	}
++	before, err := os.Stat(graph)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := project.Generate(fixtureDefinition(&inspectionCounters{}, false)); err == nil {
++		t.Fatal("Generate accepted an oversized existing artifact")
++	}
++	after, err := os.Stat(graph)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
++		t.Fatalf("oversized artifact changed: before=%v after=%v", before, after)
++	}
++	assertNoTemporaryArtifacts(t, root)
++}
++
++func TestGeneratePreparationFailureCleansEarlierTemporaryFiles(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("permission semantics differ on Windows")
++	}
++	manifest := strings.Replace(validProjectManifest, "internal/generated/action_catalog.json", "a/actions.json", 1)
++	manifest = strings.Replace(manifest, "internal/generated/module_graph.json", "z/graph.json", 1)
++	manifest = strings.Replace(manifest, "  typescript: web/src/generated/actionContracts.ts\n", "", 1)
++	root := writeFixtureProject(t, manifest)
++	if err := os.MkdirAll(filepath.Join(root, "a"), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	locked := filepath.Join(root, "z")
++	if err := os.MkdirAll(locked, 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Chmod(locked, 0o555); err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
++	probe, probeErr := os.OpenFile(filepath.Join(locked, "probe"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
++	if probeErr == nil {
++		_ = probe.Close()
++		_ = os.Remove(filepath.Join(locked, "probe"))
++		t.Skip("current user can write to read-only directories")
++	}
++
++	project := loadFixtureProject(t, root)
++	if _, err := project.Generate(fixtureDefinition(&inspectionCounters{}, false)); err == nil {
++		t.Fatal("Generate succeeded despite an unwritable destination")
++	}
++	if _, err := os.Stat(filepath.Join(root, "a", "actions.json")); !os.IsNotExist(err) {
++		t.Fatalf("earlier output was installed: %v", err)
++	}
++	if _, err := os.Stat(filepath.Join(root, "z", "graph.json")); !os.IsNotExist(err) {
++		t.Fatalf("failed output was installed: %v", err)
++	}
++	assertNoTemporaryArtifacts(t, root)
++}
++
++func TestConcurrentGenerateSerializesCompleteBatches(t *testing.T) {
++	root := writeFixtureProject(t, validProjectManifest)
++	project := loadFixtureProject(t, root)
++	const workers = 24
++	start := make(chan struct{})
++	errorsByWorker := make(chan error, workers)
++	var wait sync.WaitGroup
++	for index := 0; index < workers; index++ {
++		wait.Add(1)
++		go func(reverse bool) {
++			defer wait.Done()
++			<-start
++			counters := &inspectionCounters{}
++			_, err := project.Generate(fixtureDefinition(counters, reverse))
++			if err == nil && (counters.starts.Load() != 0 || counters.handlers.Load() != 0 || counters.opens.Load() != 0) {
++				err = fmt.Errorf("inspection callbacks ran")
++			}
++			errorsByWorker <- err
++		}(index%2 == 0)
++	}
++	close(start)
++	wait.Wait()
++	close(errorsByWorker)
++	for err := range errorsByWorker {
++		if err != nil {
++			t.Fatalf("concurrent Generate: %v", err)
++		}
++	}
++	for _, name := range []string{project.Manifest().Outputs.Actions, project.Manifest().Outputs.Graph} {
++		if !json.Valid(readFixtureFile(t, root, name)) {
++			t.Fatalf("%s is not valid JSON", name)
++		}
++	}
++	drift, err := project.Check(fixtureDefinition(&inspectionCounters{}, false))
++	if err != nil || len(drift) != 0 {
++		t.Fatalf("Check after concurrent generation = %#v, %v", drift, err)
++	}
++	assertNoTemporaryArtifacts(t, root)
++}
++
++func TestProjectRootGateSeparatesRootsAndHonorsCancellation(t *testing.T) {
++	releaseFirst, err := acquireProjectRoot(context.Background(), "/project/first")
++	if err != nil {
++		t.Fatal(err)
++	}
++	releaseSecond, err := acquireProjectRoot(context.Background(), "/project/second")
++	if err != nil {
++		releaseFirst()
++		t.Fatal(err)
++	}
++	ctx, cancel := context.WithCancel(context.Background())
++	cancel()
++	if release, err := acquireProjectRoot(ctx, "/project/first"); !errors.Is(err, context.Canceled) {
++		if release != nil {
++			release()
++		}
++		releaseSecond()
++		releaseFirst()
++		t.Fatalf("same-root acquire error = %v", err)
++	}
++	releaseSecond()
++	releaseFirst()
++
++	projectRootGates.Lock()
++	remaining := len(projectRootGates.byRoot)
++	projectRootGates.Unlock()
++	if remaining != 0 {
++		t.Fatalf("root gate registry retained %d entries", remaining)
++	}
++}
++
++func TestOptionalTypeScriptOutputIsTrulyOptional(t *testing.T) {
++	manifest := strings.Replace(validProjectManifest, "  typescript: web/src/generated/actionContracts.ts\n", "", 1)
++	root := writeFixtureProject(t, manifest)
++	project := loadFixtureProject(t, root)
++	result, err := project.Generate(fixtureDefinition(&inspectionCounters{}, false))
++	if err != nil {
++		t.Fatal(err)
++	}
++	want := []string{project.Manifest().Outputs.Actions, project.Manifest().Outputs.Graph}
++	sort.Strings(want)
++	if !reflect.DeepEqual(result.Written, want) {
++		t.Fatalf("Written = %v, want %v", result.Written, want)
++	}
++	if _, err := os.Stat(filepath.Join(root, "web")); !os.IsNotExist(err) {
++		t.Fatalf("optional TypeScript directory exists: %v", err)
++	}
++}
++
++func TestRollbackReplacementsRestoresWholePriorBatch(t *testing.T) {
++	rootDirectory := t.TempDir()
++	root, err := os.OpenRoot(rootDirectory)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer root.Close()
++	if err := root.Mkdir("generated", 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(rootDirectory, "generated", "existing.json"), []byte("old existing"), 0o640); err != nil {
++		t.Fatal(err)
++	}
++	if err := root.Rename("generated/existing.json", "generated/existing.backup"); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(rootDirectory, "generated", "existing.json"), []byte("new existing"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(rootDirectory, "generated", "new.json"), []byte("new file"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	changes := []replacement{
++		{
++			artifact:     artifact{path: "generated/existing.json"},
++			previous:     []byte("old existing"),
++			previousMode: 0o640,
++			existed:      true,
++			backup:       "generated/existing.backup",
++			backedUp:     true,
++			installed:    true,
++		},
++		{
++			artifact:  artifact{path: "generated/new.json"},
++			existed:   false,
++			installed: true,
++		},
++	}
++	if err := rollbackReplacements(root, changes); err != nil {
++		t.Fatalf("rollbackReplacements: %v", err)
++	}
++	if got := string(readFileForTest(t, filepath.Join(rootDirectory, "generated", "existing.json"))); got != "old existing" {
++		t.Fatalf("restored existing = %q", got)
++	}
++	if _, err := os.Stat(filepath.Join(rootDirectory, "generated", "new.json")); !os.IsNotExist(err) {
++		t.Fatalf("new output survived rollback: %v", err)
++	}
++
++	if err := os.WriteFile(filepath.Join(rootDirectory, "generated", "existing.json"), []byte("new again"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	fallback := replacement{
++		artifact:     artifact{path: "generated/existing.json"},
++		previous:     []byte("recreated old"),
++		previousMode: 0o600,
++		existed:      true,
++		canRecreate:  true,
++		backedUp:     true,
++		installed:    true,
++	}
++	if err := rollbackReplacements(root, []replacement{fallback}); err != nil {
++		t.Fatalf("fallback rollback: %v", err)
++	}
++	if got := string(readFileForTest(t, filepath.Join(rootDirectory, "generated", "existing.json"))); got != "recreated old" {
++		t.Fatalf("fallback restored = %q", got)
++	}
++	info, err := os.Stat(filepath.Join(rootDirectory, "generated", "existing.json"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if info.Mode().Perm() != 0o600 {
++		t.Fatalf("fallback mode = %o", info.Mode().Perm())
++	}
++	assertNoTemporaryArtifacts(t, rootDirectory)
++}
++
++type treeEntry struct {
++	Mode    fs.FileMode
++	ModTime time.Time
++	Data    string
++}
++
++func snapshotTree(t *testing.T, root string) map[string]treeEntry {
++	t.Helper()
++	result := make(map[string]treeEntry)
++	err := filepath.WalkDir(root, func(name string, entry fs.DirEntry, err error) error {
++		if err != nil {
++			return err
++		}
++		relative, err := filepath.Rel(root, name)
++		if err != nil {
++			return err
++		}
++		info, err := entry.Info()
++		if err != nil {
++			return err
++		}
++		item := treeEntry{Mode: info.Mode(), ModTime: info.ModTime()}
++		if info.Mode().IsRegular() {
++			data, err := os.ReadFile(name)
++			if err != nil {
++				return err
++			}
++			item.Data = string(data)
++		}
++		result[filepath.ToSlash(relative)] = item
++		return nil
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	return result
++}
+diff --git a/projecttool/run.go b/projecttool/run.go
+new file mode 100644
+index 0000000..7447bf2
+--- /dev/null
++++ b/projecttool/run.go
+@@ -0,0 +1,219 @@
++package projecttool
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"io"
++	"os"
++	"sync"
++
++	"github.com/iiwish/modary/appkit"
++)
++
++// CommandUsage is the stable usage text for a consumer-owned project tool.
++const CommandUsage = `Usage:
++  modary verify
++  modary generate
++  modary generate --check
++  modary check
++  modary build
++  modary help
++`
++
++// DefinitionProvider returns the consumer's explicit Go composition. Run calls
++// it only after command syntax and modary.yaml have both been validated.
++type DefinitionProvider func() appkit.Definition
++
++// Options configures the consumer-owned project command. An empty root selects
++// the current directory and nil writers select the process standard streams.
++type Options struct {
++	Root   string
++	Stdout io.Writer
++	Stderr io.Writer
++}
++
++type projectCommand uint8
++
++const (
++	commandHelp projectCommand = iota
++	commandVerify
++	commandGenerate
++	commandCheck
++	commandBuild
++)
++
++// Run dispatches pure consumer project commands. Invalid syntax and help do not
++// read the project, while an invalid manifest fails before DefinitionProvider.
++func Run(ctx context.Context, args []string, provider DefinitionProvider, options Options) error {
++	if ctx == nil {
++		return ErrContextRequired
++	}
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	command, err := parseProjectCommand(args)
++	if err != nil {
++		return err
++	}
++	stdout, stderr, err := normalizeCommandWriters(options)
++	if err != nil {
++		return err
++	}
++	if command == commandHelp {
++		return writeCommandBytesContext(ctx, stdout, []byte(CommandUsage))
++	}
++
++	project, err := LoadContext(ctx, options.Root)
++	if err != nil {
++		return err
++	}
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	definition, err := invokeDefinitionProvider(provider)
++	if err != nil {
++		return err
++	}
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++
++	switch command {
++	case commandVerify:
++		snapshot, err := project.VerifyContext(ctx, definition)
++		if err != nil {
++			return err
++		}
++		return writeCommandJSONContext(ctx, stdout, struct {
++			Application appkit.Metadata `json:"application"`
++			Modules     int             `json:"modules"`
++			Actions     int             `json:"actions"`
++		}{Application: snapshot.Application, Modules: len(snapshot.Modules), Actions: len(snapshot.Actions)})
++	case commandGenerate:
++		result, err := project.GenerateContext(ctx, definition)
++		if err != nil {
++			return err
++		}
++		return writeCommandJSONContext(ctx, stdout, result)
++	case commandCheck:
++		drift, err := project.CheckContext(ctx, definition)
++		if err != nil {
++			return err
++		}
++		if len(drift) != 0 {
++			return &DriftError{Items: append([]Drift(nil), drift...)}
++		}
++		return writeCommandJSONContext(ctx, stdout, struct {
++			Current bool `json:"current"`
++		}{Current: true})
++	case commandBuild:
++		result, err := project.Build(ctx, definition, BuildOptions{Stdout: stdout, Stderr: stderr})
++		if err != nil {
++			return err
++		}
++		return writeCommandJSONContext(ctx, stdout, result)
++	default:
++		return newUsageError("unsupported project command")
++	}
++}
++
++func parseProjectCommand(args []string) (projectCommand, error) {
++	if len(args) == 0 {
++		return commandHelp, nil
++	}
++	switch args[0] {
++	case "help", "--help", "-h":
++		if len(args) != 1 {
++			return 0, newUsageError("help accepts no arguments")
++		}
++		return commandHelp, nil
++	case "verify":
++		if len(args) != 1 {
++			return 0, newUsageError("verify accepts no arguments")
++		}
++		return commandVerify, nil
++	case "generate":
++		if len(args) == 1 {
++			return commandGenerate, nil
++		}
++		if len(args) == 2 && args[1] == "--check" {
++			return commandCheck, nil
++		}
++		return 0, newUsageError("generate accepts only --check")
++	case "check":
++		if len(args) != 1 {
++			return 0, newUsageError("check accepts no arguments")
++		}
++		return commandCheck, nil
++	case "build":
++		if len(args) != 1 {
++			return 0, newUsageError("build accepts no arguments")
++		}
++		return commandBuild, nil
++	default:
++		return 0, newUsageError("unknown project command %q", args[0])
++	}
++}
++
++func normalizeCommandWriters(options Options) (io.Writer, io.Writer, error) {
++	if isTypedNil(options.Stdout) {
++		return nil, nil, newUsageError("stdout Writer cannot be typed nil")
++	}
++	if isTypedNil(options.Stderr) {
++		return nil, nil, newUsageError("stderr Writer cannot be typed nil")
++	}
++	stdout := options.Stdout
++	if stdout == nil {
++		stdout = os.Stdout
++	}
++	stderr := options.Stderr
++	if stderr == nil {
++		stderr = os.Stderr
++	}
++	return stdout, stderr, nil
++}
++
++func invokeDefinitionProvider(provider DefinitionProvider) (definition appkit.Definition, err error) {
++	if provider == nil {
++		return appkit.Definition{}, fmt.Errorf("Definition provider is required")
++	}
++	defer func() {
++		if recover() != nil {
++			definition = appkit.Definition{}
++			err = &CallbackPanicError{Operation: "Definition provider"}
++		}
++	}()
++	return provider(), nil
++}
++
++func writeCommandJSON(writer io.Writer, value any) error {
++	return writeCommandJSONContext(context.Background(), writer, value)
++}
++
++func writeCommandJSONContext(ctx context.Context, writer io.Writer, value any) error {
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	data, err := json.Marshal(value)
++	if err != nil {
++		return fmt.Errorf("encode project command result: %w", err)
++	}
++	return writeCommandBytesContext(ctx, writer, append(data, '\n'))
++}
++
++func writeCommandBytes(writer io.Writer, data []byte) error {
++	return writeCommandBytesContext(context.Background(), writer, data)
++}
++
++func writeCommandBytesContext(ctx context.Context, writer io.Writer, data []byte) error {
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	guarded := &guardedWriter{gate: &sync.Mutex{}, target: writer, operation: "command output"}
++	_, err := guarded.Write(data)
++	if err != nil {
++		return err
++	}
++	return ctx.Err()
++}
+diff --git a/projecttool/build.go b/projecttool/build.go
+new file mode 100644
+index 0000000..45d299c
+--- /dev/null
++++ b/projecttool/build.go
+@@ -0,0 +1,372 @@
++package projecttool
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"io"
++	"io/fs"
++	"os"
++	"os/exec"
++	"path"
++	"path/filepath"
++	"reflect"
++	"strings"
++	"sync"
++	"time"
++
++	"github.com/iiwish/modary/appkit"
++)
++
++// BuildOptions receives Go compiler output. Nil writers select the process
++// standard streams; typed nil writers are rejected before compiler invocation.
++type BuildOptions struct {
++	Stdout io.Writer
++	Stderr io.Writer
++}
++
++// BuildResult identifies the atomically installed consumer binary.
++type BuildResult struct {
++	Output string `json:"output"`
++}
++
++// Build verifies the supplied Definition, requires every generated artifact to
++// be current, and invokes only "go build" for the configured consumer package.
++// Ambient GOFLAGS and GOENV are disabled so they cannot inject tool execution.
++// The previous binary remains in place unless the complete build succeeds.
++func (project *Project) Build(ctx context.Context, definition appkit.Definition, options BuildOptions) (BuildResult, error) {
++	if ctx == nil {
++		return BuildResult{}, ErrContextRequired
++	}
++	if err := ctx.Err(); err != nil {
++		return BuildResult{}, err
++	}
++	if project == nil {
++		return BuildResult{}, fmt.Errorf("project is required")
++	}
++	stdout, stderr, err := newBuildWriters(options)
++	if err != nil {
++		return BuildResult{}, err
++	}
++
++	release, err := acquireProjectRoot(ctx, projectRoot(project))
++	if err != nil {
++		return BuildResult{}, err
++	}
++	defer release()
++	if err := ctx.Err(); err != nil {
++		return BuildResult{}, err
++	}
++	root, err := project.openVerifiedRoot(ctx)
++	if err != nil {
++		return BuildResult{}, err
++	}
++	defer root.Close()
++	_, artifacts, err := project.prepare(ctx, root, definition)
++	if err != nil {
++		return BuildResult{}, err
++	}
++	drift, err := checkArtifactsContext(ctx, root, artifacts)
++	if err != nil {
++		return BuildResult{}, err
++	}
++	if len(drift) != 0 {
++		return BuildResult{}, &DriftError{Items: append([]Drift(nil), drift...)}
++	}
++	if err := validateConfiguredDirectoryPathContext(ctx, root, strings.TrimPrefix(project.manifest.Build.Package, "./"), true); err != nil {
++		return BuildResult{}, fmt.Errorf("validate build package: %w", err)
++	}
++
++	target := project.manifest.Build.Output
++	baseline, err := inspectBuildTarget(root, target)
++	if err != nil {
++		return BuildResult{}, err
++	}
++	createdDirectories, err := ensureArtifactDirectoriesContext(ctx, root, path.Dir(target))
++	if err != nil {
++		return BuildResult{}, err
++	}
++	cleanupDirectories := func() { removeEmptyDirectories(root, createdDirectories) }
++	temporary, placeholder, err := createSiblingTemporaryContext(ctx, root, target, ".build")
++	if err != nil {
++		cleanupDirectories()
++		return BuildResult{}, err
++	}
++	absoluteTemporary := filepath.Join(project.root, filepath.FromSlash(temporary))
++	cleanupBuild := func() error {
++		var cleanupErr error
++		if temporary != "" {
++			if err := root.Remove(temporary); err != nil && !errors.Is(err, fs.ErrNotExist) {
++				cleanupErr = fmt.Errorf("remove temporary build output %s: %w", temporary, err)
++			}
++		}
++		if absoluteTemporary != "" {
++			if err := os.Remove(absoluteTemporary); err != nil && !errors.Is(err, fs.ErrNotExist) {
++				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove pathname temporary build output: %w", err))
++			}
++		}
++		cleanupDirectories()
++		return cleanupErr
++	}
++	if err := placeholder.Close(); err != nil {
++		return BuildResult{}, errors.Join(fmt.Errorf("close build placeholder: %w", err), cleanupBuild())
++	}
++
++	if err := ctx.Err(); err != nil {
++		return BuildResult{}, errors.Join(err, cleanupBuild())
++	}
++	if err := project.verifyRootPathBinding(root); err != nil {
++		return BuildResult{}, errors.Join(err, cleanupBuild())
++	}
++	command := exec.CommandContext(ctx, "go", "build", "-trimpath", "-o", absoluteTemporary, project.manifest.Build.Package)
++	command.Dir = project.root
++	command.Env = goBuildEnvironment(os.Environ())
++	command.Stdout = stdout
++	command.Stderr = stderr
++	commandErr := command.Run()
++	writerErr := errors.Join(stdout.Err(), stderr.Err())
++	bindingErr := project.verifyRootPathBinding(root)
++	if commandErr != nil || writerErr != nil {
++		if ctxErr := ctx.Err(); ctxErr != nil {
++			return BuildResult{}, errors.Join(ctxErr, writerErr, bindingErr, cleanupBuild())
++		}
++		return BuildResult{}, errors.Join(
++			fmt.Errorf("build Go package %s: %w", project.manifest.Build.Package, errors.Join(commandErr, writerErr, bindingErr)),
++			cleanupBuild(),
++		)
++	}
++	if bindingErr != nil {
++		return BuildResult{}, errors.Join(bindingErr, cleanupBuild())
++	}
++	if err := sealBuildOutput(root, temporary); err != nil {
++		return BuildResult{}, errors.Join(err, cleanupBuild())
++	}
++	if err := ctx.Err(); err != nil {
++		return BuildResult{}, errors.Join(err, cleanupBuild())
++	}
++	if err := project.validateFilesystemPathsContext(ctx, root); err != nil {
++		return BuildResult{}, errors.Join(err, cleanupBuild())
++	}
++	if err := project.verifyRootPathBinding(root); err != nil {
++		return BuildResult{}, errors.Join(err, cleanupBuild())
++	}
++	if err := validateConfiguredDirectoryPathContext(ctx, root, strings.TrimPrefix(project.manifest.Build.Package, "./"), true); err != nil {
++		return BuildResult{}, errors.Join(fmt.Errorf("validate build package after Go build: %w", err), cleanupBuild())
++	}
++	secondDrift, err := checkArtifactsContext(ctx, root, artifacts)
++	if err != nil {
++		return BuildResult{}, errors.Join(err, cleanupBuild())
++	}
++	if len(secondDrift) != 0 {
++		return BuildResult{}, errors.Join(
++			&DriftError{Items: append([]Drift(nil), secondDrift...)},
++			cleanupBuild(),
++		)
++	}
++	if err := baseline.matches(root, target); err != nil {
++		return BuildResult{}, errors.Join(err, cleanupBuild())
++	}
++	if err := project.verifyRootPathBinding(root); err != nil {
++		return BuildResult{}, errors.Join(err, cleanupBuild())
++	}
++	if err := ctx.Err(); err != nil {
++		return BuildResult{}, errors.Join(err, cleanupBuild())
++	}
++
++	// Commit and rollback must complete once the first target rename begins.
++	change := replacement{
++		artifact:     artifact{path: target},
++		existed:      baseline.exists,
++		previousMode: baseline.mode,
++		temporary:    temporary,
++	}
++	if baseline.exists {
++		backup, err := unusedSiblingName(root, target, ".bak")
++		if err != nil {
++			return BuildResult{}, errors.Join(err, cleanupBuild())
++		}
++		change.backup = backup
++		if err := root.Rename(target, backup); err != nil {
++			return BuildResult{}, errors.Join(fmt.Errorf("backup build output %s: %w", target, err), cleanupBuild())
++		}
++		change.backedUp = true
++	}
++	if err := root.Rename(temporary, target); err != nil {
++		rollbackErr := rollbackReplacements(root, []replacement{change})
++		return BuildResult{}, errors.Join(fmt.Errorf("replace build output %s: %w", target, err), rollbackErr, cleanupBuild())
++	}
++	change.temporary = ""
++	temporary = ""
++	absoluteTemporary = ""
++	change.installed = true
++	if err := syncArtifactDirectories(root, []replacement{change}); err != nil {
++		rollbackErr := rollbackReplacements(root, []replacement{change})
++		return BuildResult{}, errors.Join(fmt.Errorf("sync build output directory: %w", err), rollbackErr, cleanupBuild())
++	}
++	if err := project.verifyRootPathBinding(root); err != nil {
++		rollbackErr := rollbackReplacements(root, []replacement{change})
++		return BuildResult{}, errors.Join(err, rollbackErr, cleanupBuild())
++	}
++	if change.backup != "" {
++		if err := root.Remove(change.backup); err != nil && !errors.Is(err, fs.ErrNotExist) {
++			rollbackErr := rollbackReplacements(root, []replacement{change})
++			return BuildResult{}, errors.Join(fmt.Errorf("remove build output backup: %w", err), rollbackErr, cleanupBuild())
++		}
++	}
++	return BuildResult{Output: target}, nil
++}
++
++func goBuildEnvironment(environment []string) []string {
++	result := make([]string, 0, len(environment)+2)
++	for _, item := range environment {
++		name := item
++		if index := strings.IndexByte(name, '='); index >= 0 {
++			name = name[:index]
++		}
++		if strings.EqualFold(name, "GOFLAGS") || strings.EqualFold(name, "GOENV") {
++			continue
++		}
++		result = append(result, item)
++	}
++	return append(result, "GOFLAGS=", "GOENV=off")
++}
++
++type buildTargetState struct {
++	exists  bool
++	info    fs.FileInfo
++	mode    fs.FileMode
++	size    int64
++	modTime time.Time
++}
++
++func inspectBuildTarget(root *os.Root, target string) (buildTargetState, error) {
++	info, err := root.Lstat(target)
++	if errors.Is(err, fs.ErrNotExist) {
++		return buildTargetState{}, nil
++	}
++	if err != nil {
++		return buildTargetState{}, fmt.Errorf("inspect build output %s: %w", target, err)
++	}
++	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
++		return buildTargetState{}, fmt.Errorf("build output %s must be a regular non-symlink file", target)
++	}
++	return buildTargetState{exists: true, info: info, mode: info.Mode(), size: info.Size(), modTime: info.ModTime()}, nil
++}
++
++func (state buildTargetState) matches(root *os.Root, target string) error {
++	current, err := root.Lstat(target)
++	if errors.Is(err, fs.ErrNotExist) && !state.exists {
++		return nil
++	}
++	if err != nil {
++		if errors.Is(err, fs.ErrNotExist) {
++			return fmt.Errorf("build output %s changed concurrently", target)
++		}
++		return fmt.Errorf("inspect build output %s: %w", target, err)
++	}
++	if !state.exists || current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() ||
++		!os.SameFile(state.info, current) || current.Mode() != state.mode ||
++		current.Size() != state.size || !current.ModTime().Equal(state.modTime) {
++		return fmt.Errorf("build output %s changed concurrently", target)
++	}
++	return nil
++}
++
++func sealBuildOutput(root *os.Root, name string) error {
++	before, err := root.Lstat(name)
++	if err != nil {
++		return fmt.Errorf("inspect temporary build output: %w", err)
++	}
++	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() || before.Size() == 0 {
++		return fmt.Errorf("Go build did not produce a non-empty regular output")
++	}
++	file, err := root.OpenFile(name, os.O_RDWR, 0)
++	if err != nil {
++		return fmt.Errorf("open temporary build output: %w", err)
++	}
++	chmodErr := file.Chmod(0o755)
++	syncErr := file.Sync()
++	opened, statErr := file.Stat()
++	closeErr := file.Close()
++	after, lstatErr := root.Lstat(name)
++	if chmodErr != nil || syncErr != nil || statErr != nil || closeErr != nil || lstatErr != nil {
++		return fmt.Errorf("seal temporary build output: %w", errors.Join(chmodErr, syncErr, statErr, closeErr, lstatErr))
++	}
++	if after.Mode()&os.ModeSymlink != 0 || !after.Mode().IsRegular() ||
++		!os.SameFile(before, opened) || !os.SameFile(opened, after) {
++		return fmt.Errorf("temporary build output changed while it was sealed")
++	}
++	return nil
++}
++
++type guardedWriter struct {
++	gate      *sync.Mutex
++	target    io.Writer
++	operation string
++	err       error
++}
++
++func newBuildWriters(options BuildOptions) (*guardedWriter, *guardedWriter, error) {
++	if isTypedNil(options.Stdout) || isTypedNil(options.Stderr) {
++		return nil, nil, newUsageError("build output writers cannot be typed nil")
++	}
++	stdout := options.Stdout
++	if stdout == nil {
++		stdout = os.Stdout
++	}
++	stderr := options.Stderr
++	if stderr == nil {
++		stderr = os.Stderr
++	}
++	gate := &sync.Mutex{}
++	return &guardedWriter{gate: gate, target: stdout, operation: "build stdout"},
++		&guardedWriter{gate: gate, target: stderr, operation: "build stderr"}, nil
++}
++
++func (writer *guardedWriter) Write(data []byte) (written int, result error) {
++	writer.gate.Lock()
++	defer writer.gate.Unlock()
++	if writer.err != nil {
++		return 0, writer.err
++	}
++	defer func() {
++		if recover() != nil {
++			result = &CallbackPanicError{Operation: writer.operation}
++			writer.err = result
++			written = 0
++		}
++	}()
++	written, result = writer.target.Write(data)
++	if isTypedNil(result) {
++		result = nil
++	}
++	if written < 0 || written > len(data) {
++		result = fmt.Errorf("%s returned invalid byte count %d", writer.operation, written)
++		written = 0
++	} else if written != len(data) && result == nil {
++		result = io.ErrShortWrite
++	}
++	if result != nil {
++		writer.err = result
++	}
++	return written, result
++}
++
++func (writer *guardedWriter) Err() error {
++	writer.gate.Lock()
++	defer writer.gate.Unlock()
++	return writer.err
++}
++
++func isTypedNil(value any) bool {
++	if value == nil {
++		return false
++	}
++	reflected := reflect.ValueOf(value)
++	switch reflected.Kind() {
++	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
++		return reflected.IsNil()
++	default:
++		return false
++	}
++}
+diff --git a/projecttool/inspect_test.go b/projecttool/inspect_test.go
+new file mode 100644
+index 0000000..e82642a
+--- /dev/null
++++ b/projecttool/inspect_test.go
+@@ -0,0 +1,297 @@
++package projecttool
++
++import (
++	"encoding/json"
++	"reflect"
++	"strings"
++	"testing"
++
++	"github.com/iiwish/modary/appkit"
++	"github.com/iiwish/modary/module"
++)
++
++func TestInspectIsPureDeterministicAndDefensive(t *testing.T) {
++	firstCounters := &inspectionCounters{}
++	first, err := Inspect(fixtureDefinition(firstCounters, false))
++	if err != nil {
++		t.Fatalf("Inspect first Definition: %v", err)
++	}
++	secondCounters := &inspectionCounters{}
++	second, err := Inspect(fixtureDefinition(secondCounters, true))
++	if err != nil {
++		t.Fatalf("Inspect shuffled Definition: %v", err)
++	}
++	assertNoInspectionSideEffects(t, firstCounters)
++	assertNoInspectionSideEffects(t, secondCounters)
++
++	firstJSON, err := json.Marshal(first)
++	if err != nil {
++		t.Fatal(err)
++	}
++	secondJSON, err := json.Marshal(second)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if string(firstJSON) != string(secondJSON) {
++		t.Fatalf("shuffled Definition changed snapshot\nfirst:  %s\nsecond: %s", firstJSON, secondJSON)
++	}
++	if got, want := []string{first.Modules[0].ID, first.Modules[1].ID}, []string{"records", "storage"}; !reflect.DeepEqual(got, want) {
++		t.Fatalf("Module order = %v, want %v", got, want)
++	}
++	if got, want := first.Modules[0].Requires, []string{"records.clock", "records.store"}; !reflect.DeepEqual(got, want) {
++		t.Fatalf("sorted requirements = %v, want %v", got, want)
++	}
++	if got, want := first.Modules[1].Migrations, []string{"archive", "sqlite"}; !reflect.DeepEqual(got, want) {
++		t.Fatalf("sorted migrations = %v, want %v", got, want)
++	}
++	if got, want := []string{first.Actions[0].Descriptor.ID, first.Actions[1].Descriptor.ID}, []string{"records.archive", "records.create"}; !reflect.DeepEqual(got, want) {
++		t.Fatalf("Action order = %v, want %v", got, want)
++	}
++	for _, entry := range first.Actions {
++		if entry.ModuleID != "records" {
++			t.Fatalf("Action %s owner = %q", entry.Descriptor.ID, entry.ModuleID)
++		}
++		if got, want := entry.Descriptor.Channels, []string{"cli", "http", "mcp"}; !reflect.DeepEqual(got, want) {
++			t.Fatalf("Action %s channels = %v, want %v", entry.Descriptor.ID, got, want)
++		}
++		if !json.Valid(entry.Descriptor.InputSchema) || len(entry.ContractHash) == 0 {
++			t.Fatalf("Action %s was not compiled: %#v", entry.Descriptor.ID, entry)
++		}
++	}
++	if got := first.Graph.Provides["records.store"]; got != "storage" {
++		t.Fatalf("records.store provider = %q", got)
++	}
++	if got, want := len(first.Graph.Edges), 2; got != want {
++		t.Fatalf("graph edges = %d, want %d", got, want)
++	}
++	if got := string(first.Actions[0].Descriptor.InputSchema); got != `{"additionalProperties":false,"properties":{"count":{"type":"integer"},"name":{"type":"string"}},"required":["name"],"type":"object"}` {
++		t.Fatalf("canonical input schema = %s", got)
++	}
++
++	first.Modules[0].Requires[0] = "forged"
++	first.Graph.Modules[0] = "forged"
++	first.Graph.Provides["forged"] = "forged"
++	first.Actions[0].Descriptor.InputSchema[0] = '!'
++	fresh, err := Inspect(fixtureDefinition(&inspectionCounters{}, false))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if fresh.Modules[0].Requires[0] == "forged" || fresh.Graph.Modules[0] == "forged" || fresh.Graph.Provides["forged"] != "" || fresh.Actions[0].Descriptor.InputSchema[0] == '!' {
++		t.Fatal("Snapshot mutation leaked into a later inspection")
++	}
++}
++
++func TestInspectValidatesEveryStaticContractWithoutCallbacks(t *testing.T) {
++	tests := []struct {
++		name   string
++		mutate func(*testing.T, *inspectionCounters) []module.Registration
++	}{
++		{
++			name: "invalid Module manifest",
++			mutate: func(t *testing.T, counters *inspectionCounters) []module.Registration {
++				definition := fixtureDefinition(counters, false)
++				definition.Modules[0].Definition.Manifest.Version = "1.0"
++				return definition.Modules
++			},
++		},
++		{
++			name: "missing capability",
++			mutate: func(t *testing.T, counters *inspectionCounters) []module.Registration {
++				definition := fixtureDefinition(counters, false)
++				definition.Modules[1].Definition.Manifest.Requires = append(definition.Modules[1].Definition.Manifest.Requires, "missing.service")
++				return definition.Modules
++			},
++		},
++		{
++			name: "duplicate capability owner",
++			mutate: func(t *testing.T, counters *inspectionCounters) []module.Registration {
++				definition := fixtureDefinition(counters, false)
++				definition.Modules = append(definition.Modules, module.Register(module.Manifest{
++					SchemaVersion: module.SchemaVersion,
++					ID:            "other-storage",
++					Version:       "1.0.0",
++					Type:          "adapter",
++					Provides:      []string{"records.store"},
++				}, nil))
++				return definition.Modules
++			},
++		},
++		{
++			name: "invalid migration declaration",
++			mutate: func(t *testing.T, counters *inspectionCounters) []module.Registration {
++				definition := fixtureDefinition(counters, false)
++				definition.Modules[0].Definition.Migrations[0].Driver = "INVALID"
++				return definition.Modules
++			},
++		},
++		{
++			name: "nil migration files",
++			mutate: func(t *testing.T, counters *inspectionCounters) []module.Registration {
++				definition := fixtureDefinition(counters, false)
++				definition.Modules[0].Definition.Migrations[0].Files = (*failOnOpenFS)(nil)
++				return definition.Modules
++			},
++		},
++		{
++			name: "nil handler factory",
++			mutate: func(t *testing.T, counters *inspectionCounters) []module.Registration {
++				definition := fixtureDefinition(counters, false)
++				definition.Modules[1].Definition.Actions[0].NewHandler = nil
++				return definition.Modules
++			},
++		},
++		{
++			name: "invalid Action contract",
++			mutate: func(t *testing.T, counters *inspectionCounters) []module.Registration {
++				definition := fixtureDefinition(counters, false)
++				definition.Modules[1].Definition.Actions[0].Descriptor.InputSchema = []byte(`{"type":7}`)
++				return definition.Modules
++			},
++		},
++		{
++			name: "duplicate Action ownership",
++			mutate: func(t *testing.T, counters *inspectionCounters) []module.Registration {
++				definition := fixtureDefinition(counters, false)
++				duplicate := fixtureAction("records.create", false, counters)
++				definition.Modules[0].Definition.Actions = append(definition.Modules[0].Definition.Actions, duplicate)
++				return definition.Modules
++			},
++		},
++	}
++
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			counters := &inspectionCounters{}
++			definition := fixtureDefinition(counters, false)
++			definition.Modules = test.mutate(t, counters)
++			if _, err := Inspect(definition); err == nil {
++				t.Fatal("Inspect succeeded")
++			}
++			assertNoInspectionSideEffects(t, counters)
++		})
++	}
++}
++
++func TestInspectRejectsInvalidApplicationMetadataAndEmptyComposition(t *testing.T) {
++	counters := &inspectionCounters{}
++	definition := fixtureDefinition(counters, false)
++	definition.Metadata.ID = "INVALID"
++	if _, err := Inspect(definition); err == nil {
++		t.Fatal("Inspect accepted invalid metadata")
++	}
++	assertNoInspectionSideEffects(t, counters)
++
++	definition = fixtureDefinition(counters, false)
++	definition.Modules = nil
++	if _, err := Inspect(definition); err == nil {
++		t.Fatal("Inspect accepted an empty composition")
++	}
++	assertNoInspectionSideEffects(t, counters)
++}
++
++func TestProjectVerifyRequiresExactManifestIdentityWithoutWriting(t *testing.T) {
++	root := writeFixtureProject(t, validProjectManifest)
++	project := loadFixtureProject(t, root)
++	counters := &inspectionCounters{}
++	definition := fixtureDefinition(counters, false)
++	definition.Metadata = appkit.Metadata{ID: "other-app", Name: "Other App", Version: "1.0.0"}
++	before := snapshotTree(t, root)
++	if _, err := project.Verify(definition); err == nil {
++		t.Fatal("Verify accepted mismatched application identity")
++	}
++	if after := snapshotTree(t, root); !reflect.DeepEqual(after, before) {
++		t.Fatal("Verify wrote files")
++	}
++	assertNoInspectionSideEffects(t, counters)
++}
++
++func TestInspectErrorsAreDeterministicAcrossCompositionOrder(t *testing.T) {
++	first := fixtureDefinition(&inspectionCounters{}, false)
++	first.Modules[1].Definition.Manifest.Requires = append(first.Modules[1].Definition.Manifest.Requires, "missing.service")
++	second := fixtureDefinition(&inspectionCounters{}, true)
++	second.Modules[0].Definition.Manifest.Requires = append(second.Modules[0].Definition.Manifest.Requires, "missing.service")
++	_, firstErr := Inspect(first)
++	_, secondErr := Inspect(second)
++	if firstErr == nil || secondErr == nil {
++		t.Fatalf("Inspect errors = %v / %v", firstErr, secondErr)
++	}
++	if firstErr.Error() != secondErr.Error() {
++		t.Fatalf("shuffled errors differ:\n%s\n%s", firstErr, secondErr)
++	}
++}
++
++func TestInspectDuplicateIdentityPreScanIsDeterministicBeforeInternalValidation(t *testing.T) {
++	tests := []struct {
++		name      string
++		want      string
++		duplicate func(appkit.Definition) (appkit.Definition, appkit.Definition)
++	}{
++		{
++			name: "Module identity",
++			want: `duplicate Module identity "storage"`,
++			duplicate: func(first appkit.Definition) (appkit.Definition, appkit.Definition) {
++				duplicate := first.Modules[0]
++				duplicate.Definition.Manifest.Version = "invalid-internal-version"
++				first.Modules = append(first.Modules, duplicate)
++				second := first
++				second.Modules = []module.Registration{first.Modules[2], first.Modules[1], first.Modules[0]}
++				return first, second
++			},
++		},
++		{
++			name: "Action identity",
++			want: `duplicate Action identity "records.create" owned by Module "records"`,
++			duplicate: func(first appkit.Definition) (appkit.Definition, appkit.Definition) {
++				registration := &first.Modules[1]
++				duplicate := registration.Definition.Actions[0]
++				duplicate.Descriptor.InputSchema = []byte(`{"type":7}`)
++				registration.Definition.Actions = append(registration.Definition.Actions, duplicate)
++				second := first
++				second.Modules = append([]module.Registration(nil), first.Modules...)
++				second.Modules[1].Definition.Actions = append([]module.ActionBinding(nil), registration.Definition.Actions...)
++				actions := second.Modules[1].Definition.Actions
++				actions[0], actions[len(actions)-1] = actions[len(actions)-1], actions[0]
++				return first, second
++			},
++		},
++		{
++			name: "migration identity",
++			want: `duplicate migration identity "sqlite" owned by Module "storage"`,
++			duplicate: func(first appkit.Definition) (appkit.Definition, appkit.Definition) {
++				registration := &first.Modules[0]
++				duplicate := registration.Definition.Migrations[0]
++				duplicate.Files = nil
++				registration.Definition.Migrations = append(registration.Definition.Migrations, duplicate)
++				second := first
++				second.Modules = append([]module.Registration(nil), first.Modules...)
++				second.Modules[0].Definition.Migrations = append([]module.MigrationSource(nil), registration.Definition.Migrations...)
++				migrations := second.Modules[0].Definition.Migrations
++				migrations[0], migrations[len(migrations)-1] = migrations[len(migrations)-1], migrations[0]
++				return first, second
++			},
++		},
++	}
++
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			first, second := test.duplicate(fixtureDefinition(&inspectionCounters{}, false))
++			_, firstErr := Inspect(first)
++			_, secondErr := Inspect(second)
++			if firstErr == nil || secondErr == nil {
++				t.Fatalf("errors = %v / %v", firstErr, secondErr)
++			}
++			if firstErr.Error() != secondErr.Error() || firstErr.Error() != test.want {
++				t.Fatalf("errors are not canonical:\nfirst:  %s\nsecond: %s\nwant:   %s", firstErr, secondErr, test.want)
++			}
++			if !strings.HasPrefix(firstErr.Error(), "duplicate") {
++				t.Fatalf("internal validation won over duplicate pre-scan: %v", firstErr)
++			}
++		})
++	}
++}
++
++func TestCanonicalJSONRejectsMultipleValues(t *testing.T) {
++	if _, err := canonicalJSON([]byte(`{} {}`)); err == nil {
++		t.Fatal("canonicalJSON accepted multiple values")
++	}
++}
+diff --git a/projecttool/fixture_test.go b/projecttool/fixture_test.go
+new file mode 100644
+index 0000000..d5bdcb6
+--- /dev/null
++++ b/projecttool/fixture_test.go
+@@ -0,0 +1,179 @@
++package projecttool
++
++import (
++	"context"
++	"fmt"
++	"io/fs"
++	"os"
++	"path/filepath"
++	"sync/atomic"
++	"testing"
++
++	"github.com/iiwish/modary/action"
++	"github.com/iiwish/modary/appkit"
++	"github.com/iiwish/modary/module"
++)
++
++const validProjectManifest = `application:
++  id: example-app
++  name: Example App
++  version: 1.2.3
++outputs:
++  graph: internal/generated/module_graph.json
++  actions: internal/generated/action_catalog.json
++  typescript: web/src/generated/actionContracts.ts
++build:
++  package: ./cmd/example-app
++  output: dist/example-app
++`
++
++type inspectionCounters struct {
++	starts   atomic.Int64
++	handlers atomic.Int64
++	opens    atomic.Int64
++}
++
++type failOnOpenFS struct{ calls *atomic.Int64 }
++
++func (filesystem failOnOpenFS) Open(string) (fs.File, error) {
++	filesystem.calls.Add(1)
++	panic("migration files must not be opened during inspection")
++}
++
++func fixtureDefinition(counters *inspectionCounters, reverse bool) appkit.Definition {
++	storage := module.Registration{
++		Definition: module.Definition{
++			Manifest: module.Manifest{
++				SchemaVersion: module.SchemaVersion,
++				ID:            "storage",
++				Version:       "1.4.0",
++				Type:          "adapter",
++				Provides:      []string{"records.store", "records.clock"},
++			},
++			Migrations: []module.MigrationSource{
++				{Driver: "sqlite", Files: failOnOpenFS{calls: &counters.opens}},
++				{Driver: "archive", Files: failOnOpenFS{calls: &counters.opens}},
++			},
++		},
++		Start: func(context.Context, module.Scope) error {
++			counters.starts.Add(1)
++			panic("Module Start must not run during inspection")
++		},
++	}
++	feature := module.Registration{
++		Definition: module.Definition{
++			Manifest: module.Manifest{
++				SchemaVersion: module.SchemaVersion,
++				ID:            "records",
++				Version:       "2.1.0",
++				Type:          "feature",
++				Requires:      []string{"records.store", "records.clock"},
++				Provides:      []string{"records.commands"},
++			},
++			Actions: []module.ActionBinding{
++				fixtureAction("records.create", true, counters),
++				fixtureAction("records.archive", false, counters),
++			},
++		},
++		Start: func(context.Context, module.Scope) error {
++			counters.starts.Add(1)
++			panic("Module Start must not run during inspection")
++		},
++	}
++	if reverse {
++		storage.Definition.Manifest.Provides = []string{"records.clock", "records.store"}
++		storage.Definition.Migrations[0], storage.Definition.Migrations[1] = storage.Definition.Migrations[1], storage.Definition.Migrations[0]
++		feature.Definition.Manifest.Requires = []string{"records.clock", "records.store"}
++		feature.Definition.Actions[0], feature.Definition.Actions[1] = feature.Definition.Actions[1], feature.Definition.Actions[0]
++		return appkit.Definition{Metadata: fixtureMetadata(), Modules: []module.Registration{feature, storage}}
++	}
++	return appkit.Definition{Metadata: fixtureMetadata(), Modules: []module.Registration{storage, feature}}
++}
++
++func fixtureAction(id string, preview bool, counters *inspectionCounters) module.ActionBinding {
++	descriptor := action.Descriptor{
++		ID:           id,
++		Version:      "1.0.0",
++		Title:        "Fixture " + id,
++		InputSchema:  []byte(`{"required":["name"],"properties":{"name":{"type":"string"},"count":{"type":"integer"}},"type":"object","additionalProperties":false}`),
++		OutputSchema: []byte(`{"properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false,"type":"object"}`),
++		Permission:   id,
++		Preview:      action.PreviewNone,
++		AuditLevel:   action.AuditDetailed,
++		Channels:     []string{"mcp", "cli", "http"},
++	}
++	if preview {
++		descriptor.Preview = action.PreviewRequired
++		descriptor.PreviewSchema = []byte(`{"required":["summary"],"type":"object","properties":{"summary":{"type":"string"}},"additionalProperties":false}`)
++	}
++	return module.ActionBinding{
++		Descriptor: descriptor,
++		NewHandler: func(context.Context, module.Scope) (action.Handler, error) {
++			counters.handlers.Add(1)
++			panic("Action handler factory must not run during inspection")
++		},
++	}
++}
++
++func fixtureMetadata() appkit.Metadata {
++	return appkit.Metadata{ID: "example-app", Name: "Example App", Version: "1.2.3"}
++}
++
++func writeFixtureProject(t *testing.T, manifest string) string {
++	t.Helper()
++	root := t.TempDir()
++	if manifest == "" {
++		manifest = validProjectManifest
++	}
++	if err := os.WriteFile(filepath.Join(root, ProjectManifestName), []byte(manifest), 0o644); err != nil {
++		t.Fatalf("write project manifest: %v", err)
++	}
++	return root
++}
++
++func loadFixtureProject(t *testing.T, root string) *Project {
++	t.Helper()
++	project, err := Load(root)
++	if err != nil {
++		t.Fatalf("load project: %v", err)
++	}
++	return project
++}
++
++func assertNoInspectionSideEffects(t *testing.T, counters *inspectionCounters) {
++	t.Helper()
++	if got := counters.starts.Load(); got != 0 {
++		t.Fatalf("Start calls = %d, want 0", got)
++	}
++	if got := counters.handlers.Load(); got != 0 {
++		t.Fatalf("handler factory calls = %d, want 0", got)
++	}
++	if got := counters.opens.Load(); got != 0 {
++		t.Fatalf("migration Open calls = %d, want 0", got)
++	}
++}
++
++func readFixtureFile(t *testing.T, root, name string) []byte {
++	t.Helper()
++	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(name)))
++	if err != nil {
++		t.Fatalf("read %s: %v", name, err)
++	}
++	return data
++}
++
++func assertNoTemporaryArtifacts(t *testing.T, root string) {
++	t.Helper()
++	err := filepath.WalkDir(root, func(name string, entry fs.DirEntry, err error) error {
++		if err != nil {
++			return err
++		}
++		if entry.Name() != ProjectManifestName && len(entry.Name()) >= len(".modary-") && entry.Name()[:len(".modary-")] == ".modary-" {
++			return fmt.Errorf("temporary artifact remains: %s", name)
++		}
++		return nil
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++}
+diff --git a/projecttool/build_test.go b/projecttool/build_test.go
+new file mode 100644
+index 0000000..8771af3
+--- /dev/null
++++ b/projecttool/build_test.go
+@@ -0,0 +1,402 @@
++package projecttool
++
++import (
++	"bytes"
++	"context"
++	"errors"
++	"fmt"
++	"io"
++	"os"
++	"path/filepath"
++	"reflect"
++	"runtime"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/iiwish/modary/appkit"
++)
++
++func TestBuildVerifiesChecksAndAtomicallyRunsOnlyGoBuild(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("fake executable uses a POSIX shell")
++	}
++	root := writeFixtureProject(t, validProjectManifest)
++	project := loadFixtureProject(t, root)
++	createFixtureBuildPackage(t, project)
++	if _, err := project.Generate(fixtureDefinition(&inspectionCounters{}, false)); err != nil {
++		t.Fatal(err)
++	}
++	target := filepath.Join(root, filepath.FromSlash(project.Manifest().Build.Output))
++	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(target, []byte("old binary"), 0o700); err != nil {
++		t.Fatal(err)
++	}
++	tooling := installFakeBuildTools(t, `
++output=""
++: > "$MODARY_GO_LOG"
++for argument in "$@"; do printf '%s\n' "$argument" >> "$MODARY_GO_LOG"; done
++while [ "$#" -gt 0 ]; do
++  if [ "$1" = "-o" ]; then output="$2"; shift 2; else shift; fi
++done
++if [ -z "$output" ]; then exit 97; fi
++printf 'new compiled binary\n' > "$output"
++printf 'compiler stdout\n'
++printf 'compiler stderr\n' >&2
++`)
++	var stdout bytes.Buffer
++	var stderr bytes.Buffer
++	counters := &inspectionCounters{}
++	result, err := project.Build(context.Background(), fixtureDefinition(counters, true), BuildOptions{Stdout: &stdout, Stderr: &stderr})
++	if err != nil {
++		t.Fatalf("Build: %v", err)
++	}
++	if result.Output != project.Manifest().Build.Output {
++		t.Fatalf("Output = %q", result.Output)
++	}
++	if got := string(readFixtureFile(t, root, result.Output)); got != "new compiled binary\n" {
++		t.Fatalf("binary = %q", got)
++	}
++	info, err := os.Stat(target)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if info.Mode().Perm() != 0o755 {
++		t.Fatalf("binary mode = %o, want 755", info.Mode().Perm())
++	}
++	if stdout.String() != "compiler stdout\n" || stderr.String() != "compiler stderr\n" {
++		t.Fatalf("compiler output = %q / %q", stdout.String(), stderr.String())
++	}
++	arguments := strings.Split(strings.TrimSpace(string(readFileForTest(t, tooling.goLog))), "\n")
++	if len(arguments) != 5 || arguments[0] != "build" || arguments[1] != "-trimpath" || arguments[2] != "-o" || arguments[4] != "./cmd/example-app" {
++		t.Fatalf("Go arguments = %q", arguments)
++	}
++	if !filepath.IsAbs(arguments[3]) || !strings.HasPrefix(arguments[3], project.Root()+string(filepath.Separator)) {
++		t.Fatalf("temporary output escaped root: %q", arguments[3])
++	}
++	if strings.Contains(string(readFileForTest(t, tooling.goLog)), "test") {
++		t.Fatalf("Build implicitly ran tests: %s", readFileForTest(t, tooling.goLog))
++	}
++	if _, err := os.Stat(tooling.frontendMarker); !os.IsNotExist(err) {
++		t.Fatalf("frontend tool was invoked: %v", err)
++	}
++	assertNoInspectionSideEffects(t, counters)
++	assertNoTemporaryArtifacts(t, root)
++}
++
++func TestBuildRejectsDriftBeforeGoInvocation(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("fake executable uses a POSIX shell")
++	}
++	root := writeFixtureProject(t, validProjectManifest)
++	project := loadFixtureProject(t, root)
++	tooling := installFakeBuildTools(t, `exit 91`)
++	_, err := project.Build(context.Background(), fixtureDefinition(&inspectionCounters{}, false), BuildOptions{Stdout: io.Discard, Stderr: io.Discard})
++	if !errors.Is(err, ErrDrift) {
++		t.Fatalf("Build error = %v, want ErrDrift", err)
++	}
++	var drift *DriftError
++	if !errors.As(err, &drift) || len(drift.Items) != 3 {
++		t.Fatalf("Build drift = %#v", drift)
++	}
++	if _, err := os.Stat(tooling.goLog); !os.IsNotExist(err) {
++		t.Fatalf("Go was invoked before drift failed: %v", err)
++	}
++	if _, err := os.Stat(filepath.Join(root, "dist")); !os.IsNotExist(err) {
++		t.Fatalf("Build created output directory before drift failed: %v", err)
++	}
++	assertNoTemporaryArtifacts(t, root)
++}
++
++func TestBuildRejectsMissingPackageBeforeGoInvocation(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("fake executable uses a POSIX shell")
++	}
++	root := writeFixtureProject(t, validProjectManifest)
++	project := loadFixtureProject(t, root)
++	if _, err := project.Generate(fixtureDefinition(&inspectionCounters{}, false)); err != nil {
++		t.Fatal(err)
++	}
++	tooling := installFakeBuildTools(t, `exit 91`)
++	if _, err := project.Build(context.Background(), fixtureDefinition(&inspectionCounters{}, false), BuildOptions{Stdout: io.Discard, Stderr: io.Discard}); err == nil {
++		t.Fatal("Build accepted a missing package directory")
++	}
++	if _, err := os.Stat(tooling.goLog); !os.IsNotExist(err) {
++		t.Fatalf("Go was invoked for a missing package: %v", err)
++	}
++	assertNoTemporaryArtifacts(t, root)
++}
++
++func TestBuildFailurePreservesPriorBinaryAndRemovesTemporaryOutput(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("fake executable uses a POSIX shell")
++	}
++	root := writeFixtureProject(t, validProjectManifest)
++	project := loadFixtureProject(t, root)
++	createFixtureBuildPackage(t, project)
++	if _, err := project.Generate(fixtureDefinition(&inspectionCounters{}, false)); err != nil {
++		t.Fatal(err)
++	}
++	target := filepath.Join(root, filepath.FromSlash(project.Manifest().Build.Output))
++	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(target, []byte("trusted old binary"), 0o711); err != nil {
++		t.Fatal(err)
++	}
++	tooling := installFakeBuildTools(t, `
++output=""
++: > "$MODARY_GO_LOG"
++while [ "$#" -gt 0 ]; do
++  if [ "$1" = "-o" ]; then output="$2"; shift 2; else shift; fi
++done
++printf 'partial untrusted output' > "$output"
++exit 23
++`)
++	counters := &inspectionCounters{}
++	if _, err := project.Build(context.Background(), fixtureDefinition(counters, false), BuildOptions{Stdout: io.Discard, Stderr: io.Discard}); err == nil {
++		t.Fatal("Build succeeded")
++	}
++	if got := string(readFileForTest(t, target)); got != "trusted old binary" {
++		t.Fatalf("prior binary changed: %q", got)
++	}
++	info, err := os.Stat(target)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if info.Mode().Perm() != 0o711 {
++		t.Fatalf("prior binary mode changed to %o", info.Mode().Perm())
++	}
++	if _, err := os.Stat(tooling.goLog); err != nil {
++		t.Fatalf("fake Go was not invoked: %v", err)
++	}
++	if _, err := os.Stat(tooling.frontendMarker); !os.IsNotExist(err) {
++		t.Fatalf("frontend tool was invoked: %v", err)
++	}
++	assertNoInspectionSideEffects(t, counters)
++	assertNoTemporaryArtifacts(t, root)
++}
++
++func TestBuildRejectsRootPathnameSwapDuringGoCommand(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("fake executable and opened-directory rename use POSIX semantics")
++	}
++	parent := t.TempDir()
++	root := filepath.Join(parent, "project")
++	if err := os.Mkdir(root, 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(root, ProjectManifestName), []byte(validProjectManifest), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	project := loadFixtureProject(t, root)
++	createFixtureBuildPackage(t, project)
++	if _, err := project.Generate(fixtureDefinition(&inspectionCounters{}, false)); err != nil {
++		t.Fatal(err)
++	}
++	target := filepath.Join(root, filepath.FromSlash(project.Manifest().Build.Output))
++	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(target, []byte("trusted old binary"), 0o711); err != nil {
++		t.Fatal(err)
++	}
++	moved := filepath.Join(parent, "opened-root")
++	installFakeBuildTools(t, `
++output=""
++while [ "$#" -gt 0 ]; do
++  if [ "$1" = "-o" ]; then output="$2"; shift 2; else shift; fi
++done
++mv "$MODARY_PROJECT_ROOT" "$MODARY_MOVED_ROOT"
++mkdir -p "$MODARY_PROJECT_ROOT/dist" "$MODARY_PROJECT_ROOT/cmd/example-app"
++cp "$MODARY_MOVED_ROOT/modary.yaml" "$MODARY_PROJECT_ROOT/modary.yaml"
++printf 'untrusted replacement-root binary' > "$output"
++`)
++	t.Setenv("MODARY_PROJECT_ROOT", root)
++	t.Setenv("MODARY_MOVED_ROOT", moved)
++
++	_, err := project.Build(context.Background(), fixtureDefinition(&inspectionCounters{}, false), BuildOptions{Stdout: io.Discard, Stderr: io.Discard})
++	if err == nil || !strings.Contains(err.Error(), "root pathname changed") {
++		t.Fatalf("Build error = %v", err)
++	}
++	if got := string(readFileForTest(t, filepath.Join(moved, filepath.FromSlash(project.Manifest().Build.Output)))); got != "trusted old binary" {
++		t.Fatalf("trusted binary changed: %q", got)
++	}
++	if _, statErr := os.Stat(filepath.Join(root, filepath.FromSlash(project.Manifest().Build.Output))); !os.IsNotExist(statErr) {
++		t.Fatalf("replacement root retained build output: %v", statErr)
++	}
++	assertNoTemporaryArtifacts(t, moved)
++	assertNoTemporaryArtifacts(t, root)
++}
++
++func TestBuildHonorsCancellationAndContainsWriterFailures(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("fake executable uses a POSIX shell")
++	}
++	root := writeFixtureProject(t, validProjectManifest)
++	project := loadFixtureProject(t, root)
++	createFixtureBuildPackage(t, project)
++	if _, err := project.Generate(fixtureDefinition(&inspectionCounters{}, false)); err != nil {
++		t.Fatal(err)
++	}
++	tooling := installFakeBuildTools(t, `
++output=""
++: > "$MODARY_GO_LOG"
++while [ "$#" -gt 0 ]; do
++  if [ "$1" = "-o" ]; then output="$2"; shift 2; else shift; fi
++done
++printf 'binary' > "$output"
++printf 'output that reaches writer\n'
++`)
++
++	ctx, cancel := context.WithCancel(context.Background())
++	cancel()
++	if _, err := project.Build(ctx, fixtureDefinition(&inspectionCounters{}, false), BuildOptions{}); !errors.Is(err, context.Canceled) {
++		t.Fatalf("canceled Build error = %v", err)
++	}
++	if _, err := os.Stat(tooling.goLog); !os.IsNotExist(err) {
++		t.Fatalf("Go ran for canceled context: %v", err)
++	}
++
++	panicOutput := panicWriter{}
++	_, err := project.Build(context.Background(), fixtureDefinition(&inspectionCounters{}, false), BuildOptions{Stdout: panicOutput, Stderr: io.Discard})
++	if !errors.Is(err, ErrCallbackPanic) {
++		t.Fatalf("panic writer error = %v, want ErrCallbackPanic", err)
++	}
++	if _, statErr := os.Stat(filepath.Join(root, filepath.FromSlash(project.Manifest().Build.Output))); !os.IsNotExist(statErr) {
++		t.Fatalf("writer failure installed binary: %v", statErr)
++	}
++	assertNoTemporaryArtifacts(t, root)
++
++	var typedNil *bytes.Buffer
++	if _, err := project.Build(context.Background(), fixtureDefinition(&inspectionCounters{}, false), BuildOptions{Stdout: typedNil}); !errors.Is(err, ErrUsage) {
++		t.Fatalf("typed nil writer error = %v, want ErrUsage", err)
++	}
++}
++
++func TestBuildCancellationDuringGoCommandPreservesBaseline(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("fake executable uses a POSIX shell")
++	}
++	root := writeFixtureProject(t, validProjectManifest)
++	project := loadFixtureProject(t, root)
++	createFixtureBuildPackage(t, project)
++	if _, err := project.Generate(fixtureDefinition(&inspectionCounters{}, false)); err != nil {
++		t.Fatal(err)
++	}
++	target := filepath.Join(root, filepath.FromSlash(project.Manifest().Build.Output))
++	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(target, []byte("trusted baseline"), 0o711); err != nil {
++		t.Fatal(err)
++	}
++	tooling := installFakeBuildTools(t, `
++output=""
++while [ "$#" -gt 0 ]; do
++  if [ "$1" = "-o" ]; then output="$2"; shift 2; else shift; fi
++done
++printf 'started' > "$MODARY_GO_LOG"
++printf 'partial output' > "$output"
++while :; do :; done
++`)
++
++	ctx, cancel := context.WithCancel(context.Background())
++	done := make(chan error, 1)
++	go func() {
++		_, err := project.Build(ctx, fixtureDefinition(&inspectionCounters{}, false), BuildOptions{Stdout: io.Discard, Stderr: io.Discard})
++		done <- err
++	}()
++	deadline := time.Now().Add(5 * time.Second)
++	for {
++		if _, err := os.Stat(tooling.goLog); err == nil {
++			break
++		}
++		if time.Now().After(deadline) {
++			cancel()
++			t.Fatal("fake Go command did not start")
++		}
++		time.Sleep(5 * time.Millisecond)
++	}
++	cancel()
++	if err := <-done; !errors.Is(err, context.Canceled) {
++		t.Fatalf("Build error = %v, want context.Canceled", err)
++	}
++	if got := string(readFileForTest(t, target)); got != "trusted baseline" {
++		t.Fatalf("baseline changed: %q", got)
++	}
++	assertNoTemporaryArtifacts(t, root)
++}
++
++func TestBuildRejectsNilContextAndNilProject(t *testing.T) {
++	var project *Project
++	if _, err := project.Build(nil, appkit.Definition{}, BuildOptions{}); !errors.Is(err, ErrContextRequired) {
++		t.Fatalf("nil context error = %v", err)
++	}
++	if _, err := project.Build(context.Background(), appkit.Definition{}, BuildOptions{}); err == nil {
++		t.Fatal("nil Project Build succeeded")
++	}
++}
++
++func TestGoBuildEnvironmentDisablesAmbientGoFlagInjection(t *testing.T) {
++	got := goBuildEnvironment([]string{
++		"PATH=/tooling",
++		"GOFLAGS=-toolexec=node -race",
++		"goenv=/untrusted/goenv",
++		"GOWORK=/consumer/go.work",
++	})
++	want := []string{"PATH=/tooling", "GOWORK=/consumer/go.work", "GOFLAGS=", "GOENV=off"}
++	if !reflect.DeepEqual(got, want) {
++		t.Fatalf("environment = %v, want %v", got, want)
++	}
++}
++
++type fakeBuildTools struct {
++	goLog          string
++	frontendMarker string
++}
++
++func installFakeBuildTools(t *testing.T, goBody string) fakeBuildTools {
++	t.Helper()
++	directory := t.TempDir()
++	goLog := filepath.Join(directory, "go.log")
++	frontendMarker := filepath.Join(directory, "frontend-called")
++	writeFakeExecutable(t, filepath.Join(directory, "go"), goBody)
++	for _, name := range []string{"node", "npm", "pnpm"} {
++		writeFakeExecutable(t, filepath.Join(directory, name), fmt.Sprintf("printf '%s' > %q\nexit 99", name, frontendMarker))
++	}
++	t.Setenv("MODARY_GO_LOG", goLog)
++	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
++	return fakeBuildTools{goLog: goLog, frontendMarker: frontendMarker}
++}
++
++func writeFakeExecutable(t *testing.T, name, body string) {
++	t.Helper()
++	data := "#!/bin/sh\nset -eu\n" + strings.TrimSpace(body) + "\n"
++	if err := os.WriteFile(name, []byte(data), 0o755); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func createFixtureBuildPackage(t *testing.T, project *Project) {
++	t.Helper()
++	packagePath := strings.TrimPrefix(project.Manifest().Build.Package, "./")
++	if err := os.MkdirAll(filepath.Join(project.Root(), filepath.FromSlash(packagePath)), 0o755); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func readFileForTest(t *testing.T, name string) []byte {
++	t.Helper()
++	data, err := os.ReadFile(name)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return data
++}
++
++type panicWriter struct{}
++
++func (panicWriter) Write([]byte) (int, error) { panic("writer panic must be contained") }
+diff --git a/projecttool/context_test.go b/projecttool/context_test.go
+new file mode 100644
+index 0000000..02b42ce
+--- /dev/null
++++ b/projecttool/context_test.go
+@@ -0,0 +1,187 @@
++package projecttool
++
++import (
++	"context"
++	"errors"
++	"io"
++	"os"
++	"path/filepath"
++	"runtime"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++
++	"github.com/iiwish/modary/appkit"
++)
++
++type checkpointContext struct {
++	mu       sync.Mutex
++	calls    int
++	trigger  int
++	cancel   bool
++	fired    bool
++	callback func()
++	done     chan struct{}
++}
++
++func newCheckpointContext(trigger int, cancel bool, callback func()) *checkpointContext {
++	return &checkpointContext{trigger: trigger, cancel: cancel, callback: callback, done: make(chan struct{})}
++}
++
++func (*checkpointContext) Deadline() (time.Time, bool) { return time.Time{}, false }
++func (ctx *checkpointContext) Done() <-chan struct{}   { return ctx.done }
++func (*checkpointContext) Value(any) any               { return nil }
++
++func (ctx *checkpointContext) Err() error {
++	ctx.mu.Lock()
++	ctx.calls++
++	shouldFire := !ctx.fired && ctx.calls == ctx.trigger
++	if shouldFire {
++		ctx.fired = true
++	}
++	callback := ctx.callback
++	canceled := ctx.cancel && ctx.fired
++	if shouldFire && ctx.cancel {
++		close(ctx.done)
++	}
++	ctx.mu.Unlock()
++	if shouldFire && callback != nil {
++		callback()
++	}
++	if canceled {
++		return context.Canceled
++	}
++	return nil
++}
++
++func TestContextAwarePublicAPIsRejectNilAndCanceledContexts(t *testing.T) {
++	root := writeFixtureProject(t, validProjectManifest)
++	project := loadFixtureProject(t, root)
++	definition := fixtureDefinition(&inspectionCounters{}, false)
++
++	if _, err := LoadContext(nil, root); !errors.Is(err, ErrContextRequired) {
++		t.Fatalf("LoadContext nil error = %v", err)
++	}
++	if _, err := InspectContext(nil, definition); !errors.Is(err, ErrContextRequired) {
++		t.Fatalf("InspectContext nil error = %v", err)
++	}
++	if _, err := project.VerifyContext(nil, definition); !errors.Is(err, ErrContextRequired) {
++		t.Fatalf("VerifyContext nil error = %v", err)
++	}
++	if _, err := project.GenerateContext(nil, definition); !errors.Is(err, ErrContextRequired) {
++		t.Fatalf("GenerateContext nil error = %v", err)
++	}
++	if _, err := project.CheckContext(nil, definition); !errors.Is(err, ErrContextRequired) {
++		t.Fatalf("CheckContext nil error = %v", err)
++	}
++
++	ctx, cancel := context.WithCancel(context.Background())
++	cancel()
++	for name, call := range map[string]func() error{
++		"load":     func() error { _, err := LoadContext(ctx, root); return err },
++		"inspect":  func() error { _, err := InspectContext(ctx, definition); return err },
++		"verify":   func() error { _, err := project.VerifyContext(ctx, definition); return err },
++		"generate": func() error { _, err := project.GenerateContext(ctx, definition); return err },
++		"check":    func() error { _, err := project.CheckContext(ctx, definition); return err },
++	} {
++		t.Run(name, func(t *testing.T) {
++			if err := call(); !errors.Is(err, context.Canceled) {
++				t.Fatalf("error = %v, want context.Canceled", err)
++			}
++		})
++	}
++	if entries, err := os.ReadDir(root); err != nil || len(entries) != 1 {
++		t.Fatalf("canceled APIs changed project: entries=%v err=%v", entries, err)
++	}
++}
++
++func TestRunObservesCancellationAfterDefinitionProvider(t *testing.T) {
++	root := writeFixtureProject(t, validProjectManifest)
++	ctx, cancel := context.WithCancel(context.Background())
++	err := Run(ctx, []string{"generate"}, func() appkit.Definition {
++		cancel()
++		return fixtureDefinition(&inspectionCounters{}, false)
++	}, Options{Root: root, Stdout: io.Discard, Stderr: io.Discard})
++	if !errors.Is(err, context.Canceled) {
++		t.Fatalf("Run error = %v, want context.Canceled", err)
++	}
++	if entries, readErr := os.ReadDir(root); readErr != nil || len(entries) != 1 {
++		t.Fatalf("provider cancellation changed project: entries=%v err=%v", entries, readErr)
++	}
++}
++
++func TestGenerateContextCancellationAfterPreparationLeavesNoMutation(t *testing.T) {
++	for trigger := 1; trigger <= 160; trigger++ {
++		root := writeFixtureProject(t, validProjectManifest)
++		project := loadFixtureProject(t, root)
++		prepared := false
++		ctx := newCheckpointContext(trigger, true, func() {
++			_ = filepath.WalkDir(root, func(name string, entry os.DirEntry, err error) error {
++				if err == nil && strings.HasPrefix(entry.Name(), ".modary-") {
++					prepared = true
++				}
++				return nil
++			})
++		})
++		_, err := project.GenerateContext(ctx, fixtureDefinition(&inspectionCounters{}, false))
++		if !prepared {
++			continue
++		}
++		if !errors.Is(err, context.Canceled) {
++			t.Fatalf("checkpoint %d error = %v, want context.Canceled", trigger, err)
++		}
++		assertNoTemporaryArtifacts(t, root)
++		if entries, readErr := os.ReadDir(root); readErr != nil || len(entries) != 1 {
++			t.Fatalf("checkpoint %d left filesystem changes: entries=%v err=%v", trigger, entries, readErr)
++		}
++		return
++	}
++	t.Fatal("no cancellation checkpoint was observed after temporary preparation")
++}
++
++func TestVerifiedRootHandleRejectsPathnameSwap(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("renaming an opened directory is not portable to Windows")
++	}
++	for _, operation := range []string{"load", "generate"} {
++		t.Run(operation, func(t *testing.T) {
++			parent := t.TempDir()
++			root := filepath.Join(parent, "project")
++			if err := os.Mkdir(root, 0o755); err != nil {
++				t.Fatal(err)
++			}
++			if err := os.WriteFile(filepath.Join(root, ProjectManifestName), []byte(validProjectManifest), 0o644); err != nil {
++				t.Fatal(err)
++			}
++			var project *Project
++			if operation == "generate" {
++				project = loadFixtureProject(t, root)
++			}
++			moved := filepath.Join(parent, "opened-root")
++			swap := func() {
++				if err := os.Rename(root, moved); err != nil {
++					t.Fatal(err)
++				}
++				if err := os.Mkdir(root, 0o755); err != nil {
++					t.Fatal(err)
++				}
++				if err := os.WriteFile(filepath.Join(root, ProjectManifestName), []byte(validProjectManifest), 0o644); err != nil {
++					t.Fatal(err)
++				}
++			}
++			ctx := newCheckpointContext(3, false, swap)
++			var err error
++			if operation == "load" {
++				_, err = LoadContext(ctx, root)
++			} else {
++				_, err = project.GenerateContext(ctx, fixtureDefinition(&inspectionCounters{}, false))
++			}
++			if err == nil || !strings.Contains(err.Error(), "root pathname changed") {
++				t.Fatalf("%s error = %v", operation, err)
++			}
++			assertNoTemporaryArtifacts(t, root)
++			assertNoTemporaryArtifacts(t, moved)
++		})
++	}
++}
+diff --git a/projecttool/run_test.go b/projecttool/run_test.go
+new file mode 100644
+index 0000000..588777e
+--- /dev/null
++++ b/projecttool/run_test.go
+@@ -0,0 +1,216 @@
++package projecttool
++
++import (
++	"bytes"
++	"context"
++	"errors"
++	"io"
++	"os"
++	"path/filepath"
++	"reflect"
++	"runtime"
++	"strings"
++	"sync/atomic"
++	"testing"
++
++	"github.com/iiwish/modary/appkit"
++)
++
++func TestRunParsesHelpAndInvalidCommandsBeforeProjectOrDefinition(t *testing.T) {
++	missingRoot := filepath.Join(t.TempDir(), "missing")
++	var providerCalls atomic.Int64
++	provider := func() appkit.Definition {
++		providerCalls.Add(1)
++		panic("provider must not run")
++	}
++	for _, args := range [][]string{{"unknown"}, {"verify", "extra"}, {"generate", "--write"}, {"help", "extra"}} {
++		if err := Run(context.Background(), args, provider, Options{Root: missingRoot, Stdout: io.Discard, Stderr: io.Discard}); !errors.Is(err, ErrUsage) {
++			t.Fatalf("Run(%v) error = %v, want ErrUsage", args, err)
++		}
++	}
++	if providerCalls.Load() != 0 {
++		t.Fatalf("provider calls = %d", providerCalls.Load())
++	}
++
++	for _, args := range [][]string{nil, {"help"}, {"--help"}, {"-h"}} {
++		var output bytes.Buffer
++		if err := Run(context.Background(), args, provider, Options{Root: missingRoot, Stdout: &output, Stderr: io.Discard}); err != nil {
++			t.Fatalf("Run(%v): %v", args, err)
++		}
++		if output.String() != CommandUsage {
++			t.Fatalf("help output = %q", output.String())
++		}
++	}
++	if providerCalls.Load() != 0 {
++		t.Fatalf("provider calls after help = %d", providerCalls.Load())
++	}
++}
++
++func TestRunValidatesManifestBeforeDefinitionProvider(t *testing.T) {
++	root := writeFixtureProject(t, "application: [invalid\n")
++	var providerCalls atomic.Int64
++	err := Run(context.Background(), []string{"verify"}, func() appkit.Definition {
++		providerCalls.Add(1)
++		return fixtureDefinition(&inspectionCounters{}, false)
++	}, Options{Root: root, Stdout: io.Discard, Stderr: io.Discard})
++	if err == nil {
++		t.Fatal("Run accepted malformed manifest")
++	}
++	if providerCalls.Load() != 0 {
++		t.Fatalf("provider calls = %d, want 0", providerCalls.Load())
++	}
++	if entries, readErr := os.ReadDir(root); readErr != nil || len(entries) != 1 {
++		t.Fatalf("invalid manifest caused writes: %v, %v", entries, readErr)
++	}
++}
++
++func TestRunDispatchesVerifyGenerateAndReadOnlyCheck(t *testing.T) {
++	root := writeFixtureProject(t, validProjectManifest)
++	counters := &inspectionCounters{}
++	var providerCalls atomic.Int64
++	provider := func() appkit.Definition {
++		providerCalls.Add(1)
++		return fixtureDefinition(counters, providerCalls.Load()%2 == 0)
++	}
++
++	var verifyOutput bytes.Buffer
++	if err := Run(context.Background(), []string{"verify"}, provider, Options{Root: root, Stdout: &verifyOutput, Stderr: io.Discard}); err != nil {
++		t.Fatalf("verify: %v", err)
++	}
++	if got := verifyOutput.String(); !strings.Contains(got, `"modules":2`) || !strings.Contains(got, `"actions":2`) {
++		t.Fatalf("verify output = %s", got)
++	}
++
++	var generateOutput bytes.Buffer
++	if err := Run(context.Background(), []string{"generate"}, provider, Options{Root: root, Stdout: &generateOutput, Stderr: io.Discard}); err != nil {
++		t.Fatalf("generate: %v", err)
++	}
++	if !strings.Contains(generateOutput.String(), `"written"`) {
++		t.Fatalf("generate output = %s", generateOutput.String())
++	}
++
++	for _, args := range [][]string{{"generate", "--check"}, {"check"}} {
++		var checkOutput bytes.Buffer
++		before := snapshotTree(t, root)
++		if err := Run(context.Background(), args, provider, Options{Root: root, Stdout: &checkOutput, Stderr: io.Discard}); err != nil {
++			t.Fatalf("Run(%v): %v", args, err)
++		}
++		if checkOutput.String() != "{\"current\":true}\n" {
++			t.Fatalf("check output = %q", checkOutput.String())
++		}
++		if after := snapshotTree(t, root); !reflect.DeepEqual(after, before) {
++			t.Fatalf("Run(%v) check mutated files", args)
++		}
++	}
++	if providerCalls.Load() != 4 {
++		t.Fatalf("provider calls = %d, want 4", providerCalls.Load())
++	}
++	assertNoInspectionSideEffects(t, counters)
++}
++
++func TestRunReturnsDeterministicDriftAndContainsCallbacks(t *testing.T) {
++	root := writeFixtureProject(t, validProjectManifest)
++	err := Run(context.Background(), []string{"check"}, func() appkit.Definition {
++		return fixtureDefinition(&inspectionCounters{}, false)
++	}, Options{Root: root, Stdout: io.Discard, Stderr: io.Discard})
++	if !errors.Is(err, ErrDrift) {
++		t.Fatalf("check error = %v, want ErrDrift", err)
++	}
++	var drift *DriftError
++	if !errors.As(err, &drift) || len(drift.Items) != 3 {
++		t.Fatalf("drift = %#v", drift)
++	}
++	for index := 1; index < len(drift.Items); index++ {
++		if drift.Items[index-1].Path > drift.Items[index].Path {
++			t.Fatalf("drift is not sorted: %#v", drift.Items)
++		}
++	}
++
++	err = Run(context.Background(), []string{"verify"}, func() appkit.Definition {
++		panic("secret panic value")
++	}, Options{Root: root, Stdout: io.Discard, Stderr: io.Discard})
++	if !errors.Is(err, ErrCallbackPanic) || strings.Contains(err.Error(), "secret") {
++		t.Fatalf("provider panic error = %v", err)
++	}
++
++	err = Run(context.Background(), []string{"help"}, nil, Options{Stdout: panicWriter{}, Stderr: io.Discard})
++	if !errors.Is(err, ErrCallbackPanic) {
++		t.Fatalf("output panic error = %v", err)
++	}
++
++	var typedNil *bytes.Buffer
++	err = Run(context.Background(), []string{"help"}, nil, Options{Stdout: typedNil})
++	if !errors.Is(err, ErrUsage) {
++		t.Fatalf("typed nil output error = %v", err)
++	}
++
++	if err := Run(context.Background(), []string{"help"}, nil, Options{Stdout: typedNilErrorWriter{}, Stderr: io.Discard}); err != nil {
++		t.Fatalf("typed nil write error was not normalized: %v", err)
++	}
++	if err := Run(context.Background(), []string{"help"}, nil, Options{Stdout: invalidCountWriter{}, Stderr: io.Discard}); err == nil {
++		t.Fatal("invalid writer count was accepted")
++	}
++}
++
++type nilWriteError struct{}
++
++func (*nilWriteError) Error() string { return "typed nil" }
++
++type typedNilErrorWriter struct{}
++
++func (typedNilErrorWriter) Write(data []byte) (int, error) {
++	var err *nilWriteError
++	return len(data), err
++}
++
++type invalidCountWriter struct{}
++
++func (invalidCountWriter) Write(data []byte) (int, error) { return len(data) + 1, nil }
++
++func TestRunDispatchesGoOnlyBuild(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("fake executable uses a POSIX shell")
++	}
++	root := writeFixtureProject(t, validProjectManifest)
++	provider := func() appkit.Definition { return fixtureDefinition(&inspectionCounters{}, false) }
++	createFixtureBuildPackage(t, loadFixtureProject(t, root))
++	if err := Run(context.Background(), []string{"generate"}, provider, Options{Root: root, Stdout: io.Discard, Stderr: io.Discard}); err != nil {
++		t.Fatal(err)
++	}
++	tooling := installFakeBuildTools(t, `
++output=""
++: > "$MODARY_GO_LOG"
++while [ "$#" -gt 0 ]; do
++  if [ "$1" = "-o" ]; then output="$2"; shift 2; else shift; fi
++done
++printf 'dispatcher binary' > "$output"
++`)
++	var output bytes.Buffer
++	if err := Run(context.Background(), []string{"build"}, provider, Options{Root: root, Stdout: &output, Stderr: io.Discard}); err != nil {
++		t.Fatalf("build: %v", err)
++	}
++	if output.String() != "{\"output\":\"dist/example-app\"}\n" {
++		t.Fatalf("build output = %q", output.String())
++	}
++	if _, err := os.Stat(tooling.goLog); err != nil {
++		t.Fatalf("Go was not called: %v", err)
++	}
++	if _, err := os.Stat(tooling.frontendMarker); !os.IsNotExist(err) {
++		t.Fatalf("frontend command was called: %v", err)
++	}
++}
++
++func TestRunRejectsNilOrCanceledContextAndMissingProvider(t *testing.T) {
++	if err := Run(nil, []string{"help"}, nil, Options{}); !errors.Is(err, ErrContextRequired) {
++		t.Fatalf("nil context error = %v", err)
++	}
++	ctx, cancel := context.WithCancel(context.Background())
++	cancel()
++	if err := Run(ctx, []string{"help"}, nil, Options{}); !errors.Is(err, context.Canceled) {
++		t.Fatalf("canceled context error = %v", err)
++	}
++	root := writeFixtureProject(t, validProjectManifest)
++	if err := Run(context.Background(), []string{"verify"}, nil, Options{Root: root, Stdout: io.Discard, Stderr: io.Discard}); err == nil {
++		t.Fatal("missing Definition provider succeeded")
++	}
++}
+diff --git a/projecttool/public_test.go b/projecttool/public_test.go
+new file mode 100644
+index 0000000..84a2611
+--- /dev/null
++++ b/projecttool/public_test.go
+@@ -0,0 +1,85 @@
++package projecttool_test
++
++import (
++	"context"
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"sync/atomic"
++	"testing"
++
++	"github.com/iiwish/modary/appkit"
++	"github.com/iiwish/modary/module"
++	"github.com/iiwish/modary/projecttool"
++)
++
++func TestPublicConsumerProjectAPI(t *testing.T) {
++	root := t.TempDir()
++	manifest := `application:
++  id: public-consumer
++  name: Public Consumer
++  version: 0.1.0
++outputs:
++  graph: generated/graph.json
++  actions: generated/actions.json
++build:
++  package: ./cmd/public-consumer
++  output: dist/public-consumer
++`
++	if err := os.WriteFile(filepath.Join(root, projecttool.ProjectManifestName), []byte(manifest), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	var starts atomic.Int64
++	definition := appkit.Definition{
++		Metadata: appkit.Metadata{ID: "public-consumer", Name: "Public Consumer", Version: "0.1.0"},
++		Modules: []module.Registration{module.Register(module.Manifest{
++			SchemaVersion: module.SchemaVersion,
++			ID:            "public-feature",
++			Version:       "1.0.0",
++			Type:          "feature",
++		}, func(context.Context, module.Scope) error {
++			starts.Add(1)
++			panic("public inspection must not start Modules")
++		})},
++	}
++
++	project, err := projecttool.Load(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := project.Verify(definition); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := project.Generate(definition); err != nil {
++		t.Fatal(err)
++	}
++	if drift, err := project.Check(definition); err != nil || len(drift) != 0 {
++		t.Fatalf("Check = %#v, %v", drift, err)
++	}
++	if starts.Load() != 0 {
++		t.Fatalf("Start calls = %d", starts.Load())
++	}
++
++	var graph projecttool.GraphDocument
++	graphData, err := os.ReadFile(filepath.Join(root, "generated", "graph.json"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := json.Unmarshal(graphData, &graph); err != nil {
++		t.Fatal(err)
++	}
++	if graph.SchemaVersion != projecttool.GraphSchemaVersion || len(graph.Modules) != 1 {
++		t.Fatalf("graph = %#v", graph)
++	}
++	var catalog projecttool.CatalogDocument
++	catalogData, err := os.ReadFile(filepath.Join(root, "generated", "actions.json"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := json.Unmarshal(catalogData, &catalog); err != nil {
++		t.Fatal(err)
++	}
++	if catalog.SchemaVersion != projecttool.CatalogSchemaVersion || catalog.Actions == nil {
++		t.Fatalf("catalog = %#v", catalog)
++	}
++}
+diff --git a/projecttool/inspect.go b/projecttool/inspect.go
+new file mode 100644
+index 0000000..c4c1546
+--- /dev/null
++++ b/projecttool/inspect.go
+@@ -0,0 +1,360 @@
++package projecttool
++
++import (
++	"bytes"
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"sort"
++
++	"github.com/iiwish/modary/action"
++	"github.com/iiwish/modary/appkit"
++	"github.com/iiwish/modary/module"
++)
++
++// ModuleInfo is the deterministic callback-free projection of one Module.
++type ModuleInfo struct {
++	ID         string   `json:"id"`
++	Version    string   `json:"version"`
++	Type       string   `json:"type"`
++	Requires   []string `json:"requires,omitempty"`
++	Provides   []string `json:"provides,omitempty"`
++	Migrations []string `json:"migrations,omitempty"`
++}
++
++// Snapshot is a defensive, deterministic projection of the pure consumer
++// Definition. It contains no lifecycle callback, handler, migration FS, or
++// service resolver.
++type Snapshot struct {
++	Application appkit.Metadata       `json:"application"`
++	Modules     []ModuleInfo          `json:"modules"`
++	Graph       module.Graph          `json:"graph"`
++	Actions     []action.CatalogEntry `json:"actions"`
++}
++
++// Inspect validates static Module registrations, migration declarations,
++// capabilities, dependency graph, Action ownership, and Action contracts. It
++// never starts Modules or invokes a consumer callback.
++func Inspect(definition appkit.Definition) (Snapshot, error) {
++	return InspectContext(context.Background(), definition)
++}
++
++// InspectContext is the cancelable form of Inspect. Cancellation is observed
++// between each registration and contract canonicalization boundary.
++func InspectContext(ctx context.Context, definition appkit.Definition) (Snapshot, error) {
++	if ctx == nil {
++		return Snapshot{}, ErrContextRequired
++	}
++	if err := ctx.Err(); err != nil {
++		return Snapshot{}, err
++	}
++	if err := appkit.ValidateMetadata(definition.Metadata); err != nil {
++		return Snapshot{}, err
++	}
++	if len(definition.Modules) == 0 {
++		return Snapshot{}, fmt.Errorf("application Definition must contain at least one Module")
++	}
++	if err := preScanDuplicateIdentities(ctx, definition.Modules); err != nil {
++		return Snapshot{}, err
++	}
++	registrations, err := canonicalRegistrationsContext(ctx, definition.Modules)
++	if err != nil {
++		return Snapshot{}, err
++	}
++	host, err := module.NewHostWithOptions(module.HostOptions{})
++	if err != nil {
++		return Snapshot{}, fmt.Errorf("create pure Module inspector: %w", err)
++	}
++	for _, registration := range registrations {
++		if err := ctx.Err(); err != nil {
++			return Snapshot{}, err
++		}
++		if err := host.Register(registration); err != nil {
++			return Snapshot{}, fmt.Errorf("inspect Module registrations: %w", err)
++		}
++		if err := ctx.Err(); err != nil {
++			return Snapshot{}, err
++		}
++	}
++	if err := ctx.Err(); err != nil {
++		return Snapshot{}, err
++	}
++	catalog, err := host.Catalog()
++	if err != nil {
++		return Snapshot{}, fmt.Errorf("inspect Module graph and Action catalog: %w", err)
++	}
++	if err := ctx.Err(); err != nil {
++		return Snapshot{}, err
++	}
++	manifests := make([]module.Manifest, 0, len(registrations))
++	modules := make([]ModuleInfo, 0, len(registrations))
++	for _, registration := range registrations {
++		if err := ctx.Err(); err != nil {
++			return Snapshot{}, err
++		}
++		manifest := registration.Definition.Manifest
++		manifests = append(manifests, manifest)
++		requires := append([]string(nil), manifest.Requires...)
++		provides := append([]string(nil), manifest.Provides...)
++		sort.Strings(requires)
++		sort.Strings(provides)
++		migrations := make([]string, 0, len(registration.Definition.Migrations))
++		for _, migration := range registration.Definition.Migrations {
++			if err := ctx.Err(); err != nil {
++				return Snapshot{}, err
++			}
++			migrations = append(migrations, migration.Driver)
++		}
++		sort.Strings(migrations)
++		modules = append(modules, ModuleInfo{
++			ID: manifest.ID, Version: manifest.Version, Type: manifest.Type,
++			Requires: requires, Provides: provides, Migrations: migrations,
++		})
++	}
++	if err := ctx.Err(); err != nil {
++		return Snapshot{}, err
++	}
++	graph, err := module.Verify(manifests)
++	if err != nil {
++		return Snapshot{}, fmt.Errorf("inspect Module graph: %w", err)
++	}
++	if err := ctx.Err(); err != nil {
++		return Snapshot{}, err
++	}
++	sort.Slice(modules, func(i, j int) bool { return modules[i].ID < modules[j].ID })
++	for index := range catalog {
++		if err := ctx.Err(); err != nil {
++			return Snapshot{}, err
++		}
++		catalog[index].Descriptor.InputSchema, err = canonicalJSON(catalog[index].Descriptor.InputSchema)
++		if err != nil {
++			return Snapshot{}, fmt.Errorf("canonicalize Action %s input schema: %w", catalog[index].Descriptor.ID, err)
++		}
++		if len(catalog[index].Descriptor.PreviewSchema) != 0 {
++			catalog[index].Descriptor.PreviewSchema, err = canonicalJSON(catalog[index].Descriptor.PreviewSchema)
++			if err != nil {
++				return Snapshot{}, fmt.Errorf("canonicalize Action %s preview schema: %w", catalog[index].Descriptor.ID, err)
++			}
++		}
++		catalog[index].Descriptor.OutputSchema, err = canonicalJSON(catalog[index].Descriptor.OutputSchema)
++		if err != nil {
++			return Snapshot{}, fmt.Errorf("canonicalize Action %s output schema: %w", catalog[index].Descriptor.ID, err)
++		}
++	}
++	if err := ctx.Err(); err != nil {
++		return Snapshot{}, err
++	}
++	return Snapshot{
++		Application: definition.Metadata,
++		Modules:     modules,
++		Graph:       cloneGraph(graph),
++		Actions:     cloneCatalog(catalog),
++	}, nil
++}
++
++func canonicalRegistrations(source []module.Registration) []module.Registration {
++	registrations, _ := canonicalRegistrationsContext(context.Background(), source)
++	return registrations
++}
++
++func canonicalRegistrationsContext(ctx context.Context, source []module.Registration) ([]module.Registration, error) {
++	registrations := make([]module.Registration, len(source))
++	for index, registration := range source {
++		if err := ctx.Err(); err != nil {
++			return nil, err
++		}
++		clone := registration
++		clone.Definition.Manifest.Requires = append([]string(nil), registration.Definition.Manifest.Requires...)
++		clone.Definition.Manifest.Provides = append([]string(nil), registration.Definition.Manifest.Provides...)
++		sort.Strings(clone.Definition.Manifest.Requires)
++		sort.Strings(clone.Definition.Manifest.Provides)
++		clone.Definition.Actions = make([]module.ActionBinding, len(registration.Definition.Actions))
++		for actionIndex, binding := range registration.Definition.Actions {
++			if err := ctx.Err(); err != nil {
++				return nil, err
++			}
++			clone.Definition.Actions[actionIndex] = binding
++			clone.Definition.Actions[actionIndex].Descriptor.InputSchema = append(json.RawMessage(nil), binding.Descriptor.InputSchema...)
++			clone.Definition.Actions[actionIndex].Descriptor.PreviewSchema = append(json.RawMessage(nil), binding.Descriptor.PreviewSchema...)
++			clone.Definition.Actions[actionIndex].Descriptor.OutputSchema = append(json.RawMessage(nil), binding.Descriptor.OutputSchema...)
++			clone.Definition.Actions[actionIndex].Descriptor.Channels = append([]string(nil), binding.Descriptor.Channels...)
++			sort.Strings(clone.Definition.Actions[actionIndex].Descriptor.Channels)
++		}
++		sort.SliceStable(clone.Definition.Actions, func(i, j int) bool {
++			first := clone.Definition.Actions[i].Descriptor
++			second := clone.Definition.Actions[j].Descriptor
++			if first.ID == second.ID {
++				return first.Version < second.Version
++			}
++			return first.ID < second.ID
++		})
++		clone.Definition.Migrations = append([]module.MigrationSource(nil), registration.Definition.Migrations...)
++		sort.SliceStable(clone.Definition.Migrations, func(i, j int) bool {
++			return clone.Definition.Migrations[i].Driver < clone.Definition.Migrations[j].Driver
++		})
++		registrations[index] = clone
++	}
++	sort.SliceStable(registrations, func(i, j int) bool {
++		first := registrations[i].Definition.Manifest
++		second := registrations[j].Definition.Manifest
++		if first.ID != second.ID {
++			return first.ID < second.ID
++		}
++		if first.Version != second.Version {
++			return first.Version < second.Version
++		}
++		return first.Type < second.Type
++	})
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++	return registrations, nil
++}
++
++type compositionIdentity struct {
++	owner string
++	value string
++}
++
++func preScanDuplicateIdentities(ctx context.Context, registrations []module.Registration) error {
++	moduleCounts := make(map[string]int, len(registrations))
++	actionCounts := make(map[compositionIdentity]int)
++	migrationCounts := make(map[compositionIdentity]int)
++	for _, registration := range registrations {
++		if err := ctx.Err(); err != nil {
++			return err
++		}
++		owner := registration.Definition.Manifest.ID
++		moduleCounts[owner]++
++		for _, binding := range registration.Definition.Actions {
++			if err := ctx.Err(); err != nil {
++				return err
++			}
++			actionCounts[compositionIdentity{owner: owner, value: binding.Descriptor.ID}]++
++		}
++		for _, migration := range registration.Definition.Migrations {
++			if err := ctx.Err(); err != nil {
++				return err
++			}
++			migrationCounts[compositionIdentity{owner: owner, value: migration.Driver}]++
++		}
++	}
++	if duplicate, ok := firstDuplicateString(moduleCounts); ok {
++		return fmt.Errorf("duplicate Module identity %q", duplicate)
++	}
++	if duplicate, ok := firstDuplicateCompositionIdentity(actionCounts); ok {
++		return fmt.Errorf("duplicate Action identity %q owned by Module %q", duplicate.value, duplicate.owner)
++	}
++	if duplicate, ok := firstDuplicateCompositionIdentity(migrationCounts); ok {
++		return fmt.Errorf("duplicate migration identity %q owned by Module %q", duplicate.value, duplicate.owner)
++	}
++	return ctx.Err()
++}
++
++func firstDuplicateString(counts map[string]int) (string, bool) {
++	values := make([]string, 0)
++	for value, count := range counts {
++		if count > 1 {
++			values = append(values, value)
++		}
++	}
++	sort.Strings(values)
++	if len(values) == 0 {
++		return "", false
++	}
++	return values[0], true
++}
++
++func firstDuplicateCompositionIdentity(counts map[compositionIdentity]int) (compositionIdentity, bool) {
++	values := make([]compositionIdentity, 0)
++	for value, count := range counts {
++		if count > 1 {
++			values = append(values, value)
++		}
++	}
++	sort.Slice(values, func(i, j int) bool {
++		if values[i].owner != values[j].owner {
++			return values[i].owner < values[j].owner
++		}
++		return values[i].value < values[j].value
++	})
++	if len(values) == 0 {
++		return compositionIdentity{}, false
++	}
++	return values[0], true
++}
++
++func canonicalJSON(data json.RawMessage) (json.RawMessage, error) {
++	decoder := json.NewDecoder(bytes.NewReader(data))
++	decoder.UseNumber()
++	var value any
++	if err := decoder.Decode(&value); err != nil {
++		return nil, err
++	}
++	if _, err := decoder.Token(); err != io.EOF {
++		if err == nil {
++			return nil, errors.New("multiple JSON values")
++		}
++		return nil, err
++	}
++	encoded, err := json.Marshal(value)
++	if err != nil {
++		return nil, err
++	}
++	return encoded, nil
++}
++
++func cloneGraph(graph module.Graph) module.Graph {
++	clone := graph
++	clone.Modules = append([]string(nil), graph.Modules...)
++	clone.Edges = append([]module.GraphEdge(nil), graph.Edges...)
++	clone.Order = append([]string(nil), graph.Order...)
++	clone.Provides = make(map[string]string, len(graph.Provides))
++	for capability, owner := range graph.Provides {
++		clone.Provides[capability] = owner
++	}
++	return clone
++}
++
++func cloneCatalog(catalog []action.CatalogEntry) []action.CatalogEntry {
++	clone := make([]action.CatalogEntry, len(catalog))
++	for index, entry := range catalog {
++		clone[index] = entry
++		clone[index].Descriptor.InputSchema = append(json.RawMessage(nil), entry.Descriptor.InputSchema...)
++		clone[index].Descriptor.PreviewSchema = append(json.RawMessage(nil), entry.Descriptor.PreviewSchema...)
++		clone[index].Descriptor.OutputSchema = append(json.RawMessage(nil), entry.Descriptor.OutputSchema...)
++		clone[index].Descriptor.Channels = append([]string(nil), entry.Descriptor.Channels...)
++	}
++	return clone
++}
++
++// Verify validates the manifest/Definition identity and renders every expected
++// artifact in memory, but performs no write.
++func (project *Project) Verify(definition appkit.Definition) (Snapshot, error) {
++	return project.VerifyContext(context.Background(), definition)
++}
++
++// VerifyContext is the cancelable form of Verify.
++func (project *Project) VerifyContext(ctx context.Context, definition appkit.Definition) (Snapshot, error) {
++	if ctx == nil {
++		return Snapshot{}, ErrContextRequired
++	}
++	root, err := project.openVerifiedRoot(ctx)
++	if err != nil {
++		return Snapshot{}, err
++	}
++	defer root.Close()
++	snapshot, _, err := project.prepare(ctx, root, definition)
++	if err != nil {
++		return Snapshot{}, err
++	}
++	if err := project.verifyRootPathBinding(root); err != nil {
++		return Snapshot{}, err
++	}
++	if err := ctx.Err(); err != nil {
++		return Snapshot{}, err
++	}
++	return snapshot, err
++}
+diff --git a/projecttool/config_test.go b/projecttool/config_test.go
+new file mode 100644
+index 0000000..983e4b9
+--- /dev/null
++++ b/projecttool/config_test.go
+@@ -0,0 +1,329 @@
++package projecttool
++
++import (
++	"errors"
++	"os"
++	"path/filepath"
++	"runtime"
++	"strings"
++	"testing"
++)
++
++func TestParseManifestAcceptsOnlyStrictOutputOnlyDocument(t *testing.T) {
++	manifest, err := ParseManifest([]byte(validProjectManifest))
++	if err != nil {
++		t.Fatalf("ParseManifest: %v", err)
++	}
++	if manifest.Application != fixtureMetadata() {
++		t.Fatalf("application = %#v", manifest.Application)
++	}
++	if manifest.Outputs.Graph != "internal/generated/module_graph.json" ||
++		manifest.Outputs.Actions != "internal/generated/action_catalog.json" ||
++		manifest.Outputs.TypeScript != "web/src/generated/actionContracts.ts" {
++		t.Fatalf("outputs = %#v", manifest.Outputs)
++	}
++	if manifest.Build.Package != "./cmd/example-app" || manifest.Build.Output != "dist/example-app" {
++		t.Fatalf("build = %#v", manifest.Build)
++	}
++}
++
++func TestParseManifestRejectsMalformedAndExtendedYAML(t *testing.T) {
++	var deeplyNested strings.Builder
++	for depth := 0; depth < maximumYAMLDepth+2; depth++ {
++		deeplyNested.WriteString(strings.Repeat("  ", depth))
++		deeplyNested.WriteString("value:\n")
++	}
++	deeplyNested.WriteString(strings.Repeat("  ", maximumYAMLDepth+2))
++	deeplyNested.WriteString("terminal\n")
++	tests := []struct {
++		name string
++		data []byte
++	}{
++		{name: "empty", data: nil},
++		{name: "invalid UTF-8", data: []byte{0xff}},
++		{name: "multiple documents", data: []byte(validProjectManifest + "---\napplication: {}\n")},
++		{name: "empty second document", data: []byte(validProjectManifest + "---\n")},
++		{name: "top-level modules", data: []byte(validProjectManifest + "modules: []\n")},
++		{name: "unknown nested field", data: []byte(strings.Replace(validProjectManifest, "  name: Example App", "  name: Example App\n  owner: example", 1))},
++		{name: "duplicate field", data: []byte(strings.Replace(validProjectManifest, "  id: example-app", "  id: example-app\n  id: other-app", 1))},
++		{name: "anchor", data: []byte(strings.Replace(validProjectManifest, "  id: example-app", "  id: &application-id example-app", 1))},
++		{name: "alias", data: []byte(strings.Replace(validProjectManifest, "  name: Example App", "  name: &name Example App\n  version: *name", 1))},
++		{name: "oversized", data: append([]byte(validProjectManifest), make([]byte, MaximumManifestBytes)...)},
++		{name: "excessive YAML depth", data: []byte(deeplyNested.String())},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			if _, err := ParseManifest(test.data); err == nil {
++				t.Fatal("ParseManifest succeeded")
++			}
++		})
++	}
++}
++
++func TestParseManifestRejectsUnsafeAndAliasedPaths(t *testing.T) {
++	tests := []struct {
++		name string
++		old  string
++		new  string
++	}{
++		{name: "absolute", old: "internal/generated/module_graph.json", new: "/tmp/graph.json"},
++		{name: "traversal", old: "internal/generated/module_graph.json", new: "../graph.json"},
++		{name: "embedded traversal", old: "internal/generated/module_graph.json", new: "internal/../graph.json"},
++		{name: "backslash", old: "internal/generated/module_graph.json", new: `internal\graph.json`},
++		{name: "Windows volume", old: "internal/generated/module_graph.json", new: "C:/graph.json"},
++		{name: "Windows alternate stream", old: "internal/generated/module_graph.json", new: "internal/graph.json:stream"},
++		{name: "Windows less than", old: "internal/generated/module_graph.json", new: "internal/graph<.json"},
++		{name: "Windows greater than", old: "internal/generated/module_graph.json", new: "internal/graph>.json"},
++		{name: "Windows quote", old: "internal/generated/module_graph.json", new: `internal/graph".json`},
++		{name: "Windows pipe", old: "internal/generated/module_graph.json", new: "internal/graph|.json"},
++		{name: "Windows question", old: "internal/generated/module_graph.json", new: "internal/graph?.json"},
++		{name: "Windows wildcard", old: "internal/generated/module_graph.json", new: "internal/graph*.json"},
++		{name: "Windows device", old: "internal/generated/module_graph.json", new: "internal/CON.json"},
++		{name: "Unicode NFC", old: "internal/generated/module_graph.json", new: "internal/caf\u00e9.json"},
++		{name: "Unicode NFD", old: "internal/generated/module_graph.json", new: "internal/cafe\u0301.json"},
++		{name: "Unicode fullwidth alias", old: "internal/generated/module_graph.json", new: "internal/\uff47raph.json"},
++		{name: "space", old: "internal/generated/module_graph.json", new: "internal/generated graph.json"},
++		{name: "trailing dot", old: "internal/generated/module_graph.json", new: "internal/generated./graph.json"},
++		{name: "oversized component", old: "internal/generated/module_graph.json", new: "internal/" + strings.Repeat("x", maximumPathComponentLen+1)},
++		{name: "noncanonical duplicate slash", old: "internal/generated/module_graph.json", new: "internal//graph.json"},
++		{name: "surrounding whitespace", old: "internal/generated/module_graph.json", new: `" internal/graph.json"`},
++		{name: "manifest alias", old: "internal/generated/module_graph.json", new: "MODARY.YAML"},
++		{name: "exact output alias", old: "internal/generated/action_catalog.json", new: "internal/generated/module_graph.json"},
++		{name: "case-folded output alias", old: "internal/generated/action_catalog.json", new: "INTERNAL/GENERATED/MODULE_GRAPH.JSON"},
++		{name: "hierarchical output alias", old: "internal/generated/action_catalog.json", new: "internal/generated/module_graph.json/child"},
++		{name: "build output alias", old: "dist/example-app", new: "web/src/generated"},
++		{name: "absolute build package", old: "./cmd/example-app", new: "/cmd/example-app"},
++		{name: "root build package", old: "./cmd/example-app", new: "./"},
++		{name: "recursive build package", old: "./cmd/example-app", new: "./cmd/..."},
++		{name: "output equals build package", old: "internal/generated/module_graph.json", new: "cmd/example-app"},
++		{name: "output contains build package", old: "internal/generated/module_graph.json", new: "cmd"},
++		{name: "build package contains output", old: "./cmd/example-app", new: "./internal"},
++		{name: "build output contains package", old: "dist/example-app", new: "cmd"},
++		{name: "build output inside package", old: "dist/example-app", new: "cmd/example-app/binary"},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			data := strings.Replace(validProjectManifest, test.old, test.new, 1)
++			if _, err := ParseManifest([]byte(data)); err == nil {
++				t.Fatalf("ParseManifest accepted %q", test.new)
++			}
++		})
++	}
++}
++
++func TestLoadRejectsSymlinkNonRegularAndHardlinkAliases(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("symlink and hardlink semantics differ on Windows")
++	}
++	t.Run("manifest symlink", func(t *testing.T) {
++		parent := t.TempDir()
++		root := filepath.Join(parent, "project")
++		if err := os.Mkdir(root, 0o755); err != nil {
++			t.Fatal(err)
++		}
++		realManifest := filepath.Join(parent, "real.yaml")
++		if err := os.WriteFile(realManifest, []byte(validProjectManifest), 0o644); err != nil {
++			t.Fatal(err)
++		}
++		if err := os.Symlink(realManifest, filepath.Join(root, ProjectManifestName)); err != nil {
++			t.Fatal(err)
++		}
++		if _, err := Load(root); err == nil {
++			t.Fatal("Load accepted a manifest symlink")
++		}
++	})
++
++	t.Run("output parent symlink", func(t *testing.T) {
++		root := writeFixtureProject(t, validProjectManifest)
++		outside := t.TempDir()
++		if err := os.Symlink(outside, filepath.Join(root, "internal")); err != nil {
++			t.Fatal(err)
++		}
++		if _, err := Load(root); err == nil {
++			t.Fatal("Load accepted a symlinked output parent")
++		}
++	})
++
++	t.Run("build package symlink", func(t *testing.T) {
++		root := writeFixtureProject(t, validProjectManifest)
++		if err := os.MkdirAll(filepath.Join(root, "cmd"), 0o755); err != nil {
++			t.Fatal(err)
++		}
++		if err := os.Symlink(t.TempDir(), filepath.Join(root, "cmd", "example-app")); err != nil {
++			t.Fatal(err)
++		}
++		if _, err := Load(root); err == nil {
++			t.Fatal("Load accepted a symlinked build package")
++		}
++	})
++
++	t.Run("output is directory", func(t *testing.T) {
++		root := writeFixtureProject(t, validProjectManifest)
++		if err := os.MkdirAll(filepath.Join(root, "dist", "example-app"), 0o755); err != nil {
++			t.Fatal(err)
++		}
++		if _, err := Load(root); err == nil {
++			t.Fatal("Load accepted a directory output")
++		}
++	})
++
++	t.Run("outputs hardlinked", func(t *testing.T) {
++		manifest := strings.Replace(validProjectManifest, "internal/generated/module_graph.json", "generated/a.json", 1)
++		manifest = strings.Replace(manifest, "internal/generated/action_catalog.json", "generated/b.json", 1)
++		root := writeFixtureProject(t, manifest)
++		if err := os.MkdirAll(filepath.Join(root, "generated"), 0o755); err != nil {
++			t.Fatal(err)
++		}
++		first := filepath.Join(root, "generated", "a.json")
++		if err := os.WriteFile(first, []byte("old"), 0o644); err != nil {
++			t.Fatal(err)
++		}
++		if err := os.Link(first, filepath.Join(root, "generated", "b.json")); err != nil {
++			t.Skipf("hardlinks unavailable: %v", err)
++		}
++		if _, err := Load(root); err == nil {
++			t.Fatal("Load accepted hardlinked outputs")
++		}
++	})
++
++	t.Run("manifest hardlinked as output", func(t *testing.T) {
++		manifest := strings.Replace(validProjectManifest, "internal/generated/module_graph.json", "generated/graph.json", 1)
++		root := writeFixtureProject(t, manifest)
++		if err := os.MkdirAll(filepath.Join(root, "generated"), 0o755); err != nil {
++			t.Fatal(err)
++		}
++		if err := os.Link(filepath.Join(root, ProjectManifestName), filepath.Join(root, "generated", "graph.json")); err != nil {
++			t.Skipf("hardlinks unavailable: %v", err)
++		}
++		if _, err := Load(root); err == nil {
++			t.Fatal("Load accepted a manifest hardlink output")
++		}
++	})
++}
++
++func TestProjectRejectsRootManifestAndOutputChangesAfterLoad(t *testing.T) {
++	t.Run("manifest changed", func(t *testing.T) {
++		root := writeFixtureProject(t, validProjectManifest)
++		project := loadFixtureProject(t, root)
++		if err := os.WriteFile(filepath.Join(root, ProjectManifestName), []byte(validProjectManifest+"# changed\n"), 0o644); err != nil {
++			t.Fatal(err)
++		}
++		counters := &inspectionCounters{}
++		if _, err := project.Verify(fixtureDefinition(counters, false)); err == nil {
++			t.Fatal("Verify accepted a changed manifest")
++		}
++		assertNoInspectionSideEffects(t, counters)
++	})
++
++	t.Run("root replaced", func(t *testing.T) {
++		parent := t.TempDir()
++		root := filepath.Join(parent, "project")
++		if err := os.Mkdir(root, 0o755); err != nil {
++			t.Fatal(err)
++		}
++		if err := os.WriteFile(filepath.Join(root, ProjectManifestName), []byte(validProjectManifest), 0o644); err != nil {
++			t.Fatal(err)
++		}
++		project := loadFixtureProject(t, root)
++		moved := filepath.Join(parent, "moved")
++		if err := os.Rename(root, moved); err != nil {
++			t.Fatal(err)
++		}
++		if err := os.Mkdir(root, 0o755); err != nil {
++			t.Fatal(err)
++		}
++		if err := os.WriteFile(filepath.Join(root, ProjectManifestName), []byte(validProjectManifest), 0o644); err != nil {
++			t.Fatal(err)
++		}
++		if _, err := project.Verify(fixtureDefinition(&inspectionCounters{}, false)); err == nil {
++			t.Fatal("Verify accepted a replaced root")
++		}
++	})
++
++	t.Run("output becomes symlink", func(t *testing.T) {
++		if runtime.GOOS == "windows" {
++			t.Skip("symlink semantics differ on Windows")
++		}
++		root := writeFixtureProject(t, validProjectManifest)
++		project := loadFixtureProject(t, root)
++		outside := filepath.Join(t.TempDir(), "outside")
++		if err := os.WriteFile(outside, []byte("untouched"), 0o644); err != nil {
++			t.Fatal(err)
++		}
++		graph := project.Manifest().Outputs.Graph
++		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, graph)), 0o755); err != nil {
++			t.Fatal(err)
++		}
++		if err := os.Symlink(outside, filepath.Join(root, graph)); err != nil {
++			t.Fatal(err)
++		}
++		_, err := project.Generate(fixtureDefinition(&inspectionCounters{}, false))
++		if err == nil {
++			t.Fatal("Generate accepted a symlink output")
++		}
++		data, readErr := os.ReadFile(outside)
++		if readErr != nil || string(data) != "untouched" {
++			t.Fatalf("outside file changed: %q, %v", data, readErr)
++		}
++		assertNoTemporaryArtifacts(t, root)
++	})
++}
++
++func TestLoadCanonicalizesRootSymlink(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("symlink semantics differ on Windows")
++	}
++	root := writeFixtureProject(t, validProjectManifest)
++	link := filepath.Join(t.TempDir(), "project-link")
++	if err := os.Symlink(root, link); err != nil {
++		t.Fatal(err)
++	}
++	project, err := Load(link)
++	if err != nil {
++		t.Fatalf("Load through root symlink: %v", err)
++	}
++	canonical, err := filepath.EvalSymlinks(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if project.Root() != canonical {
++		t.Fatalf("Root = %q, want %q", project.Root(), canonical)
++	}
++}
++
++func TestUsageErrorsRemainInspectable(t *testing.T) {
++	err := newUsageError("bad input")
++	if !errors.Is(err, ErrUsage) {
++		t.Fatalf("errors.Is(ErrUsage) = false: %v", err)
++	}
++	if err.Error() != "bad input" {
++		t.Fatalf("usage error = %q", err.Error())
++	}
++}
++
++func TestNilProjectReceiversFailClosed(t *testing.T) {
++	var project *Project
++	if project.Root() != "" || project.Manifest() != (Manifest{}) {
++		t.Fatal("nil Project accessors returned non-zero values")
++	}
++	definition := fixtureDefinition(&inspectionCounters{}, false)
++	if _, err := project.Verify(definition); err == nil {
++		t.Fatal("nil Project Verify succeeded")
++	}
++	if _, err := project.Generate(definition); err == nil {
++		t.Fatal("nil Project Generate succeeded")
++	}
++	if _, err := project.Check(definition); err == nil {
++		t.Fatal("nil Project Check succeeded")
++	}
++}
++
++func FuzzParseManifestFailsClosed(f *testing.F) {
++	f.Add([]byte(validProjectManifest))
++	f.Add([]byte("modules: []\n"))
++	f.Add([]byte("application: &app {id: example-app}\ncopy: *app\n"))
++	f.Add([]byte{0xff, 0x00, 0x01})
++	f.Fuzz(func(t *testing.T, data []byte) {
++		_, _ = ParseManifest(data)
++	})
++}
+diff --git a/projecttool/errors.go b/projecttool/errors.go
+new file mode 100644
+index 0000000..352d2af
+--- /dev/null
++++ b/projecttool/errors.go
+@@ -0,0 +1,71 @@
++// Package projecttool provides pure inspection, deterministic generation, and
++// Go-only builds for a consumer-owned Modary application Definition. Its F0
++// public API and versioned generated documents are alpha contracts.
++package projecttool
++
++import (
++	"errors"
++	"fmt"
++	"strings"
++)
++
++var (
++	// ErrContextRequired reports a nil project-tool context.
++	ErrContextRequired = errors.New("project tool context is required")
++	// ErrUsage reports invalid command syntax or command options.
++	ErrUsage = errors.New("invalid project tool usage")
++	// ErrDrift reports missing or differing generated artifacts.
++	ErrDrift = errors.New("generated artifacts have drift")
++	// ErrCallbackPanic reports a contained consumer callback panic.
++	ErrCallbackPanic = errors.New("project tool callback panic")
++)
++
++type usageError struct{ message string }
++
++func (err *usageError) Error() string { return err.message }
++func (err *usageError) Unwrap() error { return ErrUsage }
++
++func newUsageError(format string, arguments ...any) error {
++	return &usageError{message: fmt.Sprintf(format, arguments...)}
++}
++
++// CallbackPanicError reports a recovered consumer callback panic without
++// exposing the recovered value, which may contain application secrets.
++type CallbackPanicError struct{ Operation string }
++
++func (err *CallbackPanicError) Error() string {
++	return fmt.Sprintf("%s callback panicked", err.Operation)
++}
++
++func (err *CallbackPanicError) Unwrap() error { return ErrCallbackPanic }
++
++// DriftStatus classifies a generated artifact mismatch.
++type DriftStatus string
++
++const (
++	// DriftMissing means the configured artifact does not exist.
++	DriftMissing DriftStatus = "missing"
++	// DriftDifferent means the artifact bytes differ from canonical output.
++	DriftDifferent DriftStatus = "different"
++)
++
++// Drift identifies one generated artifact that is absent or differs from its
++// deterministic expected bytes.
++type Drift struct {
++	Path   string      `json:"path"`
++	Status DriftStatus `json:"status"`
++}
++
++// DriftError is returned by command check mode and Build. Programmatic callers
++// can use Project.Check when drift is expected data rather than an error.
++type DriftError struct{ Items []Drift }
++
++func (err *DriftError) Error() string {
++	parts := make([]string, 0, len(err.Items))
++	for _, item := range err.Items {
++		parts = append(parts, item.Path+" ("+string(item.Status)+")")
++	}
++	return "generated artifact drift: " + strings.Join(parts, ", ")
++}
++
++func (err *DriftError) Unwrap() error { return ErrDrift }
+diff --git a/action/typescript.go b/action/typescript.go
+new file mode 100644
+index 0000000..75d5eb1
+--- /dev/null
++++ b/action/typescript.go
+@@ -0,0 +1,247 @@
++package action
++
++import (
++	"bytes"
++	"encoding/json"
++	"fmt"
++	"math/big"
++	"regexp"
++	"sort"
++	"strconv"
++	"strings"
++)
++
++var typescriptIdentifier = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
++
++// GenerateTypeScriptCatalog derives channel-facing TypeScript contracts from
++// the same schemas registered by the Action Runtime. Exact numeric literals
++// outside JavaScript's safe integer range are rejected rather than rounded.
++func GenerateTypeScriptCatalog(descriptors []Descriptor) ([]byte, error) {
++	items := append([]Descriptor(nil), descriptors...)
++	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
++	var output bytes.Buffer
++	output.WriteString("// Code generated by modary action catalog; DO NOT EDIT.\n\n")
++	output.WriteString("export interface ActionContracts {\n")
++	for _, descriptor := range items {
++		input, err := schemaTypeScript(descriptor.InputSchema)
++		if err != nil {
++			return nil, fmt.Errorf("action %s input schema: %w", descriptor.ID, err)
++		}
++		result, err := schemaTypeScript(descriptor.OutputSchema)
++		if err != nil {
++			return nil, fmt.Errorf("action %s output schema: %w", descriptor.ID, err)
++		}
++		actionID, err := typescriptStringLiteral(descriptor.ID)
++		if err != nil {
++			return nil, fmt.Errorf("action %s id: %w", descriptor.ID, err)
++		}
++		fmt.Fprintf(&output, "  %s: {\n    input: %s;\n", actionID, input)
++		if len(descriptor.PreviewSchema) > 0 {
++			preview, err := schemaTypeScript(descriptor.PreviewSchema)
++			if err != nil {
++				return nil, fmt.Errorf("action %s preview schema: %w", descriptor.ID, err)
++			}
++			fmt.Fprintf(&output, "    preview: %s;\n", preview)
++		}
++		fmt.Fprintf(&output, "    output: %s;\n  };\n", result)
++	}
++	output.WriteString("}\n\n")
++	output.WriteString("export type ActionID = keyof ActionContracts;\n")
++	output.WriteString("export type PreviewActionID = { [ID in ActionID]: ActionContracts[ID] extends { preview: unknown } ? ID : never }[ActionID];\n")
++	output.WriteString("export type ActionInput<ID extends ActionID> = ActionContracts[ID][\"input\"];\n")
++	output.WriteString("export type ActionOutput<ID extends ActionID> = ActionContracts[ID][\"output\"];\n")
++	output.WriteString("export type ActionPreview<ID extends ActionID> = ActionContracts[ID] extends { preview: infer Preview } ? Preview : never;\n")
++	return output.Bytes(), nil
++}
++
++func schemaTypeScript(schema json.RawMessage) (string, error) {
++	node, err := decodeSingleJSON(schema)
++	if err != nil {
++		return "", err
++	}
++	return schemaNodeTypeScript(node)
++}
++
++func schemaNodeTypeScript(value any) (string, error) {
++	node, ok := value.(map[string]any)
++	if !ok {
++		return "unknown", nil
++	}
++	if constant, exists := node["const"]; exists {
++		return typescriptLiteral(constant)
++	}
++	if choices, exists := node["enum"].([]any); exists {
++		parts := make([]string, 0, len(choices))
++		for _, choice := range choices {
++			literal, err := typescriptLiteral(choice)
++			if err != nil {
++				return "", err
++			}
++			parts = append(parts, literal)
++		}
++		return strings.Join(parts, " | "), nil
++	}
++	if choices, exists := node["oneOf"].([]any); exists {
++		parts := make([]string, 0, len(choices))
++		for _, choice := range choices {
++			converted, err := schemaNodeTypeScript(choice)
++			if err != nil {
++				return "", err
++			}
++			parts = append(parts, converted)
++		}
++		return strings.Join(parts, " | "), nil
++	}
++	switch node["type"] {
++	case "string":
++		return "string", nil
++	case "integer", "number":
++		return "number", nil
++	case "boolean":
++		return "boolean", nil
++	case "array":
++		item, err := schemaNodeTypeScript(node["items"])
++		if err != nil {
++			return "", err
++		}
++		if strings.Contains(item, " | ") {
++			item = "(" + item + ")"
++		}
++		return "Array<" + item + ">", nil
++	case "object":
++		properties, _ := node["properties"].(map[string]any)
++		if len(properties) == 0 {
++			return "Record<string, unknown>", nil
++		}
++		required := make(map[string]struct{})
++		if items, ok := node["required"].([]any); ok {
++			for _, item := range items {
++				if name, ok := item.(string); ok {
++					required[name] = struct{}{}
++				}
++			}
++		}
++		names := make([]string, 0, len(properties))
++		for name := range properties {
++			names = append(names, name)
++		}
++		sort.Strings(names)
++		parts := make([]string, 0, len(names))
++		for _, name := range names {
++			converted, err := schemaNodeTypeScript(properties[name])
++			if err != nil {
++				return "", err
++			}
++			propertyName := name
++			if !typescriptIdentifier.MatchString(name) {
++				propertyName, err = typescriptStringLiteral(name)
++				if err != nil {
++					return "", fmt.Errorf("encode property name %q: %w", name, err)
++				}
++			}
++			optional := "?"
++			if _, exists := required[name]; exists {
++				optional = ""
++			}
++			parts = append(parts, propertyName+optional+": "+converted)
++		}
++		return "{ " + strings.Join(parts, "; ") + " }", nil
++	default:
++		return "unknown", nil
++	}
++}
++
++func typescriptLiteral(value any) (string, error) {
++	switch typed := value.(type) {
++	case string:
++		return typescriptStringLiteral(typed)
++	case nil:
++		return "null", nil
++	case json.Number:
++		return typescriptNumberLiteral(typed)
++	default:
++		if err := validateTypeScriptNumbers(typed); err != nil {
++			return "", err
++		}
++		canonical, err := canonicalizeJSONValue(typed)
++		if err != nil {
++			return "", err
++		}
++		data, err := json.Marshal(canonical)
++		if err != nil {
++			return "", err
++		}
++		return string(data), nil
++	}
++}
++
++func typescriptStringLiteral(value string) (string, error) {
++	encoded, err := json.Marshal(value)
++	if err != nil {
++		return "", fmt.Errorf("encode TypeScript string literal: %w", err)
++	}
++	return string(encoded), nil
++}
++
++func validateTypeScriptNumbers(value any) error {
++	return validateTypeScriptNumbersAt(value, "$")
++}
++
++func validateTypeScriptNumbersAt(value any, location string) error {
++	switch typed := value.(type) {
++	case json.Number:
++		_, err := typescriptNumberLiteral(typed)
++		if err != nil {
++			return fmt.Errorf("%s: %w", location, err)
++		}
++	case map[string]any:
++		keys := make([]string, 0, len(typed))
++		for key := range typed {
++			keys = append(keys, key)
++		}
++		sort.Strings(keys)
++		for _, key := range keys {
++			if err := validateTypeScriptNumbersAt(typed[key], jsonPointer(location, key)); err != nil {
++				return err
++			}
++		}
++	case []any:
++		for index, item := range typed {
++			if err := validateTypeScriptNumbersAt(item, fmt.Sprintf("%s/%d", location, index)); err != nil {
++				return err
++			}
++		}
++	}
++	return nil
++}
++
++func jsonPointer(base, component string) string {
++	component = strings.ReplaceAll(component, "~", "~0")
++	component = strings.ReplaceAll(component, "/", "~1")
++	return base + "/" + component
++}
++
++func typescriptNumberLiteral(value json.Number) (string, error) {
++	normalized, err := normalizeJSONNumber(value.String())
++	if err != nil {
++		return "", err
++	}
++	rational, ok := new(big.Rat).SetString(normalized)
++	if !ok {
++		return "", fmt.Errorf("JSON number %q is invalid", value)
++	}
++	maximumSafeInteger := new(big.Rat).SetInt64(9_007_199_254_740_991)
++	if new(big.Rat).Abs(rational).Cmp(maximumSafeInteger) > 0 {
++		return "", fmt.Errorf("JSON numeric literal %q is outside JavaScript's safe integer range", value)
++	}
++	parsed, err := strconv.ParseFloat(normalized, 64)
++	if err != nil {
++		return "", fmt.Errorf("JSON numeric literal %q is not a finite JavaScript number", value)
++	}
++	roundTrip := strconv.FormatFloat(parsed, 'g', -1, 64)
++	roundTripRational, ok := new(big.Rat).SetString(roundTrip)
++	if !ok || roundTripRational.Cmp(rational) != 0 {
++		return "", fmt.Errorf("JSON numeric literal %q cannot be represented exactly by a JavaScript number literal", value)
++	}
++	return normalized, nil
++}
+diff --git a/action/schema_test.go b/action/schema_test.go
+new file mode 100644
+index 0000000..d0a32a5
+--- /dev/null
++++ b/action/schema_test.go
+@@ -0,0 +1,389 @@
++package action
++
++import (
++	"encoding/json"
++	"fmt"
++	"net/http"
++	"net/http/httptest"
++	"net/url"
++	"os"
++	"path/filepath"
++	"strings"
++	"sync/atomic"
++	"testing"
++)
++
++func TestSchemaBuildersProduceDeterministicStrictObjects(t *testing.T) {
++	schema := Object(map[string]Field{
++		"count": OptionalField(Integer(Minimum(0), Description("Number of rows"))),
++		"name":  RequiredField(String(MinLength(1), Description("Stable name"))),
++	}).JSON()
++	if err := ValidateSchema(schema); err != nil {
++		t.Fatal(err)
++	}
++	if err := ValidateJSON(schema, json.RawMessage(`{"name":"example","count":2}`)); err != nil {
++		t.Fatal(err)
++	}
++	if err := ValidateJSON(schema, json.RawMessage(`{"name":"example","extra":true}`)); ErrorCode(err) != CodeValidationFailed {
++		t.Fatalf("additional property error = %v", err)
++	}
++	if strings.Index(string(schema), `"count"`) > strings.Index(string(schema), `"name"`) {
++		t.Fatalf("schema properties are not deterministic: %s", schema)
++	}
++}
++
++func TestSchemaBuilderSealsOptionAndNestedState(t *testing.T) {
++	var captured map[string]any
++	option := SchemaOption{name: "test metadata", allowed: schemaKindAny, apply: func(node map[string]any) {
++		captured = node
++		node["metadata"] = map[string]any{"stable": true}
++	}}
++	child := String(option)
++	parent := Object(map[string]Field{"value": RequiredField(child)})
++	captured["type"] = "integer"
++	captured["metadata"].(map[string]any)["stable"] = false
++	child.node["type"] = "boolean"
++
++	encoded := string(parent.JSON())
++	if !strings.Contains(encoded, `"type":"string"`) || !strings.Contains(encoded, `"stable":true`) {
++		t.Fatalf("sealed Schema changed through aliased builder state: %s", encoded)
++	}
++}
++
++func TestCompileValidatorRejectsRemoteSchemaReferencesWithoutIO(t *testing.T) {
++	var hits atomic.Int64
++	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
++		hits.Add(1)
++		response.Header().Set("Content-Type", "application/schema+json")
++		_, _ = response.Write([]byte(`{"type":"string"}`))
++	}))
++	defer server.Close()
++
++	tests := []struct {
++		name   string
++		schema string
++		match  string
++	}{
++		{name: "http ref", schema: fmt.Sprintf(`{"$ref":%q}`, server.URL+"/remote.json"), match: "non-local $ref"},
++		{name: "relative ref", schema: `{"$ref":"schemas/remote.json"}`, match: "non-local $ref"},
++		{name: "named fragment ref", schema: `{"$ref":"#anchor"}`, match: "non-local $ref"},
++		{name: "dependency schema http ref", schema: fmt.Sprintf(`{"type":"object","dependencies":{"trigger":{"$ref":%q}}}`, server.URL+"/dependency.json"), match: "non-local $ref"},
++		{name: "remote dollar id", schema: fmt.Sprintf(`{"$id":%q,"type":"string"}`, server.URL+"/root.json"), match: "non-local base"},
++		{name: "remote legacy id", schema: fmt.Sprintf(`{"id":%q,"type":"string"}`, server.URL+"/root.json"), match: "non-local base"},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			if _, err := CompileValidator(json.RawMessage(test.schema)); err == nil || !strings.Contains(err.Error(), test.match) {
++				t.Fatalf("CompileValidator() error = %v, want %q", err, test.match)
++			}
++		})
++	}
++	if hits.Load() != 0 {
++		t.Fatalf("schema compilation performed %d HTTP requests", hits.Load())
++	}
++}
++
++func TestCompileValidatorRejectsFileSchemaReferenceBeforeReadingSentinel(t *testing.T) {
++	path := filepath.Join(t.TempDir(), "must-not-be-read.json")
++	if err := os.WriteFile(path, []byte(`this sentinel is deliberately not JSON`), 0o000); err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
++	ref := (&url.URL{Scheme: "file", Path: path}).String()
++	_, err := CompileValidator(json.RawMessage(fmt.Sprintf(`{"type":"object","dependencies":{"trigger":{"$ref":%q}}}`, ref)))
++	if err == nil || !strings.Contains(err.Error(), "non-local $ref") || strings.Contains(err.Error(), "sentinel") {
++		t.Fatalf("CompileValidator(file ref) error = %v", err)
++	}
++}
++
++func TestCompileValidatorRejectsRemoteRefsInEveryDraft7SubschemaPosition(t *testing.T) {
++	var hits atomic.Int64
++	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
++		hits.Add(1)
++	}))
++	defer server.Close()
++	ref := fmt.Sprintf(`{"$ref":%q}`, server.URL+"/remote.json")
++	tests := []struct {
++		name   string
++		schema string
++	}{
++		{name: "additionalItems", schema: fmt.Sprintf(`{"additionalItems":%s}`, ref)},
++		{name: "additionalProperties", schema: fmt.Sprintf(`{"additionalProperties":%s}`, ref)},
++		{name: "contains", schema: fmt.Sprintf(`{"contains":%s}`, ref)},
++		{name: "else", schema: fmt.Sprintf(`{"else":%s}`, ref)},
++		{name: "if", schema: fmt.Sprintf(`{"if":%s}`, ref)},
++		{name: "not", schema: fmt.Sprintf(`{"not":%s}`, ref)},
++		{name: "propertyNames", schema: fmt.Sprintf(`{"propertyNames":%s}`, ref)},
++		{name: "then", schema: fmt.Sprintf(`{"then":%s}`, ref)},
++		{name: "allOf", schema: fmt.Sprintf(`{"allOf":[%s]}`, ref)},
++		{name: "anyOf", schema: fmt.Sprintf(`{"anyOf":[%s]}`, ref)},
++		{name: "oneOf", schema: fmt.Sprintf(`{"oneOf":[%s]}`, ref)},
++		{name: "items schema", schema: fmt.Sprintf(`{"items":%s}`, ref)},
++		{name: "items tuple", schema: fmt.Sprintf(`{"items":[%s]}`, ref)},
++		{name: "definitions", schema: fmt.Sprintf(`{"definitions":{"nested":%s}}`, ref)},
++		{name: "properties", schema: fmt.Sprintf(`{"properties":{"nested":%s}}`, ref)},
++		{name: "patternProperties", schema: fmt.Sprintf(`{"patternProperties":{".*":%s}}`, ref)},
++		{name: "schema dependency", schema: fmt.Sprintf(`{"dependencies":{"trigger":%s}}`, ref)},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			if _, err := CompileValidator(json.RawMessage(test.schema)); err == nil || !strings.Contains(err.Error(), "non-local $ref") {
++				t.Fatalf("CompileValidator() error = %v", err)
++			}
++		})
++	}
++	if hits.Load() != 0 {
++		t.Fatalf("subschema compilation performed %d HTTP requests", hits.Load())
++	}
++}
++
++func TestCompileValidatorAllowsSameDocumentSchemaReferences(t *testing.T) {
++	schema := json.RawMessage(`{
++		"$schema":"http://json-schema.org/draft-07/schema#",
++		"definitions":{"positive":{"type":"integer","minimum":0}},
++		"$ref":"#/definitions/positive"
++	}`)
++	validator, err := CompileValidator(schema)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := validator.Validate(json.RawMessage(`7`)); err != nil {
++		t.Fatalf("local reference rejected valid input: %v", err)
++	}
++	if err := validator.Validate(json.RawMessage(`-1`)); ErrorCode(err) != CodeValidationFailed {
++		t.Fatalf("local reference invalid input error = %v", err)
++	}
++
++	rootValidator, err := CompileValidator(json.RawMessage(`{"$ref":"#","type":"integer"}`))
++	if err != nil {
++		t.Fatalf("root reference was rejected: %v", err)
++	}
++	_ = rootValidator
++}
++
++func TestValidatorPreservesLargeJSONIntegers(t *testing.T) {
++	t.Run("maximum", func(t *testing.T) {
++		validator, err := CompileValidator(json.RawMessage(`{"type":"integer","maximum":9007199254740992}`))
++		if err != nil {
++			t.Fatal(err)
++		}
++		if err := validator.Validate(json.RawMessage(`9007199254740992`)); err != nil {
++			t.Fatalf("maximum boundary rejected: %v", err)
++		}
++		if err := validator.Validate(json.RawMessage(`9007199254740993`)); ErrorCode(err) != CodeValidationFailed {
++			t.Fatalf("integer above exact maximum error = %v", err)
++		}
++	})
++
++	t.Run("const", func(t *testing.T) {
++		validator, err := CompileValidator(json.RawMessage(`{"const":9007199254740993}`))
++		if err != nil {
++			t.Fatal(err)
++		}
++		if err := validator.Validate(json.RawMessage(`9007199254740993`)); err != nil {
++			t.Fatalf("exact large const rejected: %v", err)
++		}
++		if err := validator.Validate(json.RawMessage(`9007199254740992`)); ErrorCode(err) != CodeValidationFailed {
++			t.Fatalf("neighboring large integer matched const: %v", err)
++		}
++	})
++}
++
++func TestValidatorRequiresExactlyOneJSONValue(t *testing.T) {
++	validator, err := CompileValidator(Object(map[string]Field{"name": RequiredField(String())}).JSON())
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, input := range []json.RawMessage{
++		json.RawMessage(`{"name":"first"} {"name":"second"}`),
++		json.RawMessage(`{"name":"first"} trailing`),
++		json.RawMessage(``),
++	} {
++		if err := validator.Validate(input); ErrorCode(err) != CodeValidationFailed {
++			t.Fatalf("Validate(%q) error = %v", input, err)
++		}
++	}
++	if err := validator.Validate(json.RawMessage("{\"name\":\"only\"}\n\t")); err != nil {
++		t.Fatalf("single JSON value with trailing whitespace: %v", err)
++	}
++}
++
++func TestParseSchemaRejectsNonDraft7Declaration(t *testing.T) {
++	for _, declaration := range []string{
++		"http://json-schema.org/draft-04/schema#",
++		"https://json-schema.org/draft/2020-12/schema",
++	} {
++		t.Run(declaration, func(t *testing.T) {
++			_, err := ParseSchema(json.RawMessage(fmt.Sprintf(`{"$schema":%q,"type":"string"}`, declaration)))
++			if err == nil || !strings.Contains(err.Error(), "only JSON Schema Draft 7 is supported") {
++				t.Fatalf("ParseSchema() error = %v", err)
++			}
++		})
++	}
++	schema, err := ParseSchema(json.RawMessage(`{"$schema":"https://json-schema.org/draft-07/schema#","type":"string"}`))
++	if err != nil {
++		t.Fatalf("Draft 7 declaration rejected: %v", err)
++	}
++	if !strings.Contains(string(schema.JSON()), draft7URI) {
++		t.Fatalf("canonical Draft 7 declaration missing: %s", schema.JSON())
++	}
++}
++
++func TestSchemaOptionsRejectWrongTargetAndZeroValue(t *testing.T) {
++	tests := []struct {
++		name  string
++		build func()
++		match string
++	}{
++		{name: "string minimum", build: func() { String(Minimum(1)) }, match: "Minimum cannot be applied to string Schema"},
++		{name: "integer min length", build: func() { Integer(MinLength(1)) }, match: "MinLength cannot be applied to integer Schema"},
++		{name: "array format", build: func() { Array(String(), Format("date-time")) }, match: "Format cannot be applied to array Schema"},
++		{name: "zero option", build: func() { String(SchemaOption{}) }, match: "SchemaOption 0 is invalid"},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			assertSchemaPanic(t, test.match, test.build)
++		})
++	}
++}
++
++func TestSchemaBuildersRejectZeroNestedSchemas(t *testing.T) {
++	tests := []struct {
++		name  string
++		build func()
++		match string
++	}{
++		{name: "object", build: func() { Object(map[string]Field{"missing": {Schema: Schema{}}}) }, match: "Object field \"missing\" received a zero Schema"},
++		{name: "array", build: func() { Array(Schema{}) }, match: "Array items received a zero Schema"},
++		{name: "one of member", build: func() { OneOf(String(), Schema{}) }, match: "OneOf schema 1 received a zero Schema"},
++		{name: "empty one of", build: func() { OneOf() }, match: "OneOf requires at least one Schema"},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			assertSchemaPanic(t, test.match, test.build)
++		})
++	}
++}
++
++func assertSchemaPanic(t *testing.T, match string, build func()) {
++	t.Helper()
++	defer func() {
++		value := recover()
++		if value == nil || !strings.Contains(fmt.Sprint(value), match) {
++			t.Fatalf("panic = %v, want containing %q", value, match)
++		}
++	}()
++	build()
++}
++
++func TestGenerateTypeScriptCatalogUsesActionSchemas(t *testing.T) {
++	descriptor := Descriptor{
++		ID:            "example.create",
++		Version:       "0.1.0",
++		Title:         "Create example",
++		InputSchema:   Object(map[string]Field{"name": RequiredField(String())}).JSON(),
++		PreviewSchema: Object(map[string]Field{"matched": RequiredField(Integer())}).JSON(),
++		OutputSchema:  Object(map[string]Field{"id": RequiredField(String())}).JSON(),
++		Permission:    "example.create",
++		Preview:       PreviewRequired,
++		AuditLevel:    AuditMetadata,
++		Channels:      []string{"http"},
++	}
++	generated, err := GenerateTypeScriptCatalog([]Descriptor{descriptor})
++	if err != nil {
++		t.Fatal(err)
++	}
++	text := string(generated)
++	for _, expected := range []string{
++		`"example.create": {`,
++		`input: { name: string }`,
++		`preview: { matched: number }`,
++		`output: { id: string }`,
++		`export type PreviewActionID`,
++		`export type ActionOutput`,
++	} {
++		if !strings.Contains(text, expected) {
++			t.Fatalf("generated catalog missing %q:\n%s", expected, text)
++		}
++	}
++}
++
++func TestGenerateTypeScriptCatalogPreservesSafeNumbersAndRejectsUnsafeLiterals(t *testing.T) {
++	descriptor := Descriptor{
++		ID:            "number.inspect",
++		InputSchema:   json.RawMessage(`{"type":"integer","enum":[9007199254740991,1.20e1]}`),
++		OutputSchema:  json.RawMessage(`{"const":{"value":42}}`),
++		PreviewSchema: json.RawMessage(`{"const":0.5}`),
++	}
++	generated, err := GenerateTypeScriptCatalog([]Descriptor{descriptor})
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, expected := range []string{"9007199254740991 | 12", `output: {"value":42}`, "preview: 0.5"} {
++		if !strings.Contains(string(generated), expected) {
++			t.Fatalf("generated catalog missing %q:\n%s", expected, generated)
++		}
++	}
++
++	descriptor.InputSchema = json.RawMessage(`{"type":"integer","const":9007199254740993}`)
++	if _, err := GenerateTypeScriptCatalog([]Descriptor{descriptor}); err == nil || !strings.Contains(err.Error(), "safe integer range") {
++		t.Fatalf("unsafe numeric const error = %v", err)
++	}
++	descriptor.InputSchema = json.RawMessage(`{"const":{"nested":9007199254740993}}`)
++	if _, err := GenerateTypeScriptCatalog([]Descriptor{descriptor}); err == nil || !strings.Contains(err.Error(), "safe integer range") {
++		t.Fatalf("nested unsafe numeric const error = %v", err)
++	}
++	for _, schema := range []json.RawMessage{
++		json.RawMessage(`{"const":0.10000000000000001}`),
++		json.RawMessage(`{"const":9007199254740990.5}`),
++		json.RawMessage(`{"enum":[{"nested":0.10000000000000001}]}`),
++	} {
++		descriptor.InputSchema = schema
++		if _, err := GenerateTypeScriptCatalog([]Descriptor{descriptor}); err == nil || !strings.Contains(err.Error(), "represented exactly") {
++			t.Fatalf("inexact JavaScript numeric literal %s error = %v", schema, err)
++		}
++	}
++
++	firstSchema := json.RawMessage(`{"const":{"z":9007199254740993,"a":0.10000000000000001}}`)
++	secondSchema := json.RawMessage(`{"const":{"a":0.10000000000000001,"z":9007199254740993}}`)
++	var firstError string
++	for iteration := 0; iteration < 100; iteration++ {
++		descriptor.InputSchema = firstSchema
++		if iteration%2 != 0 {
++			descriptor.InputSchema = secondSchema
++		}
++		_, err := GenerateTypeScriptCatalog([]Descriptor{descriptor})
++		if err == nil || !strings.Contains(err.Error(), "$/a") {
++			t.Fatalf("deterministic nested numeric error = %v", err)
++		}
++		if iteration == 0 {
++			firstError = err.Error()
++		} else if err.Error() != firstError {
++			t.Fatalf("nested numeric error changed:\nfirst: %s\nnext:  %s", firstError, err)
++		}
++	}
++
++	descriptor.InputSchema = json.RawMessage(`{"type":"integer","const":1,"const":2}`)
++	if _, err := GenerateTypeScriptCatalog([]Descriptor{descriptor}); err == nil || !strings.Contains(err.Error(), "duplicate JSON object property") {
++		t.Fatalf("duplicate schema property error = %v", err)
++	}
++}
++
++func TestGenerateTypeScriptCatalogUsesECMAScriptCompatibleStringEscapes(t *testing.T) {
++	descriptor := Descriptor{
++		ID:           "string.inspect",
++		InputSchema:  json.RawMessage(`{"const":"\u0007"}`),
++		OutputSchema: json.RawMessage(`{"type":"object","properties":{"\u0007":{"const":"\u0007"}}}`),
++	}
++	generated, err := GenerateTypeScriptCatalog([]Descriptor{descriptor})
++	if err != nil {
++		t.Fatal(err)
++	}
++	text := string(generated)
++	if strings.Contains(text, `\a`) {
++		t.Fatalf("generated catalog contains Go-only escape:\n%s", text)
++	}
++	if strings.Count(text, `"\u0007"`) != 3 {
++		t.Fatalf("generated catalog does not preserve JSON string escapes:\n%s", text)
++	}
++}

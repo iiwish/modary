@@ -1,0 +1,68 @@
+schema_version: 1
+packet_id: EP-002-T010
+task_id: T010
+feature_id: 002-framework-decoupling
+mode: execute_one_task
+adapter: codex
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  spec: .ai-platform/specs/002-framework-decoupling/spec.md
+  checklist: .ai-platform/specs/002-framework-decoupling/checklists/requirements.md
+  plan: .ai-platform/specs/002-framework-decoupling/plan.md
+  analysis: .ai-platform/specs/002-framework-decoupling/analysis.md
+  work_graph: .ai-platform/specs/002-framework-decoupling/tasks.md
+  approval: explicit user approval and autonomous completion request on 2026-07-30
+work_unit:
+  title: Freeze Contract And Preserve Consumer Assets
+  goal: Establish the canonical framework contract and preserve the integrated prototype before removal.
+  requirements: [FR-001, FR-002, FR-012, NFR-007]
+  dependencies: []
+codebase_context:
+  relevant_files:
+    - .ai-platform/memory/constitution.md
+    - .ai-platform/docs/product-design.md
+    - .ai-platform/specs/002-framework-decoupling/spec.md
+    - /Users/iiwish/self/rulary/prototype/modary-integrated-f0
+  invariants:
+    - consumer assets are copied before source removal
+    - active Modary contracts describe an independent framework
+    - no implementation begins with unresolved Critical or High contract findings
+execution_constraints:
+  allowed_files:
+    - .ai-platform/**
+    - docs/**
+    - /Users/iiwish/self/rulary/**
+    - go.mod
+  forbidden_changes:
+    - deleting consumer assets before checksum verification
+    - editing preserved snapshot content after manifest creation
+  worktree: current codex/f0-hardening worktree; existing changes belong to the continuing delivery
+  direct_execute_reason: primary agent owns canonical governance artifacts and preservation capture
+tdd_plan:
+  red:
+    - run the artifact validator against incomplete new records
+  green:
+    - complete the canonical records and byte-identical snapshot
+  refactor:
+    - keep current pointers concise and avoid duplicated product state
+validation_loop:
+  commands:
+    - python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 002-framework-decoupling --task-id T010 --strict
+    - diff source and destination SHA-256 manifests
+    - git diff --check
+  expected_signals:
+    - artifact validator reports no errors
+    - checksum diff is empty
+    - no whitespace errors
+  retry_budget: 3
+evidence_contract:
+  path: .ai-platform/evidence/T010/summary.md
+  required: [changed_files, validation, checksum_result, review, residual_risk]
+review_contract:
+  layers: [spec_compliance, engineering_quality, preservation_acceptance]
+handoff:
+  next_task: T011
+  task_status_after_review: Needs_Review
+stop_conditions:
+  - unidentified user-owned changes overlap preservation scope
+  - any source file lacks a byte-identical destination

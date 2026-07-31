@@ -1,0 +1,96 @@
+schema_version: 1
+packet_id: EP-002-T014
+task_id: T014
+feature_id: 002-framework-decoupling
+mode: execute_one_task
+adapter: codex-subagent
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  spec: .ai-platform/specs/002-framework-decoupling/spec.md
+  checklist: .ai-platform/specs/002-framework-decoupling/checklists/requirements.md
+  plan: .ai-platform/specs/002-framework-decoupling/plan.md
+  analysis: .ai-platform/specs/002-framework-decoupling/analysis.md
+  work_graph: .ai-platform/specs/002-framework-decoupling/tasks.md
+  approval: explicit user approval and autonomous completion request on 2026-07-30
+work_unit:
+  title: Neutralize Official Durable Adapters
+  goal: Publish explicit SQLite, local Identity, RBAC, and SQL Audit adapters with no bundled users, grants, secrets, policy, or consumer-domain data.
+  requirements: [FR-003, FR-004, FR-009, FR-010, NFR-001, NFR-004, NFR-005, NFR-006]
+  dependencies: [T011]
+codebase_context:
+  relevant_files:
+    - adapters/sqlite/**
+    - adapters/localidentity/**
+    - adapters/rbac/**
+    - adapters/sqlaudit/**
+    - database/database.go
+    - database/migration.go
+    - module/definition.go
+    - module/services.go
+    - action/types.go
+    - identity/identity.go
+    - audit/audit.go
+  invariants:
+    - every Adapter is configured through explicit typed options captured by its Registration; no global environment/config package is consulted
+    - empty provisioning creates only neutral schema and no user, token, role, binding, grant, policy, audit event, or consumer-domain row
+    - all persistence keys use execution scope kind and scope id with no consumer-specific shortcut
+    - SQLite provides the canonical database, transaction, plan, and idempotency services and preserves Runtime provenance, replay, and transaction invariants
+    - local Identity stores password and bearer credentials only as hardened hashes and returns the minimal identity.Actor contract
+    - RBAC defaults to deny, resolves policy from durable explicit roles/bindings, enforces row constraints, and returns a stable policy fingerprint that changes on effective policy changes
+    - SQL Audit normalizes bounded events and participates in the same SQLite transaction through sealed database Access and privileged adapter Control
+    - every Start failure and normal shutdown releases database and process resources exactly once
+execution_constraints:
+  allowed_files:
+    - adapters/**
+    - database/**
+    - .ai-platform/specs/002-framework-decoupling/packets/T014.yaml
+    - .ai-platform/specs/002-framework-decoupling/tasks.md
+    - .ai-platform/evidence/T014/**
+  forbidden_changes:
+    - default/demo credentials, implicit users, implicit bearer tokens, bundled role policy, grants, or consumer-domain identifiers
+    - environment reads, package global mutable configuration, hidden filesystem roots, or automatic consumer migration discovery
+    - bypassing typed module services, Runtime transaction context, scope.Execution, or Module lifecycle cleanup
+    - compatibility migrations or policy tied to any consumer prototype in the neutral pre-release schema
+  worktree: keep the official Adapters in top-level public packages and do not edit preserved external archives
+  delegation: SQLite stores, local Identity, RBAC, and Audit may be implemented independently in disjoint adapter directories; shared database helpers require root coordination
+tdd_plan:
+  red:
+    - prove every Adapter rejects invalid and typed-nil options before side effects
+    - prove empty provisioning and restart leave all policy/data tables empty
+    - prove explicit provisioning is validated, idempotent, credential-safe, durable, and revocable by explicit consumer action
+    - prove plan/idempotency records preserve scope, actor type, channel, Action version, contract hash, plan hash, impact, decision fingerprint, and result references across restart
+    - prove concurrent idempotency reservation, transaction rollback, migration retry/checksum/prefix, and database close behavior
+    - prove RBAC deny/allow/row limit and preview-to-execute fingerprint invalidation
+    - prove audit normalization, transaction rollback, structured provenance, bounds, and corrupted-row failure behavior
+  green:
+    - implement neutral v1 schema and explicit typed Registration factories for the four official adapters
+  refactor:
+    - remove former config-bound adapter Modules and obsolete domain migration lineage without a compatibility bridge
+validation_loop:
+  commands:
+    - go test ./adapters/... ./database
+    - go test -race ./adapters/... ./database
+    - go vet ./adapters/... ./database
+    - go test -count=20 ./adapters/...
+    - rg -i 'rulary|ruleset|workspace|demo|default.*password|default.*token|os\.Getenv|core/config' adapters
+    - python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 002-framework-decoupling --task-id T014 --strict
+    - git diff --check
+  expected_signals:
+    - empty provisioning counts are zero after first start and restart
+    - wrong credentials and unrecognized principals fail without revealing hashes or database details at transport boundaries
+    - the neutral write Action survives restart and idempotent replay with exact provenance
+    - policy mutation makes a prior preview stale
+    - failed Action transactions persist neither domain result, idempotency completion, nor success audit
+  retry_budget: 3
+evidence_contract:
+  path: .ai-platform/evidence/T014/summary.md
+  required: [changed_files, red_result, green_result, validation, provisioning_review, durability_review, security_review, residual_risk]
+review_contract:
+  layers: [spec_compliance, public_api, data_model, security, transaction_and_concurrency, migration_and_restart, engineering_quality]
+handoff:
+  next_tasks: [T015]
+  task_status_after_review: Needs_Review
+stop_conditions:
+  - an Adapter requires a consumer-domain identifier, hidden secret, implicit policy, or environment-owned configuration
+  - the SQLite profile cannot keep Action, idempotency, domain mutation, and audit behavior transactionally consistent
+  - an empty installation creates any identity, authorization, token, grant, audit, or domain row

@@ -1,0 +1,134 @@
+schema_version: 1
+packet_id: EP-002-T013
+task_id: T013
+feature_id: 002-framework-decoupling
+mode: execute_one_task
+adapter: codex-subagent
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  spec: .ai-platform/specs/002-framework-decoupling/spec.md
+  checklist: .ai-platform/specs/002-framework-decoupling/checklists/requirements.md
+  plan: .ai-platform/specs/002-framework-decoupling/plan.md
+  analysis: .ai-platform/specs/002-framework-decoupling/analysis.md
+  work_graph: .ai-platform/specs/002-framework-decoupling/tasks.md
+  approval: explicit user approval and autonomous completion request on 2026-07-30
+work_unit:
+  title: Build Pure Consumer Project Tooling
+  goal: Publish deterministic verify, generate, and check helpers plus a cancelable root-verified build driven by a consumer-supplied Definition and a strict output-only project manifest.
+  requirements: [FR-002, FR-007, FR-008, NFR-001, NFR-002, NFR-003, NFR-007, NFR-008]
+  dependencies: [T011]
+codebase_context:
+  relevant_files:
+    - projecttool/config.go
+    - projecttool/inspect.go
+    - projecttool/generate.go
+    - projecttool/build.go
+    - projecttool/run.go
+    - appkit/appkit.go
+    - appkit/metadata.go
+    - module/definition.go
+    - module/host.go
+    - module/graph.go
+    - action/typescript.go
+  invariants:
+    - the supplied appkit.Definition is the sole Module composition source
+    - inspection may validate registrations, graph, migration declarations, and Action contracts but never invoke Start, cleanup, handler factories, migration files, database, network, or Node tooling
+    - modary.yaml contains only application identity, generated output paths, and consumer build target metadata; it never lists or discovers Modules
+    - generated graph and Action artifacts are canonical, sorted, byte-deterministic, and written only beneath the configured consumer root
+    - check mode is read-only and reports every missing or differing artifact deterministically
+    - build runs verify and generated check before invoking Go, installs the final binary with one sibling rename, and never runs tests or frontend tools implicitly
+    - Go writes only to an outside-project operating system temporary directory; canonical TMPDIR and every ancestor through / retain file descriptors and filesystem identities, are revalidated, and reject project-owned or project-linked staging
+    - every retained TMPDIR level is effective-UID- or root-owned; group/other-writable levels are accepted only when root-owned and sticky; Darwin rejects extended ACLs at every level
+    - the child staging directory is effective-UID-owned with exact mode 0700; Darwin also rejects its extended ACL
+    - Build removes every inherited case-variant TMPDIR and GOTMPDIR entry from the child environment, then sets both exactly once to the same canonical staging parent whose descriptor and ancestry are retained and revalidated; ambient GOTMPDIR cannot override that parent
+    - every other platform, including other Unix variants and Windows, fails Build because F0 has no validated ACL policy; unsupported platforms are cross-compile-only where covered and have no native Build, ACL, or rename runtime claim
+    - Build sets GO111MODULE=on, GOTOOLCHAIN=local, GOENV=off, GOWORK=off, and empty GOFLAGS, and passes -mod=readonly and -buildvcs=false
+    - remaining inherited environment, selected Go executable and toolchain, consumer source, command.Dir, and same-UID pathname replacement remain trusted boundaries rather than a sandbox claim
+    - on Linux and Darwin, waitid(WEXITED|WNOWAIT) observes but does not reap the started process-group leader; while PID and PGID remain reserved, Build kills residual same-group descendants after zero and non-zero exits, then calls Cmd.Wait
+    - when the leader and pre-reap group cleanup succeed and context remains active, exec.ErrWaitDelay from Cmd.Wait is only a residual inherited-pipe close backstop and does not fail Build; writer, process-exit, cancellation, and cleanup errors still fail
+    - daemonized or re-grouped trusted descendants remain outside any strong process-sandbox claim
+    - writer and other dependency causes cross one opaque public error-chain boundary; standard errors.Is/errors.As use bounded matching without calling caller-defined Error, Is, As, or Unwrap
+    - validated compiler bytes are copied through the verified Root before installation
+    - same-root operations share one in-process gate by the filesystem identity captured when the Project is loaded, not by pathname spelling
+    - with cooperative output writers, compiler cancellation and inherited output pipes have a bounded wait; caller io.Writer.Write must return because Go cannot interrupt a blocked call
+    - the global framework command does not pretend it can import arbitrary consumer Go composition; consumers own a pinned tool entry
+execution_constraints:
+  allowed_files:
+    - projecttool/**
+    - action/typescript.go
+    - appkit/metadata.go
+    - appkit/*_test.go
+    - .ai-platform/specs/002-framework-decoupling/packets/T013.yaml
+    - .ai-platform/specs/002-framework-decoupling/tasks.md
+    - .ai-platform/evidence/T013/**
+  forbidden_changes:
+    - runtime package discovery, repository scanning for Module composition, or a Modules list in YAML
+    - imports of consumer modules, consumer domains, core/config, or Modary internal packages
+    - Start, handler factory, migration file Open, database, network, node, npm, or pnpm invocation during verify/generate/check
+    - generation outside the canonical consumer root, symlink traversal, replacement without one sibling rename, or writes after validation failure
+    - build-time mutation of generated artifacts or implicit go test/frontend build policy
+    - passing the configured project output pathname to Go or removing project artifacts through an absolute-path fallback
+    - pathname-spelling lock keys; generic POSIX-mode privacy claims; Build support outside Linux/Darwin; an unretained or unvalidated TMPDIR ancestor; insecure writable ancestry; Darwin staging ancestry with an extended ACL; project-owned or project-linked TMPDIR; or a claim that arbitrary caller output writers can be interrupted
+    - ambient GO111MODULE, GOTOOLCHAIN, GOENV, GOWORK, GOFLAGS, TMPDIR, or GOTMPDIR influence; duplicate or mismatched child TMPDIR/GOTMPDIR values; writable module/VCS metadata; or a strong sandbox claim for the remaining environment, toolchain, source, or re-grouped descendants
+    - reaping the compiler leader before same-group cleanup, treating WaitDelay as the primary descendant cleanup, invoking caller-defined error methods, or requiring a consumer to import an internal error helper
+  worktree: build on T011/T012 public contracts and keep project tooling consumer-owned
+  delegation: workers may own disjoint inspection/config, generation, build/command, or adversarial-test surfaces and may not edit official Adapters
+tdd_plan:
+  red:
+    - prove invalid commands and project manifests fail before any Definition callback or filesystem write
+    - prove pure inspection validates metadata, graph, capabilities, migration declarations, and Action ownership while panic-on-use callbacks and files remain untouched
+    - prove repeated generation is byte-identical and check mode reports sorted drift without writes
+    - prove path traversal, output aliasing, symlink escape, malformed YAML, multiple documents, and partial write failures fail closed
+    - prove build rejects drift before Go invocation and succeeds with fake Go while node/npm/pnpm executables fail if called
+    - prove Go receives only an outside-project staging output and canonical TMPDIR plus every ancestor through / retain and revalidate file descriptors and identities while rejecting project-owned or project-linked staging
+    - prove every retained TMPDIR level is effective-UID- or root-owned, group/other-writable only when root-owned and sticky, and on Darwin free of extended ACLs
+    - prove the child staging directory is effective-UID-owned with exact mode 0700 and on Darwin free of extended ACLs
+    - prove a symlink alias supplied through ambient TMPDIR is canonicalized and a malicious project-path GOTMPDIR is discarded; fake Go observes the same retained and revalidated canonical staging parent in both child variables exactly once
+    - prove every unsupported platform fails Build and cross-compilation makes no native Build, ACL, or rename runtime claim
+    - prove Build fixes GO111MODULE=on, GOTOOLCHAIN=local, GOENV=off, GOWORK=off, and empty GOFLAGS, and passes -mod=readonly and -buildvcs=false while retaining an explicit trusted toolchain/environment/source boundary
+    - prove Linux/Darwin waitid(WEXITED|WNOWAIT) observes without reaping the leader, same-group residual descendants are killed after zero and non-zero exits while PID/PGID remain reserved, and Cmd.Wait reaps
+    - prove a successful leader, successful pre-reap cleanup, and active context treat exec.ErrWaitDelay only as a residual inherited-pipe close backstop rather than a Build failure, while writer, process-exit, cancellation, and cleanup errors still fail
+    - prove writer and other dependency causes remain matchable through standard errors.Is/errors.As without calling caller-defined Error, Is, As, or Unwrap or requiring an internal consumer helper
+    - prove a project-path replacement cannot redirect final artifact mutation outside the verified Root
+    - prove path aliases with the same load-captured filesystem identity share one process-local gate
+    - prove compiler cancellation and inherited output pipes are bounded when output writers cooperate; retain blocked caller Write as an explicit trusted-callback limitation
+  green:
+    - implement the smallest strict config, pure inspection snapshot, deterministic artifact renderer, sibling-rename writer with in-process rollback, Node-free Go builder, and consumer command dispatcher
+  refactor:
+    - remove legacy root scanning and application-bound verify/generate/build behavior rather than retaining compatibility discovery
+validation_loop:
+  commands:
+    - go test ./projecttool
+    - go test -race ./projecttool
+    - go vet ./projecttool
+    - go test -count=20 ./projecttool
+    - rg 'Start\(|NewHandler|node|npm|pnpm|modules:' projecttool
+    - python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 002-framework-decoupling --task-id T013 --strict
+    - git diff --check
+  expected_signals:
+    - callback counters and migration Open counters remain zero for verify/generate/check
+    - generated bytes and drift order are identical across shuffled Definition input
+    - fake failing Node executables are never observed
+    - failed generation leaves every prior artifact byte-identical and no temporary files
+    - build output appears only after verify and check pass and is installed by one sibling rename
+    - staged compiler output is regular, non-empty, removed after use, copied through the verified Root, and protected by the validated Linux or Darwin policy
+    - retained canonical TMPDIR ancestry through / is revalidated; ownership and writable-directory policy fail closed; Darwin rejects extended ACLs at every parent and child level; all platforms other than Linux and Darwin fail Build
+    - ambient case variants and duplicates of TMPDIR/GOTMPDIR are removed; fake Go receives each variable exactly once and both point to the same retained and revalidated canonical staging parent, so ambient GOTMPDIR cannot redirect Go temporary files
+    - unsupported platforms are cross-compile-only where covered and F0 makes no native Build, ACL, or rename runtime claim
+    - Go controls and readonly/no-VCS build flags are fixed; remaining environment, toolchain, source, and escaped trusted descendants are not represented as sandboxed
+    - zero and non-zero compiler exits clean same-group descendants before Cmd.Wait; after successful leader exit and pre-reap cleanup with an active context, exec.ErrWaitDelay only bounds residual inherited-pipe closure and does not fail Build; writer, process-exit, cancellation, and cleanup errors still fail; daemonized or re-grouped descendants remain outside the guarantee
+    - opaque public writer-error chains support bounded standard errors.Is/errors.As without custom method dispatch or an internal consumer helper
+    - same-root aliases join one load-identity gate and cooperative-writer cancellation/inherited-pipe tests complete within their bound
+  retry_budget: 3
+evidence_contract:
+  path: .ai-platform/evidence/T013/summary.md
+  required: [changed_files, red_result, green_result, validation, purity_review, determinism_review, residual_risk]
+review_contract:
+  layers: [spec_compliance, public_api, purity_and_side_effects, filesystem_security, determinism, engineering_quality]
+handoff:
+  next_tasks: [T015]
+  task_status_after_review: Needs_Review
+stop_conditions:
+  - project tooling needs application startup, persistent state, dynamic Go package discovery, or a second Module composition list
+  - headless verification or build invokes Node tooling
+  - generated output cannot be bounded to the consumer root or each changed file cannot be installed by one sibling rename
