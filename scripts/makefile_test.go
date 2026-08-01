@@ -281,7 +281,7 @@ func TestMakeRepeatTargetsOnlyStatefulHighRiskPackages(t *testing.T) {
 		t.Fatal("Makefile has no bounded repeat recipe")
 	}
 	recipe := makefile[start : start+1+end]
-	const frameworkRepeat = "$(GO_COMMAND_ENV) $(GO) test -shuffle=on -count=20 $(REPEAT_PACKAGES)"
+	const frameworkRepeat = "$(GO_COMMAND_ENV) $(GO) test -shuffle=on -count=20 $$packages"
 	if strings.Count(recipe, frameworkRepeat) != 1 {
 		t.Fatalf("framework repeat gate is not the curated package command:\n%s", recipe)
 	}
@@ -295,6 +295,8 @@ func TestMakeRepeatTargetsOnlyStatefulHighRiskPackages(t *testing.T) {
 		"REPEAT_PACKAGES",
 		"-shuffle=on -count=20",
 		"MODARY_EXTERNAL_CONSUMER_COPIED_OUT=1",
+		`if test "$$($(GO_COMMAND_ENV) $(GO) env GOOS)" = darwin`,
+		`packages="$$packages ./internal/filepolicy"`,
 	} {
 		if !strings.Contains(recipe, required) {
 			t.Errorf("repeat recipe does not contain %q", required)
@@ -302,7 +304,7 @@ func TestMakeRepeatTargetsOnlyStatefulHighRiskPackages(t *testing.T) {
 	}
 	for _, required := range []string{
 		"./action", "./adapters/...", "./appcmd", "./appkit", "./database",
-		"./internal/actionruntime", "./internal/callbackcontract", "./internal/databasecontrol", "./internal/filepolicy",
+		"./internal/actionruntime", "./internal/callbackcontract", "./internal/databasecontrol",
 		"./internal/jsonschema/...", "./internal/jsonvalue", "./internal/runtimecontrol",
 		"./internal/safeerr", "./internal/sqlpolicy", "./internal/transactionoutcome", "./module", "./projecttool",
 		"./transport/httpapi",
@@ -310,6 +312,9 @@ func TestMakeRepeatTargetsOnlyStatefulHighRiskPackages(t *testing.T) {
 		if !strings.Contains(packages, required) {
 			t.Errorf("REPEAT_PACKAGES does not include %s", required)
 		}
+	}
+	if strings.Contains(packages, "./internal/filepolicy") {
+		t.Error("Darwin-only filepolicy package is unconditional in REPEAT_PACKAGES")
 	}
 }
 

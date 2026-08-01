@@ -12,7 +12,6 @@ REPEAT_PACKAGES := \
 	./internal/actionruntime \
 	./internal/callbackcontract \
 	./internal/databasecontrol \
-	./internal/filepolicy \
 	./internal/jsonschema/... \
 	./internal/jsonvalue \
 	./internal/runtimecontrol \
@@ -77,7 +76,12 @@ race:
 	cd $(CONSUMER_DIR) && MODARY_EXTERNAL_CONSUMER_COPIED_OUT=1 $(GO_COMMAND_ENV) $(GO) test -count=1 -race ./...
 
 repeat:
-	$(GO_COMMAND_ENV) $(GO) test -shuffle=on -count=20 $(REPEAT_PACKAGES)
+	@set -eu; \
+	packages='$(REPEAT_PACKAGES)'; \
+	if test "$$($(GO_COMMAND_ENV) $(GO) env GOOS)" = darwin; then \
+		packages="$$packages ./internal/filepolicy"; \
+	fi; \
+	$(GO_COMMAND_ENV) $(GO) test -shuffle=on -count=20 $$packages
 	cd $(CONSUMER_DIR) && MODARY_EXTERNAL_CONSUMER_COPIED_OUT=1 $(GO_COMMAND_ENV) $(GO) test -shuffle=on -count=20 ./...
 
 fuzz-smoke:
