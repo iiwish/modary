@@ -1,8 +1,8 @@
 # Modary Onboarding And Alpha Publication
 
-- Version: 1.0
+- Version: 1.1
 - Status: Confirmed
-- Source: owner request to complete a narrow Onboarding Readiness stage and publish v0.1.0-alpha.1
+- Source: owner request for narrow onboarding and Alpha publication; immutable-release recovery follows the approved T022 failure policy
 - Last updated: 2026-08-01
 - Governing constitution: `../../memory/constitution.md`
 
@@ -10,7 +10,7 @@
 
 Make the accepted Modary Alpha approachable through one public, executable
 consumer example and one short golden path, then publish the exact validated
-commit as `v0.1.0-alpha.1`. The work does not expand the F0 framework contract
+commit as the supported `v0.1.0-alpha.2` prerelease. The work does not expand the F0 framework contract
 or introduce downstream product behavior.
 
 ## Functional Requirements
@@ -59,10 +59,10 @@ or introduce downstream product behavior.
 - SC-002: Public documentation contains no `testdata/external-consumer` path and
   all local links resolve.
 - SC-003: `make acceptance`, `make ci`, candidate/tag preflight, strict T021 and
-  T022 artifact validation, and `git diff --check` pass at their documented
+  T023 artifact validation, and `git diff --check` pass at their documented
   release states.
-- SC-004: `go list -m github.com/iiwish/modary@v0.1.0-alpha.1` resolves the tag,
-  and `make remote-consumer VERSION=v0.1.0-alpha.1` passes without a replacement.
+- SC-004: `go list -m github.com/iiwish/modary@v0.1.0-alpha.2` resolves the tag,
+  and `make remote-consumer VERSION=v0.1.0-alpha.2` passes without a replacement.
 - SC-005: The public GitHub prerelease, source tag, changelog, license, security
   channel, and release report identify the same commit and version.
 
@@ -77,6 +77,7 @@ or introduce downstream product behavior.
 ## Acceptance Boundary
 
 T021 completes when onboarding, licensing, attribution, and local release gates
-pass on a reviewable candidate. T022 completes only after the public repository,
-annotated tag, tag CI, remote Go module consumption, GitHub prerelease, and final
-truthful evidence all exist.
+pass on a reviewable candidate. T022 preserves the rejected immutable
+`v0.1.0-alpha.1` attempt. T023 completes only after the repaired annotated tag,
+tag CI, remote Go module consumption, GitHub prerelease, and final truthful
+evidence all exist for `v0.1.0-alpha.2`.

@@ -1,6 +1,6 @@
 # Modary Onboarding And Alpha Publication Work Graph
 
-- Version: 1.0
+- Version: 1.1
 - Status: Confirmed
 - Last updated: 2026-08-01
 - Approval source: owner request to complete onboarding and publish v0.1.0-alpha.1
@@ -54,7 +54,7 @@ license and attribution review, full validation, residual risk.
 
 ## T022: Publish v0.1.0-alpha.1
 
-Status: In_Progress
+Status: Superseded
 Priority: P0
 Depends on: T021
 Blocks: None
@@ -98,3 +98,54 @@ Packet path: `.ai-platform/specs/004-onboarding-release/packets/T022.yaml`
 
 Evidence required: Candidate commit, remote, tag object, CI run, module
 resolution, remote consumer, GitHub release URL, claim review, residual risk.
+
+## T023: Publish Remediated v0.1.0-alpha.2
+
+Status: In_Progress
+Priority: P0
+Depends on: T022
+Blocks: None
+Story / Requirement: FR-006, FR-007; NFR-002, NFR-004, NFR-005
+Parallel: No
+Conflicts with: All active release tasks
+
+Goal: Preserve the rejected immutable tag, repair remote copied-out validation,
+and publish one supported prerelease with complete external evidence.
+
+Allowed files: Remote-consumer script and tests; current public version,
+security, changelog, release, onboarding, governance, and CI metadata; T022 and
+T023 evidence; Git commits, annotated tag, GitHub releases, and repository state.
+
+Test targets: Focused remote-consumer regression, complete local gates, clean
+candidate/tag preflight, GitHub tag CI, Go proxy resolution, and copied-out
+remote consumer conformance.
+
+Deliverables: Rejected-tag record, repair, `v0.1.0-alpha.2` annotated tag,
+successful tag CI, remote consumer result, supported GitHub prerelease, and
+truthful release report/evidence.
+
+Acceptance criteria: No public tag moves; every supported release object
+identifies the same Alpha 2 commit; normal consumers resolve and test without a
+local replacement.
+
+Definition of Done: Candidate and tag preflight pass, tag CI succeeds,
+`make remote-consumer VERSION=v0.1.0-alpha.2` passes, the supported GitHub
+prerelease exists, and strict T023 artifact validation passes.
+
+Validation commands:
+- `make release-readiness VERSION=v0.1.0-alpha.2`
+- `make release-preflight VERSION=v0.1.0-alpha.2 RELEASE_MODE=tag`
+- `gh run list --workflow ci.yml --limit 10`
+- `go list -m github.com/iiwish/modary@v0.1.0-alpha.2`
+- `make remote-consumer VERSION=v0.1.0-alpha.2`
+- strict T023 artifact validation
+
+TDD plan: RED is the recorded Alpha 1 remote-consumer failure; GREEN marks the
+copied-out test context explicitly; REFACTOR only after local and remote gates
+pass without weakening application coverage.
+
+Packet path: `.ai-platform/specs/004-onboarding-release/packets/T023.yaml`
+
+Evidence required: Rejected tag identity and failure, repaired candidate,
+remote, tag object, CI run, module resolution, remote consumer, release URLs,
+claim review, and residual risk.

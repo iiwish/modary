@@ -4,7 +4,9 @@
 
 ## Supported Versions
 
-`v0.1.0-alpha.1` is the supported Alpha line. The support table in
+`v0.1.0-alpha.2` is the supported Alpha line. The `v0.1.0-alpha.1` tag is not
+supported because its remote onboarding gate was rejected before a GitHub
+release was created. The support table in
 `docs/reference/support-matrix.md` and each release note define its runtime
 boundary. Pre-v1 releases may receive a security fix as a new prerelease or
 patch, but are not promised indefinite backports.

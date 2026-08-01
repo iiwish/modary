@@ -9,4 +9,4 @@
 - [x] Canonical remote and security reporting state require direct evidence.
 - [x] Downstream product behavior is excluded.
 - [x] Failure and claim boundaries are deterministic and fail closed.
-- [x] T021 and T022 have independent evidence and validation contracts.
+- [x] T021, rejected T022, and recovery T023 have independent evidence contracts.

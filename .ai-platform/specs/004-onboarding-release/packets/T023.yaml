@@ -1,0 +1,121 @@
+schema_version: 1
+packet_id: EP-004-T023
+task_id: T023
+feature_id: 004-onboarding-release
+mode: execute_one_task
+adapter: codex-direct
+
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  product_contract: .ai-platform/docs/product-design.md
+  feature_spec: .ai-platform/specs/004-onboarding-release/spec.md
+  requirements_checklist: .ai-platform/specs/004-onboarding-release/checklists/requirements.md
+  technical_decisions: .ai-platform/specs/004-onboarding-release/plan.md
+  work_graph: .ai-platform/specs/004-onboarding-release/tasks.md
+  analysis: .ai-platform/specs/004-onboarding-release/analysis.md
+  approval_gates:
+    onboarding_candidate: T021 Completed
+    rejected_attempt: T022 Superseded with immutable tag retained
+    recovery: T022 packet authorizes a subsequent version after external failure
+
+work_unit:
+  title: Publish remediated v0.1.0-alpha.2
+  goal: Repair remote copied-out validation and publish one supported immutable prerelease.
+  requirements: [FR-006, FR-007, NFR-002, NFR-004, NFR-005]
+  priority: P0
+  depends_on: [T022]
+  blocks: []
+  parallel: false
+  conflicts_with: [all active release tasks]
+
+codebase_context:
+  relevant_files:
+    - scripts/remote-consumer.sh
+    - scripts/release_scripts_test.go
+    - examples/counter/copyout_test.go
+    - examples/counter/go.mod
+    - CHANGELOG.md
+    - SECURITY.md
+    - .ai-platform/docs/release-report.md
+    - .github/workflows/ci.yml
+  existing_patterns:
+    - immutable semantic prerelease tags
+    - copied-out context suppresses only recursive checkout assertions
+    - read-only tag CI and normal Go proxy verification
+  forbidden_changes:
+    - moving, deleting, or overwriting the cached v0.1.0-alpha.1 tag
+    - weakening application behavior, project, build, or version checks
+    - claiming external success without direct evidence
+
+execution_constraints:
+  branch_or_worktree: current
+  allowed_files:
+    - scripts/remote-consumer.sh
+    - scripts/release_scripts_test.go
+    - Makefile
+    - README.md
+    - CHANGELOG.md
+    - SECURITY.md
+    - examples/counter/go.mod
+    - docs/**
+    - .ai-platform/docs/**
+    - .ai-platform/specs/004-onboarding-release/**
+    - .ai-platform/evidence/T022/**
+    - .ai-platform/evidence/T023/**
+    - Git commits and annotated tag v0.1.0-alpha.2
+    - GitHub releases and repository metadata
+  test_targets:
+    - focused remote-consumer environment regression
+    - complete local release readiness
+    - tag CI
+    - normal Go module resolution
+    - copied-out remote consumer
+
+tdd_plan:
+  required: true
+  red:
+    command: make remote-consumer VERSION=v0.1.0-alpha.1
+    expected_failure: checkout-only replacement assertions reject the remote copy
+  green:
+    command: make remote-consumer VERSION=v0.1.0-alpha.1
+    expected_signal: same immutable framework resolves and all remote application checks pass
+  refactor:
+    command: complete Alpha 2 release gates
+    expected_signal: the repair remains narrow and every supported release claim is proved
+
+validation_loop:
+  commands:
+    - go test ./scripts -run TestRemoteConsumer -count=1
+    - make release-readiness VERSION=v0.1.0-alpha.2
+    - make release-preflight VERSION=v0.1.0-alpha.2 RELEASE_MODE=tag
+    - go list -m github.com/iiwish/modary@v0.1.0-alpha.2
+    - make remote-consumer VERSION=v0.1.0-alpha.2
+    - python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 004-onboarding-release --task-id T023 --strict
+  retry_budget: 2
+  failure_policy:
+    first_failure: stop the next irreversible transition and repair
+    second_failure: retain immutable objects and report the exact blocker
+    beyond_budget: do not weaken validation or move a published tag
+
+evidence_contract:
+  summary: .ai-platform/evidence/T023/summary.md
+  diff: .ai-platform/evidence/T023/diff.patch
+  test_results: .ai-platform/evidence/T023/test-results.md
+  review: .ai-platform/evidence/T023/review.md
+  required: [rejected_tag, candidate_commit, canonical_remote, tag_object, tag_ci, module_resolution, remote_consumer, release_urls, claim_review, residual_risk]
+
+review_contract:
+  required_passes: [immutable_tag, repair_scope, release_claims, tag_ci, remote_consumer]
+  acceptance_rule: supported release objects identify one commit and every external gate passes
+
+handoff:
+  external_issue: null
+  pull_request: null
+  next_tasks: []
+  finish_options: [released and remote verified]
+
+stop_conditions:
+  - any attempt to move v0.1.0-alpha.1
+  - candidate or tag preflight fails
+  - tag CI fails
+  - remote module resolution or consumer fails

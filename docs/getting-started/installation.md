@@ -15,7 +15,7 @@ Framework contributors also need Git, Make, a POSIX shell, `find`, `xargs`, and
 Add the exact prerelease to the consumer:
 
 ```bash
-go get github.com/iiwish/modary@v0.1.0-alpha.1
+go get github.com/iiwish/modary@v0.1.0-alpha.2
 go mod tidy
 ```
 

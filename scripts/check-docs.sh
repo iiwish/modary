@@ -514,7 +514,7 @@ if test -f "$release_readiness_graph"; then
 		.ai-platform/specs/003-release-readiness/packets/T020.yaml; do
 		require_regular_nonempty "$file"
 	done
-	require_metadata "$release_report" 'Target version' v0.1.0-alpha.1
+	require_metadata "$release_report" 'Target version' v0.1.0-alpha.2
 	require_metadata "$release_report" 'Canonical remote' https://github.com/iiwish/modary
 	require_metadata "$release_report" 'Private security reporting channel' https://github.com/iiwish/modary/security/advisories/new
 	require_metadata "$release_report" 'Remote consumer verification' Not_run

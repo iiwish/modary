@@ -1,6 +1,6 @@
 # Current Delivery Work Graph
 
-- Version: 4.0
+- Version: 5.0
 - Status: Confirmed
 - Last updated: 2026-08-01
 
@@ -24,7 +24,8 @@ are governed by `.ai-platform/specs/004-onboarding-release/tasks.md`.
 | T019 | Completed | Candidate/tag preflight, remote consumer, and read-only tag CI |
 | T020 | Completed | Full Release Readiness validation, review, and truthful handoff |
 | T021 | Completed | Public onboarding candidate, Apache licensing, and local gates |
-| T022 | In_Progress | Published v0.1.0-alpha.1 and remote consumer evidence |
+| T022 | Superseded | Rejected immutable v0.1.0-alpha.1 attempt |
+| T023 | In_Progress | Supported v0.1.0-alpha.2 and remote consumer evidence |
 
 Task state is complete only when its required implementation, validation,
 independent review, and evidence are present. The framework F0 is accepted only
@@ -160,7 +161,7 @@ review, complete validation, and residual risk.
 
 ## T022: Current v0.1.0-alpha.1 Publication
 
-Status: In_Progress
+Status: Superseded
 Priority: P0
 Depends on: T021
 Blocks: None
@@ -203,3 +204,37 @@ Packet path: `.ai-platform/specs/004-onboarding-release/packets/T022.yaml`
 
 Evidence required: Candidate commit, canonical remote, tag object, tag CI,
 module resolution, remote consumer, release URL, claim review, residual risk.
+
+## T023: Current v0.1.0-alpha.2 Publication
+
+Status: In_Progress
+Priority: P0
+Depends on: T022
+Blocks: None
+Story / Requirement: 004 FR-006, FR-007; NFR-002, NFR-004, NFR-005
+Parallel: No
+Conflicts with: All active release tasks
+
+Goal: Preserve the rejected immutable Alpha 1 tag, repair copied-out remote
+validation, and publish one supported Alpha 2 release with complete evidence.
+
+Allowed files: Remote-consumer script and tests; current public version,
+security, changelog, release, onboarding, governance, and CI metadata; T022 and
+T023 evidence; Git and GitHub release objects.
+
+Test targets: Remote-consumer regression, complete gates, preflight, tag CI,
+normal Go proxy resolution, copied-out consumer, and strict evidence validation.
+
+Deliverables: Immutable rejection record, repaired candidate, successful Alpha
+2 tag CI, remote consumer result, GitHub prerelease, and truthful final report.
+
+Acceptance criteria: The Alpha 1 tag is not moved; the supported Alpha 2 tag,
+CI, module resolution, release, and evidence identify one exact commit.
+
+Definition of Done: `make remote-consumer VERSION=v0.1.0-alpha.2` and all local,
+tag, hosted, release, and strict T023 gates pass.
+
+Packet path: `.ai-platform/specs/004-onboarding-release/packets/T023.yaml`
+
+Evidence required: Rejection record, candidate and tag identity, CI, normal
+module resolution, copied-out consumption, release URLs, review, residual risk.

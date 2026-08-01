@@ -1,0 +1,4 @@
+# T022 created no accepted repository diff after its release commit.
+# Its durable changes are the immutable external tag and the evidence recorded
+# in summary.md, test-results.md, and review.md. The rejected attempt is repaired
+# only by T023 on a subsequent commit and semantic prerelease.

@@ -2,7 +2,7 @@ module example.com/modary-counter-consumer
 
 go 1.26
 
-require github.com/iiwish/modary v0.1.0-alpha.1
+require github.com/iiwish/modary v0.1.0-alpha.2
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect

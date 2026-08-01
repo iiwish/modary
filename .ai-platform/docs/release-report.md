@@ -5,9 +5,10 @@
 - Technical F0 acceptance: Accepted
 - Engineering readiness: Accepted
 - Onboarding readiness: Accepted
-- Target version: v0.1.0-alpha.1
+- Target version: v0.1.0-alpha.2
 - Distribution status: Not_released
 - Version tag: None
+- Rejected version: v0.1.0-alpha.1 at f57e3adda9a5f0e7335e821ef0b69eaf75c3548b
 - Canonical remote: https://github.com/iiwish/modary
 - Owner-selected redistribution license: Apache-2.0
 - Private security reporting channel: https://github.com/iiwish/modary/security/advisories/new
@@ -53,6 +54,11 @@ Onboarding Readiness uses the independently tested Counter consumer as the
 public example under `examples/counter`, adds a short run-and-change journey,
 and validates Apache-2.0 licensing and aggregated third-party attribution. T021
 records accepted local onboarding evidence before publication begins.
+
+The immutable `v0.1.0-alpha.1` tag resolved normally, but the copied-out remote
+consumer rejected two checkout-only example assertions. No GitHub release was
+created for that tag. The release policy requires the repaired candidate to use
+the subsequent `v0.1.0-alpha.2` version rather than moving a cached tag.
 
 ## Release Claim
 

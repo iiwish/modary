@@ -156,6 +156,9 @@ func TestRemoteConsumerRemovesReplacementAndRunsCompleteGate(t *testing.T) {
 	if !strings.Contains(log, "|on|local|off|off||") || !strings.Contains(log, "/no-node:") {
 		t.Fatalf("remote consumer did not pin the Go environment or Node-family shims:\n%s", log)
 	}
+	if !strings.Contains(log, "|1|test -count=1 ./...") {
+		t.Fatalf("remote consumer did not identify the copied-out test context:\n%s", log)
+	}
 	for _, required := range []string{
 		"mod edit -dropreplace=github.com/iiwish/modary",
 		"mod edit -require=github.com/iiwish/modary@" + testReleaseVersion,
@@ -241,7 +244,7 @@ replace github.com/iiwish/modary => ../..
 	fakeGo := filepath.Join(root, "fake-go")
 	writeDocsFixtureFile(t, fakeGo, `#!/bin/sh
 set -eu
-printf '%s|%s|%s|%s|%s|%s|%s|%s\n' "$PWD" "${GO111MODULE-}" "${GOTOOLCHAIN-}" "${GOENV-}" "${GOWORK-}" "${GOFLAGS-}" "$PATH" "$*" >>"${MODARY_FAKE_GO_LOG}"
+printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$PWD" "${GO111MODULE-}" "${GOTOOLCHAIN-}" "${GOENV-}" "${GOWORK-}" "${GOFLAGS-}" "$PATH" "${MODARY_EXTERNAL_CONSUMER_COPIED_OUT-}" "$*" >>"${MODARY_FAKE_GO_LOG}"
 case "$*" in
   'mod edit -dropreplace=github.com/iiwish/modary')
     awk '!/^replace github.com\/iiwish\/modary /' go.mod >go.mod.next

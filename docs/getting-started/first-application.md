@@ -24,7 +24,7 @@ Remove the source-checkout development binding and retain the exact Alpha:
 
 ```bash
 GOWORK=off go mod edit -dropreplace=github.com/iiwish/modary
-GOWORK=off go mod edit -require=github.com/iiwish/modary@v0.1.0-alpha.1
+GOWORK=off go mod edit -require=github.com/iiwish/modary@v0.1.0-alpha.2
 GOWORK=off go mod tidy
 ```
 
@@ -37,7 +37,7 @@ GOWORK=off go list -m -f '{{.Path}} {{.Version}} {{if .Replace}}replaced{{end}}'
 Expected output:
 
 ```text
-github.com/iiwish/modary v0.1.0-alpha.1
+github.com/iiwish/modary v0.1.0-alpha.2
 ```
 
 Record the remotely resolved starting point before making the tutorial change:

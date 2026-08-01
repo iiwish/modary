@@ -2,8 +2,8 @@
 
 ## Release Line
 
-Modary uses semantic version tags. The first planned distribution is
-`v0.1.0-alpha.1`. A prerelease tag means the framework is usable for evaluation
+Modary uses semantic version tags. The current supported distribution is
+`v0.1.0-alpha.2`. A prerelease tag means the framework is usable for evaluation
 and design-partner development, but public APIs and generated formats may still
 change before `v1.0.0`.
 
@@ -20,7 +20,10 @@ Within one published prerelease:
 - the external-consumer gate defines the supported public composition path;
 - generated files are outputs, not handwritten compatibility surfaces;
 - database migrations are forward-only and are never silently rewritten after
-  publication.
+publication.
+
+The immutable `v0.1.0-alpha.1` tag failed its remote onboarding gate and has no
+supported GitHub release. Consumers must not select it.
 
 Across Alpha releases, maintainers prefer additive changes, but may change a
 public Go API, manifest field, generated format, migration contract, or default

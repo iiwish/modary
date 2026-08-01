@@ -8,7 +8,7 @@ consumer conformance.
 ## 1. Get The Tagged Source
 
 ```bash
-git clone --depth 1 --branch v0.1.0-alpha.1 https://github.com/iiwish/modary.git
+git clone --depth 1 --branch v0.1.0-alpha.2 https://github.com/iiwish/modary.git
 cd modary
 make bootstrap
 ```

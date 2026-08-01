@@ -1,6 +1,6 @@
 # Modary Onboarding And Alpha Publication Plan
 
-- Version: 1.0
+- Version: 1.1
 - Status: Confirmed
 - Last updated: 2026-08-01
 
@@ -12,8 +12,10 @@
    Do not duplicate it or create a second tutorial-only application.
 3. Make the first-run journey `run -> inspect -> change -> generate -> test ->
    build`. Keep deep contracts in concepts, reference, and F0 documentation.
-4. Treat `v0.1.0-alpha.1` as a GitHub prerelease and an exact Go module tag.
-   Publish no generic binary, container, UI package, or downstream application.
+4. Publish `v0.1.0-alpha.2` as the supported GitHub prerelease and exact Go
+   module tag. Retain the cached `v0.1.0-alpha.1` tag as a rejected provenance
+   record and never move it. Publish no generic binary, container, UI package,
+   or downstream application.
 5. Create the canonical public repository at `github.com/iiwish/modary`, use its
    private vulnerability-reporting surface as the security channel, and publish
    only the final accepted commit.
@@ -32,6 +34,9 @@
    changelog and release report, commit, and run clean candidate preflight.
 6. Push the candidate, create the annotated tag, wait for tag CI, run remote
    consumer conformance, create the GitHub prerelease, and record T022 evidence.
+7. When the first immutable tag fails remote conformance, record the rejection,
+   repair the copied-out test context, repeat every release gate under T023, and
+   publish the subsequent prerelease.
 
 ## Risk Controls
 

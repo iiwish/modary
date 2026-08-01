@@ -1,9 +1,9 @@
 # Current Product Contract
 
-- Version: 4.0
+- Version: 5.0
 - Status: Confirmed
 - Last updated: 2026-08-01
-- Source: explicit owner request to complete onboarding and publish v0.1.0-alpha.1
+- Source: explicit owner request for onboarding and Alpha publication, with immutable-tag recovery authorized by the release packet
 
 Modary is a Go-first modular application kernel, SDK, and build tool. Independent
 applications compose public Module packages and execute typed Actions through a
@@ -21,7 +21,9 @@ Alpha publication contract is
 Technical F0 acceptance proves local source consumption. Release Readiness adds
 versioning, security, operations, adoption, upgrade, and release documentation;
 fail-closed candidate/tag preflight; and a normal Go Module remote-consumer
-gate. The target is `v0.1.0-alpha.1`, not a stable-v1 compatibility claim.
+gate. The supported target is `v0.1.0-alpha.2`, not a stable-v1 compatibility
+claim. The cached `v0.1.0-alpha.1` tag is a rejected provenance record and is
+never moved or presented as supported.
 
 Modary-owned source and documentation are licensed under Apache-2.0. Embedded
 third-party licenses and attributions remain preserved and are aggregated by

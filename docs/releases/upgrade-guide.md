@@ -22,7 +22,7 @@ large refactors.
 ## 3. Update The Exact Version
 
 ```bash
-go get github.com/iiwish/modary@v0.1.0-alpha.1
+go get github.com/iiwish/modary@v0.1.0-alpha.2
 go mod tidy
 ```
 

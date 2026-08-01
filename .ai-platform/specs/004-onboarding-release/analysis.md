@@ -1,6 +1,6 @@
 # Modary Onboarding And Alpha Publication Analysis
 
-- Version: 1.0
+- Version: 1.1
 - Status: Passed
 - Last updated: 2026-08-01
 
@@ -13,8 +13,8 @@
   validation modes.
 - Apache-2.0 is compatible with the embedded Apache-2.0 engine provenance; its
   existing file headers, license, and notice remain authoritative.
-- Actual release is isolated in T022 after T021 produces a fully validated
-  candidate.
+- Actual supported release is isolated in T023 after T021 produces a fully
+  validated candidate and T022 preserves the rejected immutable tag attempt.
 
 ## Findings
 
@@ -23,4 +23,4 @@
 - Medium: 0
 - Low: 0
 
-The work graph is executable in dependency order T021 then T022.
+The work graph is executable in dependency order T021, T022, then T023.

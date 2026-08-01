@@ -12,7 +12,7 @@ provisioning, or release artifacts.
 
 ## Stability
 
-`v0.1.0-alpha.1` is a pre-v1 Alpha contract. Pin the exact version, review the
+`v0.1.0-alpha.2` is a pre-v1 Alpha contract. Pin the exact version, review the
 [versioning policy](docs/releases/versioning.md), and read the
 [known limitations](docs/f0-known-limitations.md) before production use. The F0
 durable profile is one process and one SQLite database; it is not a hostile
@@ -27,7 +27,7 @@ workflows.
 Run the public Counter example from the tagged source:
 
 ```bash
-git clone --depth 1 --branch v0.1.0-alpha.1 https://github.com/iiwish/modary.git
+git clone --depth 1 --branch v0.1.0-alpha.2 https://github.com/iiwish/modary.git
 cd modary
 make bootstrap
 cd examples/counter
@@ -52,7 +52,7 @@ Go module version without a local replacement.
 ## Add Modary To An Application
 
 ```bash
-go get github.com/iiwish/modary@v0.1.0-alpha.1
+go get github.com/iiwish/modary@v0.1.0-alpha.2
 go mod tidy
 ```
 

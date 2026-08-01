@@ -25,7 +25,7 @@ Before release:
    `LICENSE.txt`.
 4. `origin` is the canonical repository and matches the module ownership plan.
 5. The candidate is on a clean worktree and all intended changes are committed.
-6. The version is a valid semantic prerelease such as `v0.1.0-alpha.1`.
+6. The version is a valid semantic prerelease such as `v0.1.0-alpha.2`.
 7. Documentation and examples describe the same candidate.
 
 ## Candidate Validation
@@ -36,7 +36,7 @@ Run from the repository root:
 make bootstrap
 make acceptance
 make ci
-make release-readiness VERSION=v0.1.0-alpha.1
+make release-readiness VERSION=v0.1.0-alpha.2
 ```
 
 The final command must verify the module path, version, license, origin, clean
@@ -52,14 +52,14 @@ entry. Do not move or reuse a published tag.
 After explicit owner approval:
 
 ```bash
-git tag -a v0.1.0-alpha.1 -m "Modary v0.1.0-alpha.1"
-git push origin v0.1.0-alpha.1
+git tag -a v0.1.0-alpha.2 -m "Modary v0.1.0-alpha.2"
+git push origin v0.1.0-alpha.2
 ```
 
 Wait for tag CI. Then verify normal remote module resolution:
 
 ```bash
-make remote-consumer VERSION=v0.1.0-alpha.1
+make remote-consumer VERSION=v0.1.0-alpha.2
 ```
 
 The remote gate copies the conformance consumer outside the repository, removes
@@ -73,7 +73,7 @@ known limitations, security contact, and remote-consumer result.
 
 ## Post-Release Checks
 
-- `go list -m github.com/iiwish/modary@v0.1.0-alpha.1` resolves the expected
+- `go list -m github.com/iiwish/modary@v0.1.0-alpha.2` resolves the expected
   module and version.
 - A new temporary consumer builds with no `replace` directive or Go work file.
 - Release links, changelog, license, and source tag are visible.
