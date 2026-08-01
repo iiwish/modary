@@ -28,6 +28,8 @@ jobs:
           cache-dependency-path: |
             go.sum
             examples/counter/go.sum
+      - name: Install repository scanner
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y ripgrep
       - run: make bootstrap
       - run: make ci
       - name: Verify the gate leaves source unchanged
@@ -76,6 +78,8 @@ jobs:
           cache-dependency-path: |
             go.sum
             examples/counter/go.sum
+      - name: Install repository scanner
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y ripgrep
       - run: make release-preflight VERSION="${GITHUB_REF_NAME}" RELEASE_MODE=tag
       - run: make remote-consumer VERSION="${GITHUB_REF_NAME}"
       - name: Verify the release gates leave source unchanged

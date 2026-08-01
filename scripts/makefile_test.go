@@ -371,6 +371,7 @@ func TestCIUsesCompleteHistoryAndCurrentNode24Actions(t *testing.T) {
 		"checkout": {needle: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1", count: 3},
 		"setup-go": {needle: "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0", count: 3},
 		"history":  {needle: "fetch-depth: 0", count: 3},
+		"linux-rg": {needle: "sudo apt-get update && sudo apt-get install --no-install-recommends -y ripgrep", count: 2},
 	} {
 		if count := strings.Count(contents, contract.needle); count != contract.count {
 			t.Errorf("CI %s contract count = %d, want %d", name, count, contract.count)
