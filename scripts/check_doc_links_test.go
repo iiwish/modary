@@ -18,6 +18,9 @@ var requiredUserDocs = []string{
 	"docs/getting-started/first-application.md",
 	"docs/getting-started/quickstart.md",
 	"docs/getting-started/project-layout.md",
+	"docs/zh-CN/index.md",
+	"docs/zh-CN/getting-started/quickstart.md",
+	"docs/zh-CN/getting-started/first-application.md",
 	"docs/concepts/consumer-boundary.md",
 	"docs/concepts/modules-and-capabilities.md",
 	"docs/concepts/governed-actions.md",
@@ -51,6 +54,30 @@ func TestCheckDocLinksRejectsMissingRequiredDocument(t *testing.T) {
 	output, err := runDocLinksCheck(t, repository)
 	if err == nil || !strings.Contains(output, "required user document") {
 		t.Fatalf("missing document check = %v, output=%q", err, output)
+	}
+}
+
+func TestCheckDocLinksRejectsMissingChineseQuickstart(t *testing.T) {
+	repository := newUserDocsFixture(t)
+	if err := os.Remove(filepath.Join(repository, "docs", "zh-CN", "getting-started", "quickstart.md")); err != nil {
+		t.Fatal(err)
+	}
+	output, err := runDocLinksCheck(t, repository)
+	if err == nil || !strings.Contains(output, "required user document") {
+		t.Fatalf("missing Chinese quickstart check = %v, output=%q", err, output)
+	}
+}
+
+func TestCheckDocLinksRejectsMissingLanguageNavigation(t *testing.T) {
+	repository := newUserDocsFixture(t)
+	replaceDocsFixture(t,
+		filepath.Join(repository, "docs", "zh-CN", "getting-started", "quickstart.md"),
+		"[English](../../getting-started/quickstart.md)",
+		"English documentation",
+	)
+	output, err := runDocLinksCheck(t, repository)
+	if err == nil || !strings.Contains(output, "required language navigation") {
+		t.Fatalf("missing language navigation check = %v, output=%q", err, output)
 	}
 }
 
@@ -89,6 +116,7 @@ func newUserDocsFixture(t *testing.T) string {
 		writeDocsFixtureFile(t, filepath.Join(repository, relative), "# Document\n")
 	}
 	appendDocsFixture(t, filepath.Join(repository, "README.md"), "\n[Documentation](docs/index.md)\n")
+	appendDocsFixture(t, filepath.Join(repository, "README.md"), "\n[中文](docs/zh-CN/index.md)\n")
 	var navigation strings.Builder
 	for _, relative := range requiredUserDocs {
 		if relative == "docs/index.md" || relative == "README.md" {
@@ -103,6 +131,15 @@ func newUserDocsFixture(t *testing.T) string {
 		navigation.WriteString("\n[Document](" + target + ")")
 	}
 	appendDocsFixture(t, filepath.Join(repository, "docs", "index.md"), navigation.String()+"\n")
+	appendDocsFixture(t, filepath.Join(repository, "docs", "zh-CN", "index.md"), "\n[English](../index.md)\n")
+	appendDocsFixture(t, filepath.Join(repository, "docs", "getting-started", "quickstart.md"),
+		"\n[中文](../zh-CN/getting-started/quickstart.md)\nv0.1.0-alpha.2\n")
+	appendDocsFixture(t, filepath.Join(repository, "docs", "zh-CN", "getting-started", "quickstart.md"),
+		"\n[English](../../getting-started/quickstart.md)\nv0.1.0-alpha.2\n")
+	appendDocsFixture(t, filepath.Join(repository, "docs", "getting-started", "first-application.md"),
+		"\n[中文](../zh-CN/getting-started/first-application.md)\nv0.1.0-alpha.2\n")
+	appendDocsFixture(t, filepath.Join(repository, "docs", "zh-CN", "getting-started", "first-application.md"),
+		"\n[English](../../getting-started/first-application.md)\nv0.1.0-alpha.2\n")
 	return repository
 }
 

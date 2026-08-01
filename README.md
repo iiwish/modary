@@ -101,6 +101,7 @@ framework implementation detail.
 
 Start at the [documentation index](docs/index.md):
 
+- [简体中文上手教程](docs/zh-CN/index.md)
 - [Installation and version pinning](docs/getting-started/installation.md)
 - [Framework and consumer ownership](docs/concepts/consumer-boundary.md)
 - [Add a consumer module](docs/how-to/add-module.md)

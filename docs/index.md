@@ -5,6 +5,12 @@ composition and one governed path for business Actions across CLI, HTTP, MCP,
 and consumer-owned surfaces. Use this index by task or audience. The detailed
 F0 contract is authoritative when a guide and a deep contract appear to differ.
 
+## 简体中文
+
+- [中文文档入口](zh-CN/index.md)
+- [快速上手](zh-CN/getting-started/quickstart.md)
+- [创建第一个独立应用](zh-CN/getting-started/first-application.md)
+
 ## Start Building
 
 - [Installation and version pinning](getting-started/installation.md)

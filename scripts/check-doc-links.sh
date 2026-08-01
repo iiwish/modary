@@ -33,6 +33,9 @@ docs/getting-started/installation.md
 docs/getting-started/first-application.md
 docs/getting-started/quickstart.md
 docs/getting-started/project-layout.md
+docs/zh-CN/index.md
+docs/zh-CN/getting-started/quickstart.md
+docs/zh-CN/getting-started/first-application.md
 docs/concepts/consumer-boundary.md
 docs/concepts/modules-and-capabilities.md
 docs/concepts/governed-actions.md
@@ -53,6 +56,32 @@ docs/releases/upgrade-guide.md'
 for file in $required; do
 	if test ! -f "$file" || test -L "$file" || test ! -s "$file"; then
 		fail "required user document must be a non-empty regular file: $file"
+	fi
+done
+
+require_navigation() {
+	file=$1
+	target=$2
+	if ! rg -q -F "]($target)" "$file"; then
+		fail "required language navigation is missing: $file -> $target"
+	fi
+}
+
+require_navigation README.md docs/zh-CN/index.md
+require_navigation docs/index.md zh-CN/index.md
+require_navigation docs/zh-CN/index.md ../index.md
+require_navigation docs/getting-started/quickstart.md ../zh-CN/getting-started/quickstart.md
+require_navigation docs/zh-CN/getting-started/quickstart.md ../../getting-started/quickstart.md
+require_navigation docs/getting-started/first-application.md ../zh-CN/getting-started/first-application.md
+require_navigation docs/zh-CN/getting-started/first-application.md ../../getting-started/first-application.md
+
+for file in \
+	docs/getting-started/quickstart.md \
+	docs/getting-started/first-application.md \
+	docs/zh-CN/getting-started/quickstart.md \
+	docs/zh-CN/getting-started/first-application.md; do
+	if ! rg -q -F 'v0.1.0-alpha.2' "$file"; then
+		fail "onboarding tutorial does not identify the current supported version: $file"
 	fi
 done
 

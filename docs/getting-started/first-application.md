@@ -1,5 +1,7 @@
 # Create Your First Independent Application
 
+> [简体中文版](../zh-CN/getting-started/first-application.md)
+
 This guide turns the tagged Counter example into an ordinary application
 directory that resolves Modary through the public Go module tag. Complete the
 [quickstart](quickstart.md) first so the framework model and expected commands

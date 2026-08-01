@@ -1,5 +1,7 @@
 # Quickstart
 
+> [简体中文版](../zh-CN/getting-started/quickstart.md)
+
 This tutorial runs the public Counter Console example, previews one governed
 Action, and shows where the framework and application responsibilities meet.
 It uses the same independent Go module exercised by copied-out and remote
