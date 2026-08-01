@@ -197,6 +197,8 @@ func newReleaseFixture(t *testing.T) string {
 	writeDocsFixtureFile(t, filepath.Join(repository, "CHANGELOG.md"), "# Changelog\n\n## "+testReleaseVersion+" - Unreleased\n")
 	writeDocsFixtureFile(t, filepath.Join(repository, "docs", "f0-acceptance-report.md"), "# Acceptance\n\n- Status: Accepted\n")
 	runGitFixture(t, repository, "init", "--quiet")
+	runGitFixture(t, repository, "config", "user.name", "Modary Test")
+	runGitFixture(t, repository, "config", "user.email", "modary@example.invalid")
 	runGitFixture(t, repository, "add", "--all")
 	runGitFixture(t, repository, "-c", "user.name=Modary Test", "-c", "user.email=modary@example.invalid", "commit", "--quiet", "-m", "candidate")
 	runGitFixture(t, repository, "remote", "add", "origin", "https://github.com/iiwish/modary.git")
