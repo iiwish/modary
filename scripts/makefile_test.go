@@ -347,11 +347,33 @@ func TestCIIncludesNativeDarwinARM64ContractGate(t *testing.T) {
 		"runs-on: macos-15",
 		"go env GOOS GOARCH GOVERSION CGO_ENABLED",
 		`test "$(go env GOOS)/$(go env GOARCH)" = darwin/arm64`,
+		"brew list ripgrep >/dev/null 2>&1 || brew install ripgrep",
 		"run: make native-platform",
 		`test -z "$(git status --porcelain --untracked-files=all)"`,
 	} {
 		if !strings.Contains(string(data), required) {
 			t.Errorf("Darwin CI job does not contain %q", required)
+		}
+	}
+}
+
+func TestCIUsesCompleteHistoryAndCurrentNode24Actions(t *testing.T) {
+	workflow := filepath.Join(filepath.Dir(repositoryMakefile(t)), ".github", "workflows", "ci.yml")
+	data, err := os.ReadFile(workflow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents := string(data)
+	for name, contract := range map[string]struct {
+		needle string
+		count  int
+	}{
+		"checkout": {needle: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1", count: 3},
+		"setup-go": {needle: "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0", count: 3},
+		"history":  {needle: "fetch-depth: 0", count: 3},
+	} {
+		if count := strings.Count(contents, contract.needle); count != contract.count {
+			t.Errorf("CI %s contract count = %d, want %d", name, count, contract.count)
 		}
 	}
 }
