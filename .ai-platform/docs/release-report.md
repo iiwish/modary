@@ -6,13 +6,15 @@
 - Engineering readiness: Accepted
 - Onboarding readiness: Accepted
 - Target version: v0.1.0-alpha.2
-- Distribution status: Not_released
-- Version tag: None
+- Distribution status: Released
+- Version tag: v0.1.0-alpha.2
 - Rejected version: v0.1.0-alpha.1 at f57e3adda9a5f0e7335e821ef0b69eaf75c3548b
 - Canonical remote: https://github.com/iiwish/modary
 - Owner-selected redistribution license: Apache-2.0
 - Private security reporting channel: https://github.com/iiwish/modary/security/advisories/new
-- Remote consumer verification: Not_run
+- Remote consumer verification: Passed
+- Release URL: https://github.com/iiwish/modary/releases/tag/v0.1.0-alpha.2
+- Rejected release URL: https://github.com/iiwish/modary/releases/tag/v0.1.0-alpha.1
 - Last updated: 2026-08-01
 
 ## Scope
@@ -62,15 +64,12 @@ the subsequent `v0.1.0-alpha.2` version rather than moving a cached tag.
 
 ## Release Claim
 
-The conformance module proves local independent consumption with `GOWORK=off`
-and an explicit local `replace`. Remote installation is not a release claim
-until `github.com/iiwish/modary` has a published version tag. Modary-owned source
-and documentation use Apache-2.0, with applicable third-party licenses and
-notices preserved. No tag, package publication, or distribution is claimed by
-this report.
+The supported release is `v0.1.0-alpha.2` at
+`a4700f1c7ef53fe058a50fd43d65b906c3be89c4`. Its annotated tag, Linux quality,
+Darwin arm64 native checks, tag preflight, source stability, public Go proxy
+resolution, and copied-out remote consumer all passed. The GitHub prerelease,
+source tag, changelog, Apache-2.0 license, security channel, and current public
+documentation identify that version.
 
-The candidate is `Distribution_Ready`: Apache-2.0, the canonical public remote,
-the enabled private security reporting channel, and accepted T021 onboarding
-evidence are present. It is not `Released`. The resulting clean candidate
-requires annotated-tag preflight, tag CI, and remote-consumer verification
-before the report can claim release.
+The report therefore claims `Released` and `Remote_Verified` for Alpha 2. Alpha
+1 remains an immutable rejected prerelease record and is not supported.

@@ -1,0 +1,22 @@
+diff --git a/scripts/remote-consumer.sh b/scripts/remote-consumer.sh
+--- a/scripts/remote-consumer.sh
++++ b/scripts/remote-consumer.sh
+@@ -76,7 +76,7 @@ fi
+ "$GO" run ./tools/modary verify
+ "$GO" run ./tools/modary generate --check
+ "$GO" run ./tools/modary check
+-"$GO" test -count=1 ./...
++MODARY_EXTERNAL_CONSUMER_COPIED_OUT=1 "$GO" test -count=1 ./...
+ "$GO" build ./...
+ "$GO" run ./cmd/counter-console version
+
+diff --git a/scripts/release_scripts_test.go b/scripts/release_scripts_test.go
+--- a/scripts/release_scripts_test.go
++++ b/scripts/release_scripts_test.go
+@@ -143,3 +143,6 @@ func TestRemoteConsumerRemovesReplacementAndRunsCompleteGate(t *testing.T) {
+ 	if !strings.Contains(log, "|on|local|off|off||") || !strings.Contains(log, "/no-node:") {
+ 		t.Fatalf("remote consumer did not pin the Go environment or Node-family shims:\n%s", log)
+ 	}
++	if !strings.Contains(log, "|1|test -count=1 ./...") {
++		t.Fatalf("remote consumer did not identify the copied-out test context:\n%s", log)
++	}

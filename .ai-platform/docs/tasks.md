@@ -25,7 +25,7 @@ are governed by `.ai-platform/specs/004-onboarding-release/tasks.md`.
 | T020 | Completed | Full Release Readiness validation, review, and truthful handoff |
 | T021 | Completed | Public onboarding candidate, Apache licensing, and local gates |
 | T022 | Superseded | Rejected immutable v0.1.0-alpha.1 attempt |
-| T023 | In_Progress | Supported v0.1.0-alpha.2 and remote consumer evidence |
+| T023 | Completed | Supported v0.1.0-alpha.2 and remote consumer evidence |
 
 Task state is complete only when its required implementation, validation,
 independent review, and evidence are present. The framework F0 is accepted only
@@ -207,7 +207,7 @@ module resolution, remote consumer, release URL, claim review, residual risk.
 
 ## T023: Current v0.1.0-alpha.2 Publication
 
-Status: In_Progress
+Status: Completed
 Priority: P0
 Depends on: T022
 Blocks: None
@@ -233,6 +233,16 @@ CI, module resolution, release, and evidence identify one exact commit.
 
 Definition of Done: `make remote-consumer VERSION=v0.1.0-alpha.2` and all local,
 tag, hosted, release, and strict T023 gates pass.
+
+Validation commands: `make release-readiness VERSION=v0.1.0-alpha.2`;
+`make release-preflight VERSION=v0.1.0-alpha.2 RELEASE_MODE=tag`;
+`gh run list --workflow ci.yml --limit 10`;
+`go list -m github.com/iiwish/modary@v0.1.0-alpha.2`;
+`make remote-consumer VERSION=v0.1.0-alpha.2`; strict T023 artifact validation.
+
+TDD plan: RED is the recorded Alpha 1 remote-consumer failure; GREEN marks the
+copied-out test context explicitly; REFACTOR only after local and remote gates
+pass without weakening application coverage.
 
 Packet path: `.ai-platform/specs/004-onboarding-release/packets/T023.yaml`
 

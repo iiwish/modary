@@ -760,6 +760,16 @@ func newDocsFixtureMode(t *testing.T, final, liveReviewState bool) string {
 		"## T016: Current Framework F0 Acceptance\n\nStatus: Completed",
 		"## T016: Current Framework F0 Acceptance\n\nStatus: In_Progress",
 	)
+	normalizeDocsFixture(t,
+		filepath.Join(repository, ".ai-platform/docs/tasks.md"),
+		"| T023 | Completed |",
+		"| T023 | In_Progress |",
+	)
+	normalizeDocsFixture(t,
+		filepath.Join(repository, ".ai-platform/docs/tasks.md"),
+		"## T023: Current v0.1.0-alpha.2 Publication\n\nStatus: Completed",
+		"## T023: Current v0.1.0-alpha.2 Publication\n\nStatus: In_Progress",
+	)
 	writeDocsFixtureFile(t, filepath.Join(repository, "docs/f0-acceptance-report.md"), "# F0 Acceptance\n\n- Status: In_Progress\n")
 	writeDocsFixtureFile(t, filepath.Join(repository, ".ai-platform/docs/release-report.md"), `# F0 Release
 
@@ -769,6 +779,7 @@ func newDocsFixtureMode(t *testing.T, final, liveReviewState bool) string {
 - Distribution status: Not_released
 - Version tag: None
 - Owner-selected redistribution license: Apache-2.0
+- Remote consumer verification: Not_run
 `)
 
 	if !final {
@@ -796,6 +807,7 @@ func newDocsFixtureMode(t *testing.T, final, liveReviewState bool) string {
 - Distribution status: Not_released
 - Version tag: None
 - Owner-selected redistribution license: Apache-2.0
+- Remote consumer verification: Not_run
 `)
 
 	if !liveReviewState {

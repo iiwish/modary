@@ -18,9 +18,9 @@ environment signal.
 ## Decision
 
 The public Go proxy cached the annotated tag before the defect was observed.
-The tag is not moved, deleted, or reused. No GitHub release is created for it.
-The T022 packet's failure policy authorizes a subsequent version, which T023
-must validate from a new clean candidate.
+The tag is not moved, deleted, or reused. A rejected prerelease notice is the
+only GitHub release record for it. The T022 packet's failure policy authorizes a
+subsequent version, which T023 validates from a new clean candidate.
 
 ## Claim Review
 

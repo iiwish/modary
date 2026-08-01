@@ -497,9 +497,44 @@ fi
 
 release_report=.ai-platform/docs/release-report.md
 require_metadata "$release_report" 'Report version' 1.0
-require_metadata "$release_report" 'Distribution status' Not_released
-require_metadata "$release_report" 'Version tag' None
 require_metadata "$release_report" 'Owner-selected redistribution license' Apache-2.0
+
+expected_distribution_status=Not_released
+expected_version_tag=None
+expected_remote_consumer=Not_run
+onboarding_graph=.ai-platform/specs/004-onboarding-release/tasks.md
+t023_current_status=$(awk '
+	$0 == "## T023: Current v0.1.0-alpha.2 Publication" { in_task=1; next }
+	/^## / { in_task=0 }
+	in_task && /^Status: / { print substr($0, 9); exit }
+' "$current_graph")
+if test -n "$t023_current_status"; then
+	if test -f "$onboarding_graph"; then
+		require_regular_nonempty .ai-platform/specs/004-onboarding-release/packets/T023.yaml
+		t023_graph_status=$(awk '
+			$0 == "## T023: Publish Remediated v0.1.0-alpha.2" { in_task=1; next }
+			/^## / { in_task=0 }
+			in_task && /^Status: / { print substr($0, 9); exit }
+		' "$onboarding_graph")
+		if test -z "$t023_graph_status" || test "$t023_graph_status" != "$t023_current_status"; then
+			fail "T023 state differs between onboarding task graphs: $t023_graph_status / $t023_current_status"
+		fi
+	fi
+	case "$t023_current_status" in
+		In_Progress) ;;
+		Completed)
+			expected_distribution_status=Released
+			expected_version_tag=v0.1.0-alpha.2
+			expected_remote_consumer=Passed
+			;;
+		*)
+			fail "T023 has unsupported current state: $t023_current_status"
+			;;
+	esac
+fi
+require_metadata "$release_report" 'Distribution status' "$expected_distribution_status"
+require_metadata "$release_report" 'Version tag' "$expected_version_tag"
+require_metadata "$release_report" 'Remote consumer verification' "$expected_remote_consumer"
 
 release_readiness_graph=.ai-platform/specs/003-release-readiness/tasks.md
 if test -f "$release_readiness_graph"; then
@@ -517,7 +552,6 @@ if test -f "$release_readiness_graph"; then
 	require_metadata "$release_report" 'Target version' v0.1.0-alpha.2
 	require_metadata "$release_report" 'Canonical remote' https://github.com/iiwish/modary
 	require_metadata "$release_report" 'Private security reporting channel' https://github.com/iiwish/modary/security/advisories/new
-	require_metadata "$release_report" 'Remote consumer verification' Not_run
 
 	t020_graph_status=$(awk '
 		$0 == "## T020: Full Release Readiness Acceptance" { in_task=1; next }

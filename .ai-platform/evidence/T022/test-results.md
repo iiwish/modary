@@ -31,4 +31,5 @@ GitHub tag CI release job
 fail at the same remote-consumer command
 ```
 
-The next irreversible transition, GitHub release creation, did not occur.
+Supported release creation stopped. A later rejected prerelease notice makes the
+cached tag status explicit and directs consumers to Alpha 2.

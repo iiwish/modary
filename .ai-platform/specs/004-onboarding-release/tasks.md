@@ -101,7 +101,7 @@ resolution, remote consumer, GitHub release URL, claim review, residual risk.
 
 ## T023: Publish Remediated v0.1.0-alpha.2
 
-Status: In_Progress
+Status: Completed
 Priority: P0
 Depends on: T022
 Blocks: None

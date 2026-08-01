@@ -12,7 +12,7 @@
 - Tag: `v0.1.0-alpha.1`
 - Go proxy: resolved the tag to the candidate commit
 - GitHub Actions: `https://github.com/iiwish/modary/actions/runs/30688318337`
-- GitHub release URL: none; publication stopped before release creation
+- Rejected release notice: `https://github.com/iiwish/modary/releases/tag/v0.1.0-alpha.1`
 
 ## Result
 
@@ -22,7 +22,8 @@ failed because two example tests asserted the source-checkout replacement after
 the gate intentionally removed it from the copied application.
 
 The tag had already been cached by the public Go proxy. It remains immutable and
-is recorded as rejected. T023 owns the narrow repair and subsequent version.
+is recorded by a rejected prerelease notice. T023 owns the narrow repair and
+supported subsequent version.
 
 ## Residual Risk
 
