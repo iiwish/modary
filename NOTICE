@@ -1,0 +1,20 @@
+Modary
+Copyright 2026 The Modary Authors
+
+Modary contains a modified source copy of gojsonschema v1.2.0:
+https://github.com/xeipuuv/gojsonschema
+
+Copyright 2015 xeipuuv
+Copyright 2018 johandorland
+Copyright 2013 MongoDB, Inc.
+Licensed under the Apache License, Version 2.0.
+
+The retained license, attribution notice, and Modary modification record are in
+internal/jsonschema/engine/.
+
+Modary test data contains the JSON Schema Test Suite:
+https://github.com/json-schema-org/JSON-Schema-Test-Suite
+
+Copyright 2012 Julian Berman
+Licensed under the terms retained in
+internal/jsonschema/testdata/json-schema-test-suite/LICENSE.

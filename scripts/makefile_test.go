@@ -13,6 +13,56 @@ import (
 
 const makeCommandTestTimeout = 30 * time.Second
 
+func TestMakeDocsCheckRunsCanonicalAndLinkChecks(t *testing.T) {
+	data, err := os.ReadFile(repositoryMakefile(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	makefile := string(data)
+	start := strings.Index(makefile, "\ndocs-check:\n")
+	end := strings.Index(makefile[start+1:], "\nverify:\n")
+	if start < 0 || end < 0 {
+		t.Fatal("Makefile has no bounded docs-check recipe")
+	}
+	recipe := makefile[start : start+1+end]
+	for _, command := range []string{"./scripts/check-docs.sh", "./scripts/check-doc-links.sh"} {
+		if strings.Count(recipe, command) != 1 {
+			t.Errorf("docs-check invocation count for %q is not one:\n%s", command, recipe)
+		}
+	}
+}
+
+func TestMakeReleaseTargetsSeparateMetadataFullAndRemoteGates(t *testing.T) {
+	data, err := os.ReadFile(repositoryMakefile(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	makefile := string(data)
+	for _, required := range []string{
+		"RELEASE_MODE ?= candidate",
+		"release-preflight: format-check tidy-check diff-check docs-check",
+		"./scripts/release-preflight.sh \"$(VERSION)\" \"$(RELEASE_MODE)\"",
+		"release-readiness: release-preflight",
+		"$(MAKE) ci",
+		"remote-consumer:",
+		"./scripts/remote-consumer.sh \"$(VERSION)\"",
+	} {
+		if !strings.Contains(makefile, required) {
+			t.Errorf("Makefile release contract does not contain %q", required)
+		}
+	}
+}
+
+func TestMakeUsesPublicCounterExampleAsConsumerGate(t *testing.T) {
+	data, err := os.ReadFile(repositoryMakefile(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "CONSUMER_DIR := examples/counter") {
+		t.Fatal("Makefile consumer gate does not use the public Counter example")
+	}
+}
+
 func TestMakefilePinsEveryGoInvocation(t *testing.T) {
 	makefile := repositoryMakefile(t)
 	data, err := os.ReadFile(makefile)
@@ -36,7 +86,7 @@ func TestMakeTestConsumerOverridesHostileGoEnvironmentAndExecutesGate(t *testing
 	}
 
 	repository := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repository, "testdata", "external-consumer"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(repository, "examples", "counter"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	logFile := filepath.Join(repository, "go-invocation.log")
@@ -91,7 +141,7 @@ func TestMakeCrossBuildCompilesUnsupportedPlatformTestsOutsideRepository(t *test
 	}
 
 	repository := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repository, "testdata", "external-consumer"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(repository, "examples", "counter"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	logFile := filepath.Join(repository, "cross-invocations.log")
@@ -302,6 +352,32 @@ func TestCIIncludesNativeDarwinARM64ContractGate(t *testing.T) {
 	} {
 		if !strings.Contains(string(data), required) {
 			t.Errorf("Darwin CI job does not contain %q", required)
+		}
+	}
+}
+
+func TestCITagReleaseWaitsForPlatformGatesAndVerifiesRemoteConsumer(t *testing.T) {
+	workflow := filepath.Join(filepath.Dir(repositoryMakefile(t)), ".github", "workflows", "ci.yml")
+	data, err := os.ReadFile(workflow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := string(data)
+	start := strings.Index(release, "\n  release:\n")
+	if start < 0 {
+		t.Fatal("CI has no release job")
+	}
+	release = release[start:]
+	for _, required := range []string{
+		"if: startsWith(github.ref, 'refs/tags/v')",
+		"needs: [quality, darwin-arm64]",
+		"fetch-depth: 0",
+		"permissions:\n      contents: read",
+		"make release-preflight VERSION=\"${GITHUB_REF_NAME}\" RELEASE_MODE=tag",
+		"make remote-consumer VERSION=\"${GITHUB_REF_NAME}\"",
+	} {
+		if !strings.Contains(release, required) {
+			t.Errorf("release job does not contain %q", required)
 		}
 	}
 }

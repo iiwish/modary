@@ -55,6 +55,9 @@ func TestPublicDeclarationsHaveDocumentation(t *testing.T) {
 }
 
 func excludedPublicAPIDirectory(root, name string) bool {
+	if name != root && isNestedGoModuleDirectory(name) {
+		return true
+	}
 	relative, err := filepath.Rel(root, name)
 	if err != nil {
 		return true

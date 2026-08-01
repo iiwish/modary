@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -116,7 +117,7 @@ func TestProductionImportsFollowArchitectureLayers(t *testing.T) {
 			return walkErr
 		}
 		if entry.IsDir() {
-			if name != root && excludedArchitectureDirectory(entry.Name()) {
+			if name != root && (excludedArchitectureDirectory(entry.Name()) || isNestedGoModuleDirectory(name)) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -305,7 +306,7 @@ func collectPublicInternalImports(t *testing.T) map[string]map[string]bool {
 			return walkErr
 		}
 		if entry.IsDir() {
-			if name != root && excludedArchitectureDirectory(entry.Name()) {
+			if name != root && (excludedArchitectureDirectory(entry.Name()) || isNestedGoModuleDirectory(name)) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -414,6 +415,24 @@ func isPublicProductionPackage(importPath string) bool {
 
 func excludedArchitectureDirectory(name string) bool {
 	return strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" || name == "testdata"
+}
+
+func isNestedGoModuleDirectory(name string) bool {
+	info, err := os.Lstat(filepath.Join(name, "go.mod"))
+	return err == nil && info.Mode().IsRegular()
+}
+
+func TestNestedGoModuleDirectoryDetection(t *testing.T) {
+	directory := t.TempDir()
+	if isNestedGoModuleDirectory(directory) {
+		t.Fatal("directory without go.mod was treated as a nested module")
+	}
+	if err := os.WriteFile(filepath.Join(directory, "go.mod"), []byte("module example.com/nested\n\ngo 1.26\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !isNestedGoModuleDirectory(directory) {
+		t.Fatal("directory with a regular go.mod was not treated as a nested module")
+	}
 }
 
 func qualityRepositoryRoot(t *testing.T) string {

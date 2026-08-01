@@ -1,0 +1,112 @@
+schema_version: 1
+packet_id: EP-003-T019
+task_id: T019
+feature_id: 003-release-readiness
+mode: execute_one_task
+adapter: codex-direct
+
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  product_contract: .ai-platform/docs/product-design.md
+  feature_spec: .ai-platform/specs/003-release-readiness/spec.md
+  requirements_checklist: .ai-platform/specs/003-release-readiness/checklists/requirements.md
+  technical_decisions: .ai-platform/specs/003-release-readiness/plan.md
+  work_graph: .ai-platform/specs/003-release-readiness/tasks.md
+  analysis: .ai-platform/specs/003-release-readiness/analysis.md
+  approval_gates:
+    release_governance: T017 Completed
+    documentation: T018 Completed
+    product_or_spec: Confirmed by user
+
+work_unit:
+  title: Release And Remote Consumer Gates
+  goal: Implement deterministic release preflight, remote-consumer conformance, tag CI wiring, and focused failure-path tests.
+  requirements: [FR-006, FR-007, FR-008, NFR-003, NFR-004]
+  priority: P0
+  depends_on: [T017]
+  blocks: [T020]
+  parallel: false
+  conflicts_with: [T018, T020]
+
+codebase_context:
+  relevant_files:
+    - Makefile
+    - .github/workflows/ci.yml
+    - scripts/makefile_test.go
+    - testdata/external-consumer/**
+    - docs/releases/release-process.md
+  existing_patterns:
+    - pinned Go environment with GOWORK disabled
+    - copied-out consumer conformance outside the framework root
+    - fail-closed POSIX scripts with Go fixture tests
+    - tag CI has read-only repository permissions
+  forbidden_changes:
+    - automatic tag creation, push, GitHub release publication, or write permission
+    - remote proof that retains a local replacement
+    - weakening the normal acceptance gate or claiming a nonexistent version
+
+execution_constraints:
+  branch_or_worktree: current
+  allowed_files:
+    - Makefile
+    - .github/workflows/ci.yml
+    - scripts/release-preflight.sh
+    - scripts/remote-consumer.sh
+    - scripts/release_scripts_test.go
+    - scripts/makefile_test.go
+    - testdata/external-consumer/README.md
+    - CHANGELOG.md
+    - SECURITY.md
+    - docs/releases/**
+    - .ai-platform/evidence/T019/**
+    - .ai-platform/specs/003-release-readiness/tasks.md
+    - .ai-platform/specs/003-release-readiness/packets/T019.yaml
+  test_targets:
+    - scripts/release_scripts_test.go
+    - scripts/makefile_test.go
+
+tdd_plan:
+  required: true
+  exception: none
+  red:
+    command: go test ./scripts -run 'TestRelease|TestRemote' -count=1
+    expected_failure: release and remote-consumer scripts are absent
+  green:
+    command: go test ./scripts -run 'TestRelease|TestRemote|TestMakeRelease|TestCITag' -count=1
+    expected_signal: complete fixtures pass and invalid versions, owner-input gaps, dirty state, tag mismatch, and replacement resolution fail closed
+  refactor:
+    command: make acceptance
+    expected_signal: the full framework and copied-out consumer contract remains green
+
+validation_loop:
+  commands:
+    - sh -n scripts/release-preflight.sh scripts/remote-consumer.sh
+    - go test ./scripts -run 'TestRelease|TestRemote|TestMakeRelease|TestCITag' -count=1
+    - make acceptance
+    - python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 003-release-readiness --task-id T019 --strict
+    - git diff --check
+  retry_budget: 3
+  failure_policy:
+    first_failure: repair the direct metadata, shell, fixture, or CI contract defect
+    second_failure: re-check the networked versus offline claim boundary
+    beyond_budget: retain the failed release state and report the blocker
+
+evidence_contract:
+  summary: .ai-platform/evidence/T019/summary.md
+  diff: .ai-platform/evidence/T019/diff.patch
+  test_results: .ai-platform/evidence/T019/test-results.md
+  required: [red_green_results, command_matrix, changed_files, security_review, residual_risk]
+
+review_contract:
+  required_passes: [release_claims, shell_safety, git_tag_semantics, remote_resolution, ci_permissions, engineering_quality]
+  acceptance_rule: complete only when every incomplete release fails closed and no script publishes state
+
+handoff:
+  external_issue: null
+  pull_request: null
+  next_tasks: [T020]
+  finish_options: [continue governed work graph]
+
+stop_conditions:
+  - tests require a real remote tag to claim success
+  - implementation would require selecting or publishing owner-controlled state

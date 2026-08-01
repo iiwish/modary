@@ -98,11 +98,11 @@ inputs before invoking the shared Definition provider. Ordinary construction
 errors retain their consumer diagnostic and error identity; recovered panics
 cross a stable boundary that never formats the panic value.
 
-The framework repository contains libraries and conformance fixtures, not a
-consumer executable, container, default account, or deployment image. Technical
-F0 acceptance is local source proof; this tree has no published version tag and
-no owner-selected redistribution license, so it does not claim a public
-distribution.
+The framework repository contains libraries and one public conformance example,
+not a generic consumer executable, container, default account, or deployment
+image. Modary-owned source and documentation use Apache-2.0. Technical F0
+acceptance is local source proof; a public distribution is identified and
+verified separately through an immutable version tag and remote consumer gate.
 
 ## Consequences
 

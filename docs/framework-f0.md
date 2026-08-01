@@ -484,5 +484,6 @@ and upgrade deliberately.
 The F0 acceptance fixture proves a separate module by copying it outside the
 framework checkout and using an absolute local `replace`. Remote installation
 becomes a release claim only after this module path is published and tagged. The
-current source tree has no owner-selected redistribution license, so this local
-technical acceptance is not a public redistribution grant.
+source and documentation are licensed under Apache-2.0 with applicable
+third-party notices preserved. Licensing does not turn local technical
+acceptance into a remote installation or release claim.

@@ -211,6 +211,32 @@ require_sha256_metadata() {
 	esac
 }
 
+require_git_commit_metadata() {
+	_field_file=$1
+	_field_key=$2
+	require_nonempty_metadata "$_field_file" "$_field_key"
+	metadata_lookup "$_field_file" "$_field_key"
+	_commit=$metadata_result
+	if test "${#_commit}" -ne 40; then
+		fail "$_field_file - $_field_key must be one lowercase 40-character Git commit"
+		return
+	fi
+	case "$_commit" in
+		*[!0-9a-f]*)
+			fail "$_field_file - $_field_key must be one lowercase 40-character Git commit"
+			return
+			;;
+	esac
+	if ! git cat-file -e "$_commit^{commit}" 2>/dev/null; then
+		fail "$_field_file - $_field_key does not identify an available Git commit"
+		return
+	fi
+	if ! git merge-base --is-ancestor "$_commit" HEAD 2>/dev/null; then
+		fail "$_field_file - $_field_key must be an ancestor of the current source"
+		return
+	fi
+}
+
 valid_utc_timestamp() {
 	_timestamp=$1
 	case "$_timestamp" in
@@ -295,6 +321,8 @@ sha256_file() {
 
 required='
 README.md
+LICENSE
+NOTICE
 docs/framework-f0.md
 docs/f0-known-limitations.md
 docs/f0-acceptance-report.md
@@ -361,7 +389,7 @@ else
 	: >"$metadata_cache"
 fi
 
-for link in docs/framework-f0.md docs/f0-known-limitations.md docs/f0-acceptance-report.md testdata/external-consumer; do
+for link in docs/framework-f0.md docs/f0-known-limitations.md docs/f0-acceptance-report.md examples/counter; do
 	if test ! -e "$link"; then
 		fail "README local link target is missing: $link"
 	fi
@@ -471,27 +499,73 @@ release_report=.ai-platform/docs/release-report.md
 require_metadata "$release_report" 'Report version' 1.0
 require_metadata "$release_report" 'Distribution status' Not_released
 require_metadata "$release_report" 'Version tag' None
-require_metadata "$release_report" 'Owner-selected redistribution license' None
+require_metadata "$release_report" 'Owner-selected redistribution license' Apache-2.0
+
+release_readiness_graph=.ai-platform/specs/003-release-readiness/tasks.md
+if test -f "$release_readiness_graph"; then
+	for file in \
+		.ai-platform/specs/003-release-readiness/spec.md \
+		.ai-platform/specs/003-release-readiness/plan.md \
+		.ai-platform/specs/003-release-readiness/analysis.md \
+		.ai-platform/specs/003-release-readiness/checklists/requirements.md \
+		.ai-platform/specs/003-release-readiness/packets/T017.yaml \
+		.ai-platform/specs/003-release-readiness/packets/T018.yaml \
+		.ai-platform/specs/003-release-readiness/packets/T019.yaml \
+		.ai-platform/specs/003-release-readiness/packets/T020.yaml; do
+		require_regular_nonempty "$file"
+	done
+	require_metadata "$release_report" 'Target version' v0.1.0-alpha.1
+	require_metadata "$release_report" 'Canonical remote' https://github.com/iiwish/modary
+	require_metadata "$release_report" 'Private security reporting channel' https://github.com/iiwish/modary/security/advisories/new
+	require_metadata "$release_report" 'Remote consumer verification' Not_run
+
+	t020_graph_status=$(awk '
+		$0 == "## T020: Full Release Readiness Acceptance" { in_task=1; next }
+		/^## / { in_task=0 }
+		in_task && /^Status: / { print substr($0, 9); exit }
+	' "$release_readiness_graph")
+	t020_current_status=$(awk '
+		$0 == "## T020: Current Alpha Release Readiness" { in_task=1; next }
+		/^## / { in_task=0 }
+		in_task && /^Status: / { print substr($0, 9); exit }
+	' "$current_graph")
+	if test -z "$t020_graph_status" || test "$t020_graph_status" != "$t020_current_status"; then
+		fail "T020 state differs between release-readiness task graphs: $t020_graph_status / $t020_current_status"
+	fi
+	case "$t020_graph_status" in
+		In_Progress) expected_engineering_readiness=In_Progress ;;
+		Completed) expected_engineering_readiness=Accepted ;;
+		*)
+			fail "T020 has unsupported current state: $t020_graph_status"
+			expected_engineering_readiness=
+			;;
+	esac
+	if test -n "$expected_engineering_readiness"; then
+		require_metadata "$release_report" 'Engineering readiness' "$expected_engineering_readiness"
+	fi
+fi
 
 forbid_literal .ai-platform/specs/002-framework-decoupling/packets/T016.yaml 'check-archives.sh'
 forbid_literal .ai-platform/specs/002-framework-decoupling/packets/T016.yaml 'a preservation archive checksum changes'
 forbid_literal .ai-platform/specs/002-framework-decoupling/packets/T015.yaml 'AGENTS.md'
 forbid_literal .ai-platform/specs/002-framework-decoupling/packets/T016.yaml 'AGENTS.md'
 
-require_literal README.md 'no owner-selected redistribution license'
-require_literal docs/framework-f0.md 'no owner-selected redistribution license'
-require_literal docs/f0-known-limitations.md 'no owner-selected redistribution license'
-require_literal .ai-platform/docs/product-design.md 'owner-selected redistribution license'
+require_literal LICENSE 'Apache License'
+require_literal LICENSE 'Version 2.0, January 2004'
+require_literal NOTICE 'Modary'
+require_literal NOTICE 'xeipuuv'
+require_literal NOTICE 'MongoDB, Inc.'
+require_literal docs/framework-f0.md 'Apache-2.0'
+require_literal docs/f0-known-limitations.md 'Apache-2.0'
+require_literal .ai-platform/docs/product-design.md 'Apache-2.0'
 require_literal .ai-platform/specs/002-framework-decoupling/spec.md 'owner-selected redistribution license'
-require_literal README.md 'not claim a remote release'
 require_literal docs/framework-f0.md 'becomes a release claim only after'
 require_literal docs/f0-known-limitations.md 'download is not part of F0 acceptance'
-require_literal README.md 'Every governed business Action state change'
-require_literal README.md 'contributors also need Make, Git, a POSIX shell, `find`, `xargs`, and `rg`'
-require_literal README.md 'Node-free; Node.js, npm, and pnpm are not prerequisites'
+require_literal README.md 'Every state-changing business path converges on `action.Runtime`'
+require_literal README.md 'Go 1.26 or newer is required'
+require_literal README.md 'Node.js is not required'
 require_literal docs/framework-f0.md 'migration declarations'
 require_literal docs/framework-f0.md 'opaque public'
-require_literal README.md 'not a filesystem-wide or crash-atomic transaction'
 require_literal docs/framework-f0.md 'not a filesystem-wide or crash-atomic transaction'
 require_literal docs/f0-known-limitations.md 'not a filesystem-wide or crash-atomic transaction'
 require_literal docs/adr/ADR-004-consumer-owned-surfaces.md 'not claim filesystem-wide, crash, or cross-process atomicity'
@@ -499,7 +573,6 @@ require_literal docs/f0-known-limitations.md 'not a sandbox boundary'
 require_literal docs/framework-f0.md 'not a sandbox boundary'
 
 lifecycle_contract_docs='
-README.md
 docs/framework-f0.md
 docs/f0-known-limitations.md
 docs/adr/ADR-001-explicit-composition-and-capability-lifecycle.md
@@ -516,12 +589,11 @@ for file in $lifecycle_contract_docs; do
 done
 
 capability_contract_docs='
-README.md
 docs/framework-f0.md
 docs/adr/ADR-001-explicit-composition-and-capability-lifecycle.md
 .ai-platform/specs/002-framework-decoupling/spec.md
 .ai-platform/specs/002-framework-decoupling/checklists/requirements.md
-testdata/external-consumer/README.md
+examples/counter/README.md
 '
 for file in $capability_contract_docs; do
 	require_literal "$file" 'package-level typed key'
@@ -531,7 +603,6 @@ require_literal .ai-platform/specs/002-framework-decoupling/spec.md 'explicit pu
 require_literal .ai-platform/specs/002-framework-decoupling/checklists/requirements.md 'privileged-internal allowlist'
 
 json_boundary_docs='
-README.md
 docs/framework-f0.md
 docs/f0-known-limitations.md
 .ai-platform/specs/002-framework-decoupling/spec.md
@@ -565,7 +636,6 @@ require_literal .ai-platform/specs/002-framework-decoupling/spec.md 'Exact-bound
 require_literal docs/f0-known-limitations.md 'increasing an envelope budget does not increase an'
 
 platform_boundary_docs='
-README.md
 docs/framework-f0.md
 docs/f0-known-limitations.md
 docs/adr/ADR-004-consumer-owned-surfaces.md
@@ -654,7 +724,6 @@ for file in $temporary_environment_test_docs; do
 done
 
 token_boundary_docs='
-README.md
 docs/framework-f0.md
 docs/f0-known-limitations.md
 docs/adr/ADR-004-consumer-owned-surfaces.md
@@ -688,7 +757,6 @@ for file in $token_boundary_docs; do
 done
 
 sqlite_boundary_docs='
-README.md
 docs/framework-f0.md
 docs/f0-known-limitations.md
 docs/adr/ADR-003-sqlite-and-module-migrations.md
@@ -708,7 +776,6 @@ for file in $sqlite_boundary_docs; do
 done
 
 schema_boundary_docs='
-README.md
 docs/framework-f0.md
 docs/f0-known-limitations.md
 .ai-platform/specs/002-framework-decoupling/spec.md
@@ -756,10 +823,8 @@ for file in $schema_boundary_docs; do
 	forbid_literal "$file" 'exact-number rewriting'
 	forbid_literal "$file" 'before and after exact-number'
 done
-require_literal README.md 'One immutable executable SchemaGraph'
-
+require_literal docs/framework-f0.md 'one immutable executable SchemaGraph'
 protocol_input_docs='
-README.md
 docs/framework-f0.md
 .ai-platform/specs/002-framework-decoupling/spec.md
 .ai-platform/specs/002-framework-decoupling/plan.md
@@ -772,9 +837,9 @@ for file in $protocol_input_docs; do
 	require_literal "$file" 'Runtime'
 	require_literal "$file" 'audit'
 done
+require_literal docs/framework-f0.md 'A missing member is a protocol'
 
 capability_contract_docs='
-README.md
 docs/framework-f0.md
 docs/adr/ADR-001-explicit-composition-and-capability-lifecycle.md
 .ai-platform/specs/002-framework-decoupling/spec.md
@@ -792,7 +857,6 @@ for file in $capability_contract_docs; do
 done
 
 host_reference_docs='
-README.md
 docs/framework-f0.md
 docs/f0-known-limitations.md
 docs/adr/ADR-001-explicit-composition-and-capability-lifecycle.md
@@ -809,7 +873,6 @@ for file in $host_reference_docs; do
 done
 
 host_availability_docs='
-README.md
 docs/framework-f0.md
 docs/adr/ADR-001-explicit-composition-and-capability-lifecycle.md
 .ai-platform/specs/002-framework-decoupling/spec.md
@@ -959,6 +1022,17 @@ if test "$final_mode" = 1; then
 	require_metadata docs/f0-acceptance-report.md 'Distribution status' Not_released
 	require_metadata docs/f0-acceptance-report.md 'Version tag' None
 	require_metadata docs/f0-acceptance-report.md 'Owner-selected redistribution license' None
+	require_git_commit_metadata docs/f0-acceptance-report.md 'Accepted commit'
+	metadata_lookup docs/f0-acceptance-report.md 'Accepted commit'
+	t016_commit=$metadata_result
+	if test -n "$t016_commit"; then
+		if ! git diff --quiet "$t016_commit" -- .ai-platform/evidence/T016; then
+			fail '.ai-platform/evidence/T016 differs from the accepted F0 commit'
+		fi
+		if test -n "$(git ls-files --others --exclude-standard -- .ai-platform/evidence/T016)"; then
+			fail '.ai-platform/evidence/T016 contains files absent from the accepted F0 commit'
+		fi
+	fi
 
 	evidence_dir=.ai-platform/evidence/T016
 	evidence_complete=1
@@ -1020,30 +1094,23 @@ if test "$final_mode" = 1; then
 			fail 'T016 reviews must identify two different independent reviewers'
 		fi
 		if test "$status" -eq 0; then
-			review_state=$(mktemp "${TMPDIR:-/tmp}/modary-t016-review-state.XXXXXX")
-			if ! sh ./scripts/review-source-state.sh --exclude-t016-evidence >"$review_state"; then
-				fail 'cannot calculate the current T016 review source state'
+			# T016 is an accepted historical freeze. Later release-readiness work
+			# must not redefine that evidence as a digest of the current tree.
+			# Verify the stored source-state artifact against its recorded digest;
+			# Git history and the subsequent release acceptance preserve lineage.
+			if review_digest=$(sha256_file "$evidence_dir/diff.patch"); then
+				if test "$frozen_tree" != "sha256:$review_digest"; then
+					fail "$evidence_dir/diff.patch does not match the stored T016 review source state digest"
+				fi
 			else
-				if ! cmp -s "$review_state" "$evidence_dir/diff.patch"; then
-					fail "$evidence_dir/diff.patch must exactly capture the current T016 review source state"
-				fi
-				if review_digest=$(sha256_file "$review_state"); then
-					if test "$frozen_tree" != "sha256:$review_digest"; then
-						fail "$evidence_dir/summary.md frozen tree does not match the current T016 review source state"
-					fi
-				else
-					fail 'no SHA-256 implementation is available for T016 review-state validation'
-				fi
+				fail 'no SHA-256 implementation is available for T016 review-state validation'
 			fi
-			rm -f "$review_state"
 		fi
 	fi
 
 	closure_files="
-		$current_graph
 		$work_graph
 		docs/f0-acceptance-report.md
-		$release_report
 	"
 	if test "$evidence_complete" -eq 1; then
 		closure_files="$closure_files

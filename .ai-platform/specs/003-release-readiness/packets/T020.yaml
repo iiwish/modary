@@ -1,0 +1,115 @@
+schema_version: 1
+packet_id: EP-003-T020
+task_id: T020
+feature_id: 003-release-readiness
+mode: execute_one_task
+adapter: codex-direct
+
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  product_contract: .ai-platform/docs/product-design.md
+  feature_spec: .ai-platform/specs/003-release-readiness/spec.md
+  requirements_checklist: .ai-platform/specs/003-release-readiness/checklists/requirements.md
+  technical_decisions: .ai-platform/specs/003-release-readiness/plan.md
+  work_graph: .ai-platform/specs/003-release-readiness/tasks.md
+  analysis: .ai-platform/specs/003-release-readiness/analysis.md
+  approval_gates:
+    release_governance: T017 Completed
+    documentation: T018 Completed
+    release_automation: T019 Completed
+    product_or_spec: Confirmed by user
+
+work_unit:
+  title: Full Release Readiness Acceptance
+  goal: Complete full validation and review, report exact readiness state, and reduce owner or external blockers to explicit publish decisions.
+  requirements: [FR-001, FR-002, FR-003, FR-004, FR-005, FR-006, FR-007, FR-008, FR-009, FR-010, NFR-001, NFR-002, NFR-003, NFR-004, NFR-005, NFR-006]
+  priority: P0
+  depends_on: [T018, T019]
+  blocks: []
+  parallel: false
+  conflicts_with: [all active release-readiness tasks]
+
+codebase_context:
+  relevant_files:
+    - repository-wide release-readiness diff
+    - .ai-platform/evidence/T017/**
+    - .ai-platform/evidence/T018/**
+    - .ai-platform/evidence/T019/**
+    - docs/**
+    - scripts/**
+    - Makefile
+    - .github/workflows/ci.yml
+  existing_patterns:
+    - accepted F0 evidence remains a historical freeze
+    - exact claim states separate engineering readiness from distribution
+    - complete acceptance and CI are source-stability gates
+  forbidden_changes:
+    - marking distribution or remote consumption successful without evidence
+    - selecting owner-controlled license, visibility, remote, security contact, or tag
+    - leaving unresolved P0, P1, or P2 engineering findings
+
+execution_constraints:
+  branch_or_worktree: current
+  allowed_files:
+    - repository-wide reviewed fixes
+    - .ai-platform/specs/003-release-readiness/**
+    - .ai-platform/evidence/T020/**
+    - .ai-platform/docs/**
+    - docs/**
+    - README.md
+    - CHANGELOG.md
+    - CONTRIBUTING.md
+    - SECURITY.md
+    - Makefile
+    - .github/workflows/ci.yml
+    - scripts/**
+    - testdata/external-consumer/README.md
+  test_targets:
+    - all framework, external-consumer, documentation, release, CI, and governance gates
+
+tdd_plan:
+  required: true
+  exception: report-only corrections use direct deterministic validation
+  red:
+    command: focused reproduction for every final review or full-gate finding
+    expected_failure: each finding is observed before repair
+  green:
+    command: focused test followed by make acceptance
+    expected_signal: each finding and the complete release candidate gate pass
+  refactor:
+    command: make ci
+    expected_signal: race, repetition, fuzz, neutrality, generated drift, and source stability remain green
+
+validation_loop:
+  commands:
+    - make acceptance
+    - make ci
+    - for task in T017 T018 T019 T020; do python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 003-release-readiness --task-id "$task" --strict; done
+    - git diff --check
+  retry_budget: 3
+  failure_policy:
+    first_failure: classify and repair the direct root cause with focused coverage
+    second_failure: re-review the affected release claim and ownership boundary
+    beyond_budget: report a blocker without weakening or skipping a gate
+
+evidence_contract:
+  summary: .ai-platform/evidence/T020/summary.md
+  diff: .ai-platform/evidence/T020/diff.patch
+  test_results: .ai-platform/evidence/T020/test-results.md
+  review: .ai-platform/evidence/T020/review.md
+  required: [changed_files, full_validation, spec_review, engineering_review, readiness_matrix, owner_blockers, residual_risk]
+
+review_contract:
+  required_passes: [spec_compliance, documentation, release_automation, security, ci, remote_consumer_contract, engineering_quality]
+  acceptance_rule: complete only when no P0-P2 engineering finding remains and reports use the earliest proved release state
+
+handoff:
+  external_issue: null
+  pull_request: null
+  next_tasks: []
+  finish_options: [owner decision handoff, keep branch for review]
+
+stop_conditions:
+  - a full gate fails after focused repair
+  - an engineering review retains a P0, P1, or P2 finding
+  - the next action requires selecting or publishing owner-controlled external state

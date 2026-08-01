@@ -1,0 +1,10 @@
+T017 release-governance change record
+
+- Added the confirmed 003-release-readiness contract, plan, checklist, analysis,
+  work graph, and execution packet.
+- Added canonical changelog, contribution, security, versioning, and release
+  process documents.
+- Changed T016 evidence verification from a comparison with the evolving current
+  tree to a digest check of the stored historical source-state artifact.
+- Added regression coverage proving later documentation does not invalidate an
+  accepted historical freeze while evidence tampering still fails closed.

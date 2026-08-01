@@ -46,7 +46,7 @@ scan_forbidden() {
 		--glob '!.ai-platform/specs/**/analysis.md' \
 		--glob '!.ai-platform/specs/**/tasks.md' \
 		--glob '!.ai-platform/specs/**/packets/**' \
-		--glob '!testdata/external-consumer/**' \
+		--glob '!examples/counter/**' \
 		--glob '!scripts/check-neutrality.sh' \
 		--glob '!scripts/check_neutrality_test.go' \
 		-- "$pattern" . 2>&1)
@@ -128,7 +128,7 @@ else
 	framework_module=
 fi
 
-consumer_root=testdata/external-consumer
+consumer_root=examples/counter
 consumer_mod=$consumer_root/go.mod
 if test ! -d "$consumer_root" || test -L "$consumer_root"; then
 	printf '%s\n' 'external consumer conformance module is missing or is not an owned directory' >&2

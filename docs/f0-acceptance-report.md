@@ -4,6 +4,7 @@
 - Governing contract: `.ai-platform/specs/002-framework-decoupling/spec.md`
 - Date: 2026-07-31
 - Status: Accepted
+- Accepted commit: f1faecd51c46220d82cc4b7ed461e0f29170eaaa
 - Distribution status: Not_released
 - Version tag: None
 - Owner-selected redistribution license: None

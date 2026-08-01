@@ -1,5 +1,6 @@
 GO ?= go
-CONSUMER_DIR := testdata/external-consumer
+RELEASE_MODE ?= candidate
+CONSUMER_DIR := examples/counter
 GO_COMMAND_ENV := GO111MODULE=on GOTOOLCHAIN=local GOENV=off GOWORK=off GOFLAGS=
 CROSS_BUILD_TARGETS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 REPEAT_PACKAGES := \
@@ -24,7 +25,8 @@ REPEAT_PACKAGES := \
 
 .PHONY: bootstrap format-check tidy-check diff-check docs-check verify check-generated neutrality \
 	test test-framework test-consumer vet race repeat fuzz-smoke build \
-	panicnil cross-build native-platform acceptance ci-gates ci clean
+	panicnil cross-build native-platform acceptance ci-gates ci \
+	release-preflight release-readiness remote-consumer clean
 
 bootstrap:
 	$(GO_COMMAND_ENV) $(GO) mod download
@@ -43,6 +45,7 @@ diff-check:
 
 docs-check:
 	./scripts/check-docs.sh
+	./scripts/check-doc-links.sh
 
 verify:
 	cd $(CONSUMER_DIR) && $(GO_COMMAND_ENV) $(GO) run ./tools/modary verify
@@ -129,6 +132,17 @@ ci:
 		exit 1; \
 	fi; \
 	exit "$$gate_status"
+
+release-preflight: format-check tidy-check diff-check docs-check
+	@test -n "$(VERSION)" || { printf '%s\n' 'VERSION is required'; exit 2; }
+	./scripts/release-preflight.sh "$(VERSION)" "$(RELEASE_MODE)"
+
+release-readiness: release-preflight
+	$(MAKE) ci
+
+remote-consumer:
+	@test -n "$(VERSION)" || { printf '%s\n' 'VERSION is required'; exit 2; }
+	./scripts/remote-consumer.sh "$(VERSION)"
 
 clean:
 	rm -rf $(CONSUMER_DIR)/dist $(CONSUMER_DIR)/data coverage

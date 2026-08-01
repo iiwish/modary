@@ -40,9 +40,9 @@
     or release executable. Consumers own those surfaces and may use the public
     AppKit, transport, appcmd, and projecttool packages to build them.
 12. The current checkout proves local independent consumption. A remote module
-    download is not part of F0 acceptance until the repository has a published
-    version tag. The checkout has no owner-selected redistribution license, so
-    local technical acceptance is not a public distribution grant.
+    download is not part of F0 acceptance; it is a separate release gate for a
+    published version tag. Modary-owned source and documentation use
+    Apache-2.0, with applicable third-party licenses and notices preserved.
 13. Action handlers, Runtime dependencies, and installed actor-resolution,
     session, and bearer-token implementations are trusted process code and are
     expected to honor their contexts. Every Runtime and identity facade

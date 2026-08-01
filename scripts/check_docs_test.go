@@ -15,6 +15,8 @@ import (
 
 var docsFixtureFiles = []string{
 	"README.md",
+	"LICENSE",
+	"NOTICE",
 	"docs/framework-f0.md",
 	"docs/f0-known-limitations.md",
 	"docs/f0-acceptance-report.md",
@@ -41,7 +43,7 @@ var docsFixtureFiles = []string{
 	".ai-platform/specs/002-framework-decoupling/packets/T014.yaml",
 	".ai-platform/specs/002-framework-decoupling/packets/T015.yaml",
 	".ai-platform/specs/002-framework-decoupling/packets/T016.yaml",
-	"testdata/external-consumer/README.md",
+	"examples/counter/README.md",
 	"scripts/check-docs.sh",
 	"scripts/review-source-state.sh",
 	"scripts/source-state.sh",
@@ -77,6 +79,27 @@ func TestCheckDocsCompletedStateCannotBypassFinalEvidence(t *testing.T) {
 	output, err := runDocsCheck(t, repository, false)
 	if err == nil || !strings.Contains(output, "must be a non-empty regular file") {
 		t.Fatalf("completed default check = %v, output=%q", err, output)
+	}
+}
+
+func TestCheckDocsTreatsCompletedF0EvidenceAsHistorical(t *testing.T) {
+	repository := newLiveDocsFixture(t, true)
+	appendDocsFixture(t, filepath.Join(repository, "README.md"), "\nrelease-readiness documentation\n")
+
+	if output, err := runDocsCheck(t, repository, false); err != nil {
+		t.Fatalf("post-F0 documentation invalidated historical evidence: %v\n%s", err, output)
+	}
+}
+
+func TestCheckDocsAllowsAnewDeliveryAfterF0Closure(t *testing.T) {
+	repository := newLiveDocsFixture(t, true)
+	appendDocsFixture(t, filepath.Join(repository, ".ai-platform", "docs", "tasks.md"),
+		"\n## T020: Later Delivery\n\nStatus: In_Progress\n")
+	appendDocsFixture(t, filepath.Join(repository, ".ai-platform", "docs", "release-report.md"),
+		"\n- Engineering readiness: In_Progress\n")
+
+	if output, err := runDocsCheck(t, repository, false); err != nil {
+		t.Fatalf("new delivery was mistaken for unfinished T016 closure: %v\n%s", err, output)
 	}
 }
 
@@ -159,21 +182,12 @@ func TestCheckDocsFinalModeFailsClosed(t *testing.T) {
 			want: "must reference the reviewed frozen tree",
 		},
 		{
-			name: "implementation changed after freeze",
-			mutate: func(t *testing.T, repository string) {
-				t.Helper()
-				appendDocsFixture(t, filepath.Join(repository, "README.md"), "\npost-freeze source mutation\n")
-			},
-			want:            "frozen tree does not match the current T016 review source state",
-			liveReviewState: true,
-		},
-		{
 			name: "evidence patch is not frozen source state",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
 				appendDocsFixture(t, filepath.Join(repository, ".ai-platform/evidence/T016/diff.patch"), "self-reported but unverified\n")
 			},
-			want:            "must exactly capture the current T016 review source state",
+			want:            "differs from the accepted F0 commit",
 			liveReviewState: true,
 		},
 		{
@@ -274,8 +288,8 @@ func TestCheckDocsFinalModeFailsClosed(t *testing.T) {
 			name: "unsupported platform Build fallback",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
-				file := filepath.Join(repository, "README.md")
-				replaceDocsFixture(t, file, "Every other platform, including other Unix variants and Windows, fails Build\n  because F0 has no validated ACL policy there.", "Every platform runs Build with mode-only checks.")
+				file := filepath.Join(repository, "docs/framework-f0.md")
+				replaceDocsFixture(t, file, "Every other platform,\nincluding other Unix variants and Windows, fails Build.\nF0 has no validated ACL policy there.", "Every platform runs Build with mode-only checks.")
 			},
 			want: "Every other platform",
 		},
@@ -283,7 +297,7 @@ func TestCheckDocsFinalModeFailsClosed(t *testing.T) {
 			name: "unsupported native runtime overclaim",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
-				file := filepath.Join(repository, "README.md")
+				file := filepath.Join(repository, "docs/framework-f0.md")
 				replaceDocsFixture(t, file, "F0 claims no native Build, ACL, or rename runtime validation for them.", "F0 claims native Build, ACL, and rename runtime validation for them.")
 			},
 			want: "no native Build",
@@ -328,7 +342,7 @@ func TestCheckDocsFinalModeFailsClosed(t *testing.T) {
 			name: "missing GOTMPDIR pin",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
-				file := filepath.Join(repository, "README.md")
+				file := filepath.Join(repository, "docs/framework-f0.md")
 				replaceDocsFixture(t, file, "`TMPDIR` and `GOTMPDIR`", "`TMPDIR` alone")
 				replaceDocsFixture(t, file, "An ambient `GOTMPDIR` cannot override that parent.", "The canonical parent remains fixed.")
 			},
@@ -347,7 +361,7 @@ func TestCheckDocsFinalModeFailsClosed(t *testing.T) {
 			name: "ambient GOTMPDIR override",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
-				appendDocsFixture(t, filepath.Join(repository, "README.md"), "\nAn ambient `GOTMPDIR` may override that parent.\n")
+				appendDocsFixture(t, filepath.Join(repository, "docs/framework-f0.md"), "\nAn ambient `GOTMPDIR` may override that parent.\n")
 			},
 			want: "ambient `GOTMPDIR` may override that parent",
 		},
@@ -372,7 +386,7 @@ func TestCheckDocsFinalModeFailsClosed(t *testing.T) {
 			name: "trusted inputs sandbox overclaim",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
-				file := filepath.Join(repository, "README.md")
+				file := filepath.Join(repository, "docs/framework-f0.md")
 				replaceDocsFixture(t, file, "consumer source remain trusted inputs; Build is not a sandbox.", "consumer source are fully sandboxed.")
 			},
 			want: "fully sandboxed",
@@ -381,8 +395,8 @@ func TestCheckDocsFinalModeFailsClosed(t *testing.T) {
 			name: "daemonized descendant containment overclaim",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
-				file := filepath.Join(repository, "README.md")
-				replaceDocsFixture(t, file, "A trusted descendant that daemonizes or enters\n  another process group can escape cleanup", "all descendants are contained")
+				file := filepath.Join(repository, "docs/framework-f0.md")
+				replaceDocsFixture(t, file, "A trusted descendant that daemonizes or enters\nanother process group can escape cleanup", "all descendants are contained")
 			},
 			want: "all descendants are contained",
 		},
@@ -390,8 +404,8 @@ func TestCheckDocsFinalModeFailsClosed(t *testing.T) {
 			name: "process group cleanup omission",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
-				file := filepath.Join(repository, "README.md")
-				replaceDocsFixture(t, file, "Build kills residual same-group\n  descendants", "Build only observes same-group\n  descendants")
+				file := filepath.Join(repository, "docs/framework-f0.md")
+				replaceDocsFixture(t, file, "Build kills residual same-group\ndescendants", "Build only observes same-group\ndescendants")
 			},
 			want: "kills residual same-group",
 		},
@@ -408,8 +422,8 @@ func TestCheckDocsFinalModeFailsClosed(t *testing.T) {
 			name: "unsafe writable TMPDIR ancestry",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
-				file := filepath.Join(repository, "README.md")
-				replaceDocsFixture(t, file, "group- or other-writable only\n  when root-owned and sticky", "group- or other-writable whenever\n  sticky regardless of owner")
+				file := filepath.Join(repository, "docs/framework-f0.md")
+				replaceDocsFixture(t, file, "group- or other-writable only when root-owned and sticky", "group- or other-writable whenever sticky regardless of owner")
 			},
 			want: "sticky regardless of owner",
 		},
@@ -417,7 +431,7 @@ func TestCheckDocsFinalModeFailsClosed(t *testing.T) {
 			name: "compiler leader reaped before cleanup",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
-				file := filepath.Join(repository, "README.md")
+				file := filepath.Join(repository, "docs/framework-f0.md")
 				replaceDocsFixture(t, file, "observes the group leader without reaping it", "observes and reaps it before cleanup")
 			},
 			want: "without reaping",
@@ -426,7 +440,7 @@ func TestCheckDocsFinalModeFailsClosed(t *testing.T) {
 			name: "WaitDelay misclassifies successful Build",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
-				appendDocsFixture(t, filepath.Join(repository, "README.md"), "\nexec.ErrWaitDelay fails an otherwise successful Build\n")
+				appendDocsFixture(t, filepath.Join(repository, "docs/framework-f0.md"), "\nexec.ErrWaitDelay fails an otherwise successful Build\n")
 			},
 			want: "exec.ErrWaitDelay fails an otherwise successful Build",
 		},
@@ -451,7 +465,7 @@ func TestCheckDocsFinalModeFailsClosed(t *testing.T) {
 			name: "caller error method omission",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
-				file := filepath.Join(repository, "README.md")
+				file := filepath.Join(repository, "docs/framework-f0.md")
 				replaceDocsFixture(t, file, "`Error`, `Is`, `As`, or `Unwrap`", "`Is`, `As`, or `Unwrap`")
 			},
 			want: "`Error`, `Is`, `As`, or `Unwrap`",
@@ -519,7 +533,7 @@ func TestCheckDocsFinalModeFailsClosed(t *testing.T) {
 			name: "Action JSON node budget drift",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
-				file := filepath.Join(repository, "README.md")
+				file := filepath.Join(repository, "docs/framework-f0.md")
 				replaceDocsFixture(t, file, "65,536 JSON value nodes", "65,535 JSON value nodes")
 			},
 			want: "65,536 JSON value nodes",
@@ -555,7 +569,7 @@ func TestCheckDocsFinalModeFailsClosed(t *testing.T) {
 			name: "schema node budget drift",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
-				file := filepath.Join(repository, "README.md")
+				file := filepath.Join(repository, "docs/framework-f0.md")
 				replaceDocsFixture(t, file, "2,048 schema nodes", "2,047 schema nodes")
 			},
 			want: "2,048",
@@ -564,8 +578,8 @@ func TestCheckDocsFinalModeFailsClosed(t *testing.T) {
 			name: "schema graph contract omitted",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
-				file := filepath.Join(repository, "README.md")
-				replaceDocsFixture(t, file, "One immutable executable SchemaGraph", "One schema compilation model")
+				file := filepath.Join(repository, "docs/framework-f0.md")
+				replaceDocsFixture(t, file, "one immutable executable SchemaGraph", "one schema compilation model")
 			},
 			want: "SchemaGraph",
 		},
@@ -582,7 +596,7 @@ func TestCheckDocsFinalModeFailsClosed(t *testing.T) {
 			name: "exact-number rewriting reintroduced",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
-				appendDocsFixture(t, filepath.Join(repository, "README.md"), "\nMCP uses exact-number rewriting before compilation.\n")
+				appendDocsFixture(t, filepath.Join(repository, "docs/framework-f0.md"), "\nMCP uses exact-number rewriting before compilation.\n")
 			},
 			want: "obsolete canonical statement remains",
 		},
@@ -590,7 +604,7 @@ func TestCheckDocsFinalModeFailsClosed(t *testing.T) {
 			name: "schema evaluation frame budget drift",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
-				file := filepath.Join(repository, "README.md")
+				file := filepath.Join(repository, "docs/framework-f0.md")
 				replaceDocsFixture(t, file, "4,096 active evaluation frames", "4,095 active evaluation frames")
 			},
 			want: "4,096 active evaluation frames",
@@ -617,8 +631,8 @@ func TestCheckDocsFinalModeFailsClosed(t *testing.T) {
 			name: "MCP schema wrapper budget drift",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
-				file := filepath.Join(repository, "README.md")
-				replaceDocsFixture(t, file, "adding only 128 framework-owned schema nodes", "adding only 129 framework-owned schema nodes")
+				file := filepath.Join(repository, "docs/framework-f0.md")
+				replaceDocsFixture(t, file, "Its fixed wrapper adds exactly\n128 schema nodes", "Its fixed wrapper adds exactly\n129 schema nodes")
 			},
 			want: "128",
 		},
@@ -626,17 +640,17 @@ func TestCheckDocsFinalModeFailsClosed(t *testing.T) {
 			name: "protocol missing-input contract omitted",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
-				file := filepath.Join(repository, "README.md")
-				replaceDocsFixture(t, file, "Its absence\n  is a protocol validation failure", "Its omission\n  is accepted by the protocol")
+				file := filepath.Join(repository, "docs/framework-f0.md")
+				replaceDocsFixture(t, file, "A missing member is a protocol\nvalidation failure", "A missing member is accepted by the protocol")
 			},
-			want: "missing input",
+			want: "A missing member is a protocol",
 		},
 		{
 			name: "open capability contract omitted",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
-				file := filepath.Join(repository, "README.md")
-				replaceDocsFixture(t, file, "`module.Capability` is an open named string contract", "Capabilities are closed framework strings")
+				file := filepath.Join(repository, "docs/framework-f0.md")
+				replaceDocsFixture(t, file, "`module.Capability` is an open named string type", "Capabilities are closed framework strings")
 			},
 			want: "`module.Capability`",
 		},
@@ -728,7 +742,7 @@ func newDocsFixtureMode(t *testing.T, final, liveReviewState bool) string {
 		}
 		writeDocsFixtureFile(t, filepath.Join(repository, relative), string(content))
 	}
-	if err := os.MkdirAll(filepath.Join(repository, "testdata/external-consumer"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(repository, "examples/counter"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	normalizeDocsFixture(t,
@@ -754,7 +768,7 @@ func newDocsFixtureMode(t *testing.T, final, liveReviewState bool) string {
 - Technical F0 acceptance: In_Progress
 - Distribution status: Not_released
 - Version tag: None
-- Owner-selected redistribution license: None
+- Owner-selected redistribution license: Apache-2.0
 `)
 
 	if !final {
@@ -763,7 +777,9 @@ func newDocsFixtureMode(t *testing.T, final, liveReviewState bool) string {
 
 	replaceDocsFixture(t, filepath.Join(repository, ".ai-platform/specs/002-framework-decoupling/tasks.md"), "Status: In_Progress", "Status: Completed")
 	replaceDocsFixture(t, filepath.Join(repository, ".ai-platform/docs/tasks.md"), "| T016 | In_Progress |", "| T016 | Completed |")
-	replaceDocsFixture(t, filepath.Join(repository, ".ai-platform/docs/tasks.md"), "Status: In_Progress", "Status: Completed")
+	replaceDocsFixture(t, filepath.Join(repository, ".ai-platform/docs/tasks.md"),
+		"## T016: Current Framework F0 Acceptance\n\nStatus: In_Progress",
+		"## T016: Current Framework F0 Acceptance\n\nStatus: Completed")
 
 	writeDocsFixtureFile(t, filepath.Join(repository, "docs/f0-acceptance-report.md"), `# F0 Acceptance
 
@@ -779,7 +795,7 @@ func newDocsFixtureMode(t *testing.T, final, liveReviewState bool) string {
 - Technical F0 acceptance: Accepted
 - Distribution status: Not_released
 - Version tag: None
-- Owner-selected redistribution license: None
+- Owner-selected redistribution license: Apache-2.0
 `)
 
 	if !liveReviewState {
@@ -807,7 +823,35 @@ cat .ai-platform/evidence/T016/diff.patch
 		}
 		writeDocsFixtureFile(t, filepath.Join(evidence, review), "# Review\n\n- Reviewer: "+reviewer+"\n- Started at: 2026-07-31T12:00:01Z\n- Frozen tree: "+fixtureFrozenTree+"\n- Scope: complete F0 architecture and implementation\n- Commands: focused tests and repository gates\n- Verdict: Pass\n- P0: 0\n- P1: 0\n- P2: 0\n")
 	}
+	acceptedCommit := commitDocsFixture(t, repository)
+	appendDocsFixture(t, filepath.Join(repository, "docs/f0-acceptance-report.md"), "- Accepted commit: "+acceptedCommit+"\n")
 	return repository
+}
+
+func commitDocsFixture(t *testing.T, repository string) string {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(repository, ".git")); os.IsNotExist(err) {
+		runDocsFixtureGit(t, repository, "init", "--quiet")
+	}
+	runDocsFixtureGit(t, repository, "add", "--all")
+	runDocsFixtureGit(t, repository, "-c", "user.name=Modary Test", "-c", "user.email=modary@example.invalid",
+		"commit", "--quiet", "-m", "accepted evidence")
+	command := exec.Command("git", "rev-parse", "HEAD")
+	command.Dir = repository
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("resolve fixture commit: %v\n%s", err, output)
+	}
+	return strings.TrimSpace(string(output))
+}
+
+func runDocsFixtureGit(t *testing.T, repository string, args ...string) {
+	t.Helper()
+	command := exec.Command("git", args...)
+	command.Dir = repository
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, output)
+	}
 }
 
 func initializeDocsFixtureRepository(t *testing.T, repository string) {

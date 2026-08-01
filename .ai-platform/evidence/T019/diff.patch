@@ -1,0 +1,8 @@
+T019 release-automation change record
+
+- Added fail-closed candidate/tag metadata preflight.
+- Added normal Go Module remote-consumer conformance outside the repository.
+- Added separate Make targets for metadata, full readiness, and remote proof.
+- Added a read-only tag CI job after Linux and native Darwin acceptance.
+- Added fixture tests for version, license, security contact, origin, clean
+  state, annotated tag, replacement removal, exact resolution, and command flow.

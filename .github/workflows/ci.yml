@@ -25,7 +25,7 @@ jobs:
           cache: true
           cache-dependency-path: |
             go.sum
-            testdata/external-consumer/go.sum
+            examples/counter/go.sum
       - run: make bootstrap
       - run: make ci
       - name: Verify the gate leaves source unchanged
@@ -42,7 +42,7 @@ jobs:
           cache: true
           cache-dependency-path: |
             go.sum
-            testdata/external-consumer/go.sum
+            examples/counter/go.sum
       - name: Record native toolchain
         run: |
           go env GOOS GOARCH GOVERSION CGO_ENABLED
@@ -50,4 +50,27 @@ jobs:
       - run: make bootstrap
       - run: make native-platform
       - name: Verify the gate leaves source unchanged
+        run: git status --short && test -z "$(git status --porcelain --untracked-files=all)"
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [quality, darwin-arm64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            examples/counter/go.sum
+      - run: make release-preflight VERSION="${GITHUB_REF_NAME}" RELEASE_MODE=tag
+      - run: make remote-consumer VERSION="${GITHUB_REF_NAME}"
+      - name: Verify the release gates leave source unchanged
         run: git status --short && test -z "$(git status --porcelain --untracked-files=all)"

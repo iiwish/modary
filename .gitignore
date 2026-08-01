@@ -15,5 +15,5 @@ coverage.out
 *.sqlite-wal
 *.sqlite3
 
-testdata/external-consumer/data/
-testdata/external-consumer/dist/
+examples/counter/data/
+examples/counter/dist/

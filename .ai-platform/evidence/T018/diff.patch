@@ -1,0 +1,8 @@
+T018 adoption-documentation change record
+
+- Added one indexed documentation system for getting started, concepts, how-to
+  guides, reference, operations, and upgrades.
+- Grounded examples in the independent external consumer and public packages.
+- Added fail-closed required-file, local-link, H1, and index-reachability checks.
+- Wired the link checker into the canonical Make documentation gate.
+- Added fixture tests for complete, missing, broken, and orphaned documentation.

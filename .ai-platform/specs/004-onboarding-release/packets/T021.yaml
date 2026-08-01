@@ -1,0 +1,117 @@
+schema_version: 1
+packet_id: EP-004-T021
+task_id: T021
+feature_id: 004-onboarding-release
+mode: execute_one_task
+adapter: codex-direct
+
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  product_contract: .ai-platform/docs/product-design.md
+  feature_spec: .ai-platform/specs/004-onboarding-release/spec.md
+  requirements_checklist: .ai-platform/specs/004-onboarding-release/checklists/requirements.md
+  technical_decisions: .ai-platform/specs/004-onboarding-release/plan.md
+  work_graph: .ai-platform/specs/004-onboarding-release/tasks.md
+  analysis: .ai-platform/specs/004-onboarding-release/analysis.md
+  approval_gates:
+    release_readiness: T020 Completed
+    product_or_spec: Confirmed by owner execution request
+
+work_unit:
+  title: Onboarding Readiness Candidate
+  goal: Produce one legally attributable, publicly navigable, executable, and fully validated onboarding candidate without changing the F0 runtime contract.
+  requirements: [FR-001, FR-002, FR-003, FR-004, FR-005, NFR-001, NFR-002, NFR-003, NFR-004, NFR-005, NFR-006]
+  priority: P0
+  depends_on: [T020]
+  blocks: [T022]
+  parallel: false
+  conflicts_with: [T022, all active release tasks]
+
+codebase_context:
+  relevant_files:
+    - README.md
+    - docs/**
+    - testdata/external-consumer/**
+    - scripts/**
+    - Makefile
+    - .gitignore
+    - internal/jsonschema/engine/LICENSE-APACHE-2.0.txt
+    - internal/jsonschema/engine/NOTICE
+  existing_patterns:
+    - the independent consumer is the executable conformance contract
+    - documentation links and canonical files are checked offline
+    - copied-out and remote gates reject local workspace dependence
+  forbidden_changes:
+    - changing public F0 runtime behavior
+    - duplicating the example into a second unverified application
+    - editing historical evidence
+    - introducing downstream product vocabulary
+
+execution_constraints:
+  branch_or_worktree: current
+  allowed_files:
+    - LICENSE
+    - NOTICE
+    - README.md
+    - CHANGELOG.md
+    - SECURITY.md
+    - docs/**
+    - examples/counter/**
+    - testdata/external-consumer/**
+    - scripts/**
+    - Makefile
+    - .gitignore
+    - .github/workflows/ci.yml
+    - .ai-platform/specs/004-onboarding-release/**
+    - .ai-platform/docs/**
+    - .ai-platform/evidence/T021/**
+  test_targets:
+    - documentation and stale-path checks
+    - public example verify, generate, test, build, and copied-out gates
+    - complete framework acceptance and CI
+
+tdd_plan:
+  required: true
+  red:
+    command: focused onboarding and documentation fixture tests before path promotion
+    expected_failure: missing license, public example, golden path, and stale-path rejection are observed
+  green:
+    command: focused tests and make acceptance
+    expected_signal: the public example and canonical onboarding path pass
+  refactor:
+    command: make ci
+    expected_signal: complete quality and source-stability gates remain green
+
+validation_loop:
+  commands:
+    - make acceptance
+    - make ci
+    - python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 004-onboarding-release --task-id T021 --strict
+    - git diff --check
+  retry_budget: 3
+  failure_policy:
+    first_failure: repair the direct path, documentation, attribution, or example defect
+    second_failure: review the onboarding design and accepted F0 boundary
+    beyond_budget: stop without weakening a gate
+
+evidence_contract:
+  summary: .ai-platform/evidence/T021/summary.md
+  diff: .ai-platform/evidence/T021/diff.patch
+  test_results: .ai-platform/evidence/T021/test-results.md
+  review: .ai-platform/evidence/T021/review.md
+  required: [changed_files, red_green, onboarding_journey, license_review, full_validation, residual_risk]
+
+review_contract:
+  required_passes: [spec_compliance, onboarding, documentation, licensing_and_attribution, framework_neutrality, engineering_quality]
+  acceptance_rule: no unresolved P0, P1, or P2 finding and every local validation command passes
+
+handoff:
+  external_issue: null
+  pull_request: null
+  next_tasks: [T022]
+  finish_options: [publish accepted candidate]
+
+stop_conditions:
+  - public runtime behavior changes
+  - historical evidence must be rewritten
+  - full acceptance fails after focused repair

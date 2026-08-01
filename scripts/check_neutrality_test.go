@@ -95,7 +95,7 @@ func TestCheckNeutralityRejectsDynamicProductionLeaks(t *testing.T) {
 		{
 			name: "missing conformance consumer",
 			prepare: func(t *testing.T, repository string) {
-				if err := os.RemoveAll(filepath.Join(repository, "testdata", "external-consumer")); err != nil {
+				if err := os.RemoveAll(filepath.Join(repository, "examples", "counter")); err != nil {
 					t.Fatal(err)
 				}
 			},
@@ -104,14 +104,14 @@ func TestCheckNeutralityRejectsDynamicProductionLeaks(t *testing.T) {
 		{
 			name: "consumer shares framework module",
 			prepare: func(t *testing.T, repository string) {
-				writeNeutralityFile(t, filepath.Join(repository, "testdata", "external-consumer", "go.mod"), "module github.com/iiwish/modary\n\ngo 1.26\n", 0o644)
+				writeNeutralityFile(t, filepath.Join(repository, "examples", "counter", "go.mod"), "module github.com/iiwish/modary\n\ngo 1.26\n", 0o644)
 			},
 			want: "module distinct from the framework",
 		},
 		{
 			name: "consumer imports private framework package",
 			prepare: func(t *testing.T, repository string) {
-				writeNeutralityFile(t, filepath.Join(repository, "testdata", "external-consumer", "consumer.go"), "package consumer\n\nimport _ \"github.com/iiwish/modary/internal/actionruntime\"\n", 0o644)
+				writeNeutralityFile(t, filepath.Join(repository, "examples", "counter", "consumer.go"), "package consumer\n\nimport _ \"github.com/iiwish/modary/internal/actionruntime\"\n", 0o644)
 			},
 			want: "imports a private Modary package",
 		},
@@ -196,11 +196,11 @@ func newNeutralityRepository(t *testing.T) string {
 	writeNeutralityFile(t, filepath.Join(repository, "neutral path", "line\nbreak.txt"), "neutral\n", 0o644)
 	writeNeutralityFile(
 		t,
-		filepath.Join(repository, "testdata", "external-consumer", "go.mod"),
+		filepath.Join(repository, "examples", "counter", "go.mod"),
 		"module example.com/modary-consumer\n\ngo 1.26\n\nrequire github.com/iiwish/modary v0.0.0\n\nreplace github.com/iiwish/modary => ../..\n",
 		0o644,
 	)
-	writeNeutralityFile(t, filepath.Join(repository, "testdata", "external-consumer", "consumer.go"), "package consumer\n\nimport _ \"github.com/iiwish/modary/action\"\n", 0o644)
+	writeNeutralityFile(t, filepath.Join(repository, "examples", "counter", "consumer.go"), "package consumer\n\nimport _ \"github.com/iiwish/modary/action\"\n", 0o644)
 
 	for _, arguments := range [][]string{
 		{"init", "-q"},

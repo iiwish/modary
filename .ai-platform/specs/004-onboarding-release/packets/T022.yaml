@@ -1,0 +1,115 @@
+schema_version: 1
+packet_id: EP-004-T022
+task_id: T022
+feature_id: 004-onboarding-release
+mode: execute_one_task
+adapter: codex-direct
+
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  product_contract: .ai-platform/docs/product-design.md
+  feature_spec: .ai-platform/specs/004-onboarding-release/spec.md
+  requirements_checklist: .ai-platform/specs/004-onboarding-release/checklists/requirements.md
+  technical_decisions: .ai-platform/specs/004-onboarding-release/plan.md
+  work_graph: .ai-platform/specs/004-onboarding-release/tasks.md
+  analysis: .ai-platform/specs/004-onboarding-release/analysis.md
+  approval_gates:
+    onboarding_candidate: T021 Completed
+    license: Apache-2.0 approved through owner continuation request
+    repository_and_release: Public GitHub publication explicitly requested by owner
+
+work_unit:
+  title: Publish v0.1.0-alpha.1
+  goal: Publish the exact accepted candidate and prove normal tagged Go module consumption.
+  requirements: [FR-006, FR-007, NFR-002, NFR-004, NFR-005]
+  priority: P0
+  depends_on: [T021]
+  blocks: []
+  parallel: false
+  conflicts_with: [all active release tasks]
+
+codebase_context:
+  relevant_files:
+    - release candidate commit
+    - CHANGELOG.md
+    - SECURITY.md
+    - .ai-platform/docs/release-report.md
+    - scripts/release-preflight.sh
+    - scripts/remote-consumer.sh
+    - .github/workflows/ci.yml
+  existing_patterns:
+    - annotated immutable semantic prerelease tags
+    - read-only tag CI
+    - copied-out remote consumer with no replace
+  forbidden_changes:
+    - moving or overwriting a published tag
+    - claiming a successful external result without evidence
+    - publishing a different commit than the accepted candidate
+
+execution_constraints:
+  branch_or_worktree: current
+  allowed_files:
+    - CHANGELOG.md
+    - SECURITY.md
+    - .ai-platform/docs/release-report.md
+    - .ai-platform/docs/tasks.md
+    - .ai-platform/specs/004-onboarding-release/**
+    - .ai-platform/evidence/T022/**
+    - Git remote configuration
+    - Git commits and annotated tag v0.1.0-alpha.1
+    - GitHub repository metadata, security settings, tag push, and prerelease
+  test_targets:
+    - clean candidate and tag preflight
+    - tag CI
+    - normal Go module resolution
+    - copied-out remote consumer
+
+tdd_plan:
+  required: false
+  exception: irreversible release transitions use sequential preflight and direct evidence
+  red:
+    command: candidate preflight before required external state
+    expected_failure: missing canonical remote or dirty candidate blocks release
+  green:
+    command: candidate and tag preflight at their exact states
+    expected_signal: each transition is authorized and validated
+  refactor:
+    command: remote consumer verification
+    expected_signal: published consumers require no checkout replacement
+
+validation_loop:
+  commands:
+    - make release-readiness VERSION=v0.1.0-alpha.1
+    - make release-preflight VERSION=v0.1.0-alpha.1 RELEASE_MODE=tag
+    - gh run list --workflow ci.yml --limit 10
+    - go list -m github.com/iiwish/modary@v0.1.0-alpha.1
+    - make remote-consumer VERSION=v0.1.0-alpha.1
+    - python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 004-onboarding-release --task-id T022 --strict
+  retry_budget: 2
+  failure_policy:
+    first_failure: stop the next transition and repair before a tag exists
+    second_failure: publish a subsequent version rather than moving an existing tag
+    beyond_budget: report the exact external blocker without weakening validation
+
+evidence_contract:
+  summary: .ai-platform/evidence/T022/summary.md
+  diff: .ai-platform/evidence/T022/diff.patch
+  test_results: .ai-platform/evidence/T022/test-results.md
+  review: .ai-platform/evidence/T022/review.md
+  required: [candidate_commit, canonical_remote, tag_object, tag_ci, module_resolution, remote_consumer, release_url, claim_review, residual_risk]
+
+review_contract:
+  required_passes: [candidate_identity, release_claims, security_channel, tag_ci, remote_consumer]
+  acceptance_rule: every release object identifies the exact accepted commit and all external gates pass
+
+handoff:
+  external_issue: null
+  pull_request: null
+  next_tasks: []
+  finish_options: [released and remote verified]
+
+stop_conditions:
+  - candidate commit changes after approval without revalidation
+  - tag preflight fails
+  - tag CI fails
+  - remote module resolution or remote consumer fails
