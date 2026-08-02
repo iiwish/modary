@@ -1,65 +1,70 @@
 # Support Matrix
 
-This matrix describes the F0 Alpha contract. A future release note may narrow or
-extend it, but absence from this table is not implied support.
+This matrix describes the v0.2 F0 source contract. Absence is not implied
+support.
 
-## Runtime And Build
+## Toolchain And Platforms
 
-| Surface | F0 status | Boundary |
-| --- | --- | --- |
-| Go | 1.26 or newer | `go.mod` is authoritative; project build uses the installed local toolchain. |
-| Linux amd64/arm64 | Supported and CI/cross-build covered | Native filesystem and process policy is implemented; release CI runs Ubuntu. |
-| Darwin amd64/arm64 | Supported and cross-build covered | Native Darwin/arm64 acceptance includes ACL policy; Darwin/amd64 is cross-built. |
-| Windows amd64/arm64 | Compile-only | Native project Build, token-path ACL, and rename behavior are not claimed. |
-| Other Unix | Not supported for native Build | F0 has no validated ACL policy and fails closed. |
-| Node.js | Not required | Framework, external consumer, project generation, and build are Node-free. |
+| Surface | Status |
+|---|---|
+| Go | 1.26.5 or newer |
+| Linux amd64/arm64 | Runtime and cross-build covered |
+| Darwin arm64 | Native acceptance; amd64 cross-build covered |
+| Windows amd64/arm64 | Compile-only for F0 project-tool filesystem/token-path policy |
+| PostgreSQL | 17 used by integration acceptance |
+| pnpm | 11.1 used for generated Admin source |
+| React / React Router | React 19.2 and React Router 8.3 generated baseline |
+| Node.js | Needed to change/build Admin frontend; not needed by API/Governed or deployed Admin Go binary |
 
-## Persistence And Topology
+## Profiles
 
-| Capability | F0 status |
-| --- | --- |
-| PostgreSQL 17 | Supported and used by integration acceptance |
-| One official PostgreSQL control database | Supported |
-| Owned application and River schemas | Required; schemas must be distinct |
-| Isolated PostgreSQL schemas for tests | Supported by explicit configuration |
-| Multiple concurrent application writers | Supported by PostgreSQL transactions |
-| Multiple River worker processes | Supported; handlers remain at-least-once and idempotent |
-| Transactional Action write plus task enqueue | Supported in the same control database |
-| High availability | PostgreSQL and deployment responsibility; no framework failover controller |
+| Capability | API | Admin | Governed |
+|---|:---:|:---:|:---:|
+| Database-free startup | yes | no | no |
+| Ordinary PostgreSQL Store | no | yes | no |
+| Local Identity and RBAC | no | yes | yes |
+| Session HTTP | no | yes | governed Action API session |
+| React Admin source/bundle | no | yes | no |
+| Action Runtime | no | no | yes |
+| SQL Audit | no | no | yes |
+| River task service/worker | no | no | yes |
+| MCP | no | no | yes |
+
+## Persistence
+
+| Capability | Status |
+|---|---|
+| PostgreSQL ordinary application schema | Supported through `postgresdb` |
+| PostgreSQL governed application + River schema pair | Supported through `postgres` |
+| Same-database Action write plus task insertion | Supported |
+| Multiple API and River worker processes | Supported; jobs are at least once |
+| MySQL official Adapter | Not provided |
+| Embedded database official Adapter | Not provided |
 | Distributed transaction | Not provided |
-| Arbitrary privileged storage adapter | Not a public consumer extension |
-| Durable background queue | Supported through the public `task` contract and internal River adapter |
-| MySQL or another official durable profile | Not provided |
-| Business data in another database or API | Consumer-owned Connector; outside the local Action transaction |
+| External product database/API | Consumer-owned; outside governed local transaction |
+| High availability/failover | Deployment and PostgreSQL responsibility |
 
 ## Identity And Exposure
 
-| Capability | F0 status |
-| --- | --- |
-| Explicit local principals, optional password logins, sessions, and bearer tokens | Supported for local/private deployment profiles; credentialless service principals are first-class |
-| Explicit bearer tokens | Supported with documented file/stdin boundaries |
-| Scoped RBAC | Supported |
-| HTTP session and CSRF projection | Supported through explicit HTTP mounting |
-| Public-internet IAM, OAuth, SSO, MFA | Not provided |
-| TLS, reverse proxy, rate limiting | Consumer deployment responsibility |
+| Capability | Status |
+|---|---|
+| Explicit local principals/passwords/sessions/bearer tokens | Development and controlled internal use |
+| Scoped RBAC and row impact | Supported |
+| CSRF-protected Admin mutations | Supported |
+| Secure cookie default | Supported |
+| OAuth, SSO, MFA, account recovery | Not provided |
+| TLS, proxy trust, WAF, rate limiting | Deployment responsibility |
 | Hostile plugin sandbox | Not provided |
 
-## Project Tooling
+## Tooling
 
-| Command | Side effects |
-| --- | --- |
-| `verify` | Pure Definition and project validation; no module start or persistent state. |
-| `generate` | Writes configured consumer-owned generated files. |
-| `generate --check` | Reads and compares generated outputs; fails on drift. |
-| `check` | Verifies project and generated state. |
-| `build` | Builds one configured consumer package into one configured output on supported native platforms. |
+| Tool | Status |
+|---|---|
+| `modary new` | Create-only API/Admin/Governed project generation |
+| Generated Admin assets | Reproducible byte comparison and Go embed |
+| `projecttool verify/generate/check/build` | Optional advanced workflow |
+| Starter patch/upgrade command | Not provided |
+| Runtime plugin/component marketplace | Not provided |
 
-## Trusted Cooperation
-
-Consumer Handlers, callbacks, cleanup, identity, authorization, audit,
-database dependencies, clocks, and output writers must be concurrency-safe and
-honor context cancellation. Modary bounds its own orchestration; it cannot make
-non-cooperative Go code safe or interrupt a blocked `io.Writer.Write`.
-
-Read [known limitations](../f0-known-limitations.md) for exact limits and the
-[deployment guide](../operations/deployment.md) before production use.
+Trusted consumer callbacks, handlers, repositories, task consumers, and output
+writers remain concurrency-safe and cancellation-cooperative responsibilities.

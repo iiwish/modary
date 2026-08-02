@@ -1,0 +1,39 @@
+# T034 Reviewed Diff Manifest
+
+Canonical product and onboarding:
+`README.md`, `SECURITY.md`, `docs/index.md`, `docs/framework-f0.md`,
+`docs/f0-known-limitations.md`, `docs/f0-acceptance-report.md`
+
+Profile selection and tutorials:
+`docs/getting-started/installation.md`, `choose-profile.md`, `quickstart.md`,
+`first-application.md`, `project-layout.md`, `admin-profile.md`, and
+`governed-profile.md`
+
+Architecture and application work:
+`docs/concepts/**`, `docs/how-to/**`, `docs/operations/**`,
+`docs/reference/**`, `docs/guides/rulary-bootstrap.md`
+
+Versioning and decisions:
+`docs/releases/versioning.md`, `upgrade-guide.md`, `release-process.md`,
+`docs/adr/ADR-003-postgresql-and-module-migrations.md`,
+`ADR-004-consumer-owned-surfaces.md`, and
+`ADR-005-create-only-profiles.md`
+
+Chinese onboarding:
+`docs/zh-CN/index.md`, `docs/zh-CN/getting-started/**`,
+`docs/zh-CN/concepts/persistence-and-tasks.md`, and
+`docs/zh-CN/how-to/run-background-tasks.md`
+
+Final gate findings and regressions:
+`cmd/modary/main_test.go`, `scripts/check-neutrality.sh`,
+`scripts/check_neutrality_test.go`, `scripts/check-docs.sh`, and
+`scripts/check_docs_test.go`
+
+Delivery state and evidence:
+`.ai-platform/specs/007-component-framework-refoundation/tasks.md`,
+`.ai-platform/docs/tasks.md`, `.ai-platform/evidence/T032/diff.patch`, and
+`.ai-platform/evidence/T034/**`
+
+Implementation accepted from T028 through T033 is enumerated in each task's
+reviewed diff manifest. T034 reviewed the combined feature diff and added no
+Rulary product source, tag mutation, compatibility wrapper, or release tag.

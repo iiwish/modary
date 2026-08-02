@@ -1,0 +1,19 @@
+// Package web owns the generated Admin production bundle.
+package web
+
+import (
+	"embed"
+	"io/fs"
+)
+
+//go:embed dist
+var files embed.FS
+
+// Assets returns the immutable production bundle served by the Admin application.
+func Assets() fs.FS {
+	assets, err := fs.Sub(files, "dist")
+	if err != nil {
+		panic(err)
+	}
+	return assets
+}

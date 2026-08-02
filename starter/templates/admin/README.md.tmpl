@@ -1,0 +1,57 @@
+# {{.Name}}
+
+This project uses Modary's Admin Profile. The composition is explicit in
+`internal/app/application.go`: general PostgreSQL, local development identity,
+RBAC, session HTTP, and the consumer-owned `records` slice. River tasks,
+governed Actions, audit, and MCP are not selected.
+
+Set development configuration:
+
+```sh
+export DATABASE_URL='postgres://user:password@127.0.0.1:5432/app?sslmode=disable'
+export MODARY_ADMIN_USERNAME='admin'
+export MODARY_ADMIN_PASSWORD='replace-with-at-least-12-characters'
+export MODARY_ALLOW_INSECURE_COOKIE='true' # local HTTP only
+```
+
+Run the backend:
+
+```sh
+go run -mod=mod ./cmd/{{.ID}}
+```
+
+It listens on `127.0.0.1:8080` by default. `MODARY_HTTP_ADDR` and
+`MODARY_DATABASE_SCHEMA` select another address or application schema.
+
+The Go binary embeds the production Admin UI, so running it does not require
+Node.js. The source in `web/` uses React 19, TypeScript, Vite, React Router, and
+an explicit Module registry. `src/App.tsx` composes session and route providers;
+`src/modules/index.ts` selects product routes and navigation.
+
+To customize the UI source, use the pinned pnpm toolchain:
+
+```sh
+cd web
+pnpm install --frozen-lockfile
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm assets:check
+pnpm audit:prod
+```
+
+The build updates `internal/web/dist`; `assets:check` requires a byte-identical
+clean rebuild. Bootstrap HTML uses `Cache-Control: no-cache`, while
+content-hashed assets use ETags and `Cache-Control: public, max-age=31536000,
+immutable`. A deployment therefore selects a new asset URL whenever its bytes
+change without giving up long-lived caching for unchanged assets.
+`audit:prod` rejects known high- or critical-severity production dependency
+advisories through the public npm advisory service.
+
+Run tests:
+
+```sh
+go mod tidy
+go test ./...
+```

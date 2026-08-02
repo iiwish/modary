@@ -1,0 +1,23 @@
+# T036 reviewed diff manifest
+
+Authentication expiry and typed API errors:
+`starter/templates/admin/web/src/api/client.ts`,
+`starter/templates/admin/web/src/stores/auth.tsx`
+
+Records states, CRUD, dialogs, focus, Strict Mode, and responsive styling:
+`starter/templates/admin/web/src/modules/records/**`,
+`starter/templates/admin/web/src/styles.css`,
+`starter/templates/admin/web/src/App.test.tsx`,
+`starter/templates/admin/web/src/test/setup.ts`
+
+Asset cache correctness and generated regression:
+`starter/templates/admin/application.go.tmpl`,
+`starter/templates/admin/application_test.go.tmpl`
+
+Current production bundle:
+`starter/templates/admin/internal/web/dist/**`
+
+Governance and evidence:
+`.ai-platform/specs/008-react-admin-starter/**`,
+`.ai-platform/docs/tasks.md`,
+`.ai-platform/evidence/T036/**`

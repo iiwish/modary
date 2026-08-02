@@ -2,69 +2,57 @@
 
 ## Requirements
 
-Consumers need Go 1.26 or newer for the current F0 contract. `go.mod` is the
-authoritative minimum. Install a local toolchain that satisfies it; Modary
-project builds set `GOTOOLCHAIN=local` and do not rely on automatic toolchain
-download.
+- Go 1.26.5 or newer.
+- PostgreSQL 17 for the Admin and Governed Profile integration paths.
+- pnpm 11 and a supported Node.js runtime only when changing Admin frontend
+  source. The generated production Go binary does not need Node.js.
 
-Running applications and integration tests also need PostgreSQL 17. The
-configured role must be able to create and own the application and River
-schemas. Docker is optional; the quickstart uses it only to provide a repeatable
-local database.
+## Current Version State
 
-Framework contributors also need Git, Make, a POSIX shell, `find`, `xargs`, and
-`rg`. Node.js, npm, and pnpm are not part of the headless framework workflow.
+The current branch targets `v0.2.0-alpha.1` and is accepted as a source F0. It
+is not a published tag. The immutable published baseline is
+`v0.1.0-alpha.3`, whose product surface is the Governed stack and Counter
+consumer rather than the v0.2 Starter Profiles.
 
-## Release Consumption
+Pre-v1 consumers pin exact versions. Do not use `latest`, a branch, or a broad
+version range in production.
 
-Add an exact release to the consumer:
-
-```bash
-go get github.com/iiwish/modary@v0.1.0-alpha.3
-go mod tidy
-```
-
-Commit the resulting `go.mod` and `go.sum`. Applications should pin
-`v0.1.0-alpha.3` exactly rather than `latest`, a branch, or a moving
-pseudo-version.
-
-## Current Source Checkout
-
-For framework development from a source checkout, use the public Counter
-example in this repository:
+## Use The Current Checkout
 
 ```bash
+git clone https://github.com/iiwish/modary.git
+cd modary
 make bootstrap
-make acceptance
+export MODARY_STARTER_REPLACE="$(pwd)"
+go run ./cmd/modary new ../sample-api --profile api \
+  --module example.com/acme/sample-api
 ```
 
-For local development across two sibling repositories, use a developer-owned
-Go work file rather than committing a local filesystem replacement to the
-consumer module:
+`MODARY_STARTER_REPLACE` is a development and conformance hook. It writes a
+local `replace` directive into the new project. Remove that directive and pin a
+published exact version before distributing the consumer.
+
+## Use A Published v0.2 Starter
+
+After the target tag is published:
 
 ```bash
-go work init ./modary ./consumer
+go run github.com/iiwish/modary/cmd/modary@v0.2.0-alpha.1 \
+  new sample-api --profile api --module example.com/acme/sample-api
 ```
 
-Keep `go.work` outside committed consumer release state. CI and release builds
-set `GOWORK=off`; they must prove the declared module version alone is enough.
+The global command is create-only. It accepts a nonexistent or empty real
+directory, validates all templates first, and refuses to merge, overwrite, or
+patch a non-empty destination.
 
-## Verify The Dependency Boundary
-
-From the consumer repository:
+## Verify A New Project
 
 ```bash
-GOWORK=off go list -m all
-GOWORK=off go mod tidy -diff
+cd sample-api
+GOWORK=off go mod tidy
 GOWORK=off go test ./...
+GOWORK=off go build ./...
 ```
 
-The module graph must identify the intended Modary version and must contain no
-unexpected `replace github.com/iiwish/modary` directive. Consumer code imports
-only public packages listed in the [package map](../reference/packages.md).
-
-## Stability
-
-F0 is pre-v1 Alpha. Review the [versioning policy](../releases/versioning.md),
-[support matrix](../reference/support-matrix.md), and
-[known limitations](../f0-known-limitations.md) before depending on it.
+`GOWORK=off` proves that the project does not rely on the framework checkout's
+workspace configuration.

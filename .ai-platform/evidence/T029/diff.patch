@@ -1,0 +1,10 @@
+# T029 reviewed diff manifest
+
+Optional assembly: module/assembly.go, module/host.go
+Database-free public acceptance: appkit/database_free_test.go
+Governed and lifecycle regressions: module/assembly_lifecycle_test.go,
+module/hardening_test.go, appkit/appkit_test.go
+Public contract descriptions: appkit/appkit.go, appkit/doc.go
+Active documentation fixture parity: scripts/check_docs_test.go
+Governance and evidence: .ai-platform/specs/007-component-framework-refoundation/**,
+.ai-platform/docs/tasks.md, .ai-platform/evidence/T029/**

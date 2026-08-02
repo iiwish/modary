@@ -1,0 +1,49 @@
+schema_version: 1
+packet_id: EP-007-T029
+task_id: T029
+feature_id: 007-component-framework-refoundation
+mode: execute_one_task
+adapter: codex-direct
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  feature_spec: .ai-platform/specs/007-component-framework-refoundation/spec.md
+  requirements_checklist: .ai-platform/specs/007-component-framework-refoundation/checklists/requirements.md
+  technical_decisions: .ai-platform/specs/007-component-framework-refoundation/plan.md
+  work_graph: .ai-platform/specs/007-component-framework-refoundation/tasks.md
+  analysis: .ai-platform/specs/007-component-framework-refoundation/analysis.md
+  approval: explicit owner approval on 2026-08-02
+work_unit:
+  title: Lightweight Core And Component Surfaces
+  goal: Allow database-free application assembly while retaining fail-closed Governed Action assembly.
+  requirements: [FR-001, FR-002, FR-003, FR-006, NFR-001, NFR-002, NFR-003]
+  depends_on: [T028]
+execution_constraints:
+  branch_or_worktree: current
+  allowed_files: [module/**, appkit/**, transport/httpapi/health*, appcmd/**, .ai-platform/specs/007-component-framework-refoundation/**, .ai-platform/evidence/T029/**, .ai-platform/docs/tasks.md, scripts/check-docs.sh]
+  ownership_notes: Direct execution is required because current host policy prohibits unrequested delegation.
+tdd_plan:
+  required: true
+  red:
+    command: go test ./module ./appkit ./transport/httpapi ./appcmd
+    expected_failure: database-free assembly attempts to resolve required authorization, audit, and Action persistence
+  green:
+    command: go test ./module ./appkit ./transport/httpapi ./appcmd
+    expected_signal: database-free and retained governed failure tests pass
+  refactor:
+    command: go test -race ./module ./appkit ./transport/httpapi
+    expected_signal: optional facade and lifecycle paths are race free
+validation_loop:
+  commands: [go test ./module ./appkit ./transport/httpapi ./appcmd, go test -race ./module ./appkit ./transport/httpapi, go vet ./module ./appkit ./transport/httpapi ./appcmd, python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 007-component-framework-refoundation --task-id T029 --strict, git diff --check]
+  retry_budget: 3
+evidence_contract:
+  summary: .ai-platform/evidence/T029/summary.md
+  diff: .ai-platform/evidence/T029/diff.patch
+  test_results: .ai-platform/evidence/T029/test-results.md
+review_contract:
+  required_passes: [spec_compliance, optionality, governed_regression, lifecycle, engineering_quality]
+stop_conditions: [database-free startup requires a fake authorization or persistence provider, optionality weakens Action applications to run without required governance, public APIs expose Host service storage]
+codebase_context:
+  current_failure: module.Host.Assemble always requires authorization, audit, and complete Action persistence even when no Action exists
+  retained_contract: any application declaring an Action must still assemble the complete fail-closed governed Runtime
+handoff:
+  next_task: T030 after T029 validation and completion evidence

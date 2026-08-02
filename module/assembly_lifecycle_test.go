@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/iiwish/modary/action"
 	"github.com/iiwish/modary/identity"
 )
 
@@ -17,6 +18,16 @@ func TestHostAssembleIsIdempotentAcrossConcurrentCallers(t *testing.T) {
 	if err := host.Register(
 		testRuntimeServicesRegistration(testRuntimeServices{}),
 		hostIdentityRegistration(service, nil),
+		Register(
+			validManifest("action-feature", ModuleTypeFeature, nil, []string{"action-feature"}),
+			nil,
+			ActionBinding{
+				Descriptor: testActionDescriptor("action-feature.run"),
+				NewHandler: func(context.Context, Resolver) (action.Handler, error) {
+					return inertActionHandler{}, nil
+				},
+			},
+		),
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -74,6 +85,12 @@ func TestHostAssembleCachesFirstFailure(t *testing.T) {
 	if err := host.Register(Register(
 		validManifest("incomplete", ModuleTypeFeature, nil, []string{"incomplete"}),
 		nil,
+		ActionBinding{
+			Descriptor: testActionDescriptor("incomplete.run"),
+			NewHandler: func(context.Context, Resolver) (action.Handler, error) {
+				return inertActionHandler{}, nil
+			},
+		},
 	)); err != nil {
 		t.Fatal(err)
 	}

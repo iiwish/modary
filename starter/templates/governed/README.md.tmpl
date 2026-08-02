@@ -1,0 +1,86 @@
+# {{.Name}}
+
+This project uses Modary's Governed Profile for high-impact operations that
+need authorization, Preview, idempotency, audit, and transactionally enqueued
+background work. The complete selection is visible in
+`internal/project/project.go`:
+
+- governed PostgreSQL plus River;
+- local development Identity and bearer authentication;
+- RBAC and SQL Audit;
+- the consumer-owned `limits.set` Action and `limits.changed` task;
+- CLI, HTTP Action API, and MCP transports.
+
+The generated project has no Admin UI. Local Identity is a development adapter;
+replace it at the composition root before production deployment.
+
+## Configure
+
+Use one PostgreSQL database and two schemas. River uses the queue schema; a
+separate database is not required.
+
+```sh
+export DATABASE_URL='postgres://user:password@127.0.0.1:5432/app?sslmode=disable'
+export MODARY_APPLICATION_SCHEMA={{.SchemaID}}
+export MODARY_QUEUE_SCHEMA={{.QueueSchemaID}}
+export MODARY_OPERATOR_USERNAME=operator
+export MODARY_OPERATOR_PASSWORD='replace-with-at-least-12-characters'
+export MODARY_OPERATOR_TOKEN='replace-with-at-least-32-random-characters'
+export MODARY_ALLOW_INSECURE_COOKIE=true # local HTTP only
+```
+
+## Preview And Execute
+
+Create `input.json` and a mode-0600 token file:
+
+```json
+{"value": 25, "expected_version": 0}
+```
+
+```sh
+printf '%s' "$MODARY_OPERATOR_TOKEN" > token
+chmod 600 token
+go run ./cmd/{{.ID}} action run limits.set \
+  --token-file token --input input.json --preview --request-id preview-1
+```
+
+The Preview response contains `plan_hash`. Execute the exact input with that
+hash and a stable idempotency key:
+
+```sh
+go run ./cmd/{{.ID}} action run limits.set \
+  --token-file token --input input.json --plan 'sha256:...' \
+  --idempotency-key limit-default-v1 --request-id execute-1
+```
+
+## Serve And Work
+
+Run the session-authenticated Action API, health endpoint, and MCP endpoint:
+
+```sh
+go run ./cmd/{{.ID}} serve --listen 127.0.0.1:8080
+```
+
+Run durable work in a separate process:
+
+```sh
+go run ./cmd/{{.ID}}-worker
+```
+
+`internal/limits/worker.go` validates the durable event. Replace the generated
+callback in the worker with an idempotent product effect because task delivery
+is at least once.
+
+## Verify
+
+```sh
+go mod tidy
+go test ./...
+go vet ./...
+go build ./cmd/{{.ID}} ./cmd/{{.ID}}-worker
+```
+
+The integration test runs when `DATABASE_URL` is set. It uses
+`MODARY_APPLICATION_SCHEMA` and `MODARY_QUEUE_SCHEMA` when supplied and proves
+Preview, Execute, default deny, idempotent replay, SQL Audit, restart recovery,
+and post-restart task consumption.

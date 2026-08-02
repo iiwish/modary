@@ -1,0 +1,49 @@
+schema_version: 1
+packet_id: EP-007-T034
+task_id: T034
+feature_id: 007-component-framework-refoundation
+mode: execute_one_task
+adapter: codex-direct
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  feature_spec: .ai-platform/specs/007-component-framework-refoundation/spec.md
+  requirements_checklist: .ai-platform/specs/007-component-framework-refoundation/checklists/requirements.md
+  technical_decisions: .ai-platform/specs/007-component-framework-refoundation/plan.md
+  work_graph: .ai-platform/specs/007-component-framework-refoundation/tasks.md
+  analysis: .ai-platform/specs/007-component-framework-refoundation/analysis.md
+  approval: explicit owner approval on 2026-08-02
+work_unit:
+  title: External Acceptance Documentation And Review
+  goal: Accept Modary v0.2 F0 as a coherent component framework through copied-out proof, canonical documentation, and final reviews.
+  requirements: [FR-001, FR-002, FR-003, FR-004, FR-005, FR-006, FR-007, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-016, FR-017, FR-018, FR-019, FR-020, FR-021, FR-022, NFR-001, NFR-002, NFR-003, NFR-004, NFR-005, NFR-006, NFR-007]
+  depends_on: [T030, T032, T033]
+execution_constraints:
+  branch_or_worktree: current
+  allowed_files: [framework source and focused tests required by findings, starter/**, cmd/**, scripts/**, README.md, SECURITY.md, docs/**, .ai-platform/**]
+  ownership_notes: v0.1.0-alpha.3 and Rulary product source are read-only; generated consumers and temporary copied-out directories are acceptance fixtures, not framework packages.
+tdd_plan:
+  required: false
+  red:
+    command: copied-out/profile/docs/review audit
+    expected_failure: any behavior or documentation mismatch becomes a focused finding with a regression test before repair
+  green:
+    command: all Profile, frontend, framework, consumer, and docs gates
+    expected_signal: coherent v0.2 F0 acceptance with no unresolved P0-P2 finding
+  refactor:
+    command: source stability, repeat, links, strict artifacts, tag identity, and final review
+    expected_signal: reproducible acceptance and immutable Alpha 3 baseline
+validation_loop:
+  commands: [make format-check, make tidy-check, go test ./... -count=1, go test -race ./... -count=1, go vet ./..., frontend gates, copied-out Profile gates, Counter consumer gates, ./scripts/check-docs.sh, ./scripts/check-doc-links.sh, python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 007-component-framework-refoundation --task-id T034 --strict, git diff --check]
+  retry_budget: 3
+evidence_contract:
+  summary: .ai-platform/evidence/T034/summary.md
+  diff: .ai-platform/evidence/T034/diff.patch
+  test_results: .ai-platform/evidence/T034/test-results.md
+review_contract:
+  required_passes: [product, engineering]
+stop_conditions: [Alpha 3 tag mutation, Rulary product implementation, unresolved P0-P2 finding, Profile acceptance cannot run outside checkout]
+codebase_context:
+  current_gap: Profile implementations are complete but public documentation and final cross-Profile acceptance still describe the Governed-only Alpha 3 product.
+  target_boundary: one canonical lightweight component-framework story with explicit Profiles, copied-out proof, and versioned migration guidance
+handoff:
+  next_task: mark the persistent Modary v0.2 F0 goal complete after T034 acceptance

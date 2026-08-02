@@ -1,51 +1,68 @@
 # Public Package Map
 
-Consumers import public packages only. Any `github.com/iiwish/modary/internal/`
-path is framework-private and unsupported.
+Consumers import public packages only. Paths below
+`github.com/iiwish/modary/internal/` are framework-private.
 
-| Package | Consumer responsibility |
-| --- | --- |
-| `action` | Declare typed Action contracts and implement concurrent, cancellation-aware Handlers. |
-| `module` | Declare pure Definitions, manifests, typed capabilities, migrations, startup, and cleanup. |
-| `appkit` | Compose Definitions and use the opaque assembled application and read-only facades. |
-| `appcmd` | Build consumer-owned application commands and HTTP server orchestration. |
-| `projecttool` | Pin verify, generate, check, and build workflows in the consumer module. |
-| `transport/httpapi` | Explicitly mount health, Action HTTP API, MCP, and consumer static assets. |
-| `scope` | Create validated opaque execution scopes. |
-| `identity` | Use normalized actor and authentication contracts. |
-| `authz` | Use permissions, bounded impact, decisions, and policy fingerprints. |
-| `audit` | Return bounded business references and implement audit contracts when extending the framework. |
-| `database` | Use the narrow governed read/write surface inside consumer modules. |
-| `task` | Enqueue durable work transactionally and construct immutable worker runners. |
-| `adapters/postgres` | Install the PostgreSQL control store and River-backed task runtime. |
-| `adapters/localidentity` | Explicitly provision principals independently from optional password and bearer credentials, plus local sessions. |
-| `adapters/rbac` | Explicitly provision roles, permissions, row limits, and scoped bindings. |
-| `adapters/sqlaudit` | Install SQL-backed required audit behavior. |
+## Core And Composition
+
+| Package | Purpose |
+|---|---|
+| `module` | Manifests, graph, typed keys, migrations, startup, cleanup, Host lifecycle |
+| `appkit` | Definition and opaque assembled Application facades |
+| `appcmd` | Consumer command, server, and governed CLI orchestration |
+| `httpkit` | Bounded explicit standard-library route composition |
+| `starter` | Reusable create-only API for API/Admin/Governed Profiles |
+| `cmd/modary` | Global create-only command |
+| `projecttool` | Optional verify/generate/check/build workflow for manifest-based consumers |
+
+## Contracts
+
+| Package | Purpose |
+|---|---|
+| `database` | Provider-neutral `Store`, governed `Access`, Row/Rows, SQL errors |
+| `identity` | Actor, session, password, and bearer authentication contracts |
+| `authz` | Authorization request, phase, impact, decision, fingerprint |
+| `scope` | Validated execution scopes |
+| `action` | Descriptors, schemas, plans, Runtime, results, public errors |
+| `audit` | Governed audit events and bounded references |
+| `task` | Transactional enqueue and immutable runner contracts |
+
+## Standard Components
+
+| Package | Selection |
+|---|---|
+| `adapters/postgresdb` | Ordinary PostgreSQL Store; no River or Action persistence |
+| `adapters/postgres` | Governed PostgreSQL persistence and River-backed tasks |
+| `adapters/localidentity` | Explicit local principals, passwords, sessions, bearer tokens |
+| `adapters/rbac` | Scope-aware roles, permissions, row limits, bindings |
+| `adapters/sqlaudit` | SQL-backed governed audit |
+
+## Transports
+
+| Package | Purpose |
+|---|---|
+| `transport/httpapi` | Health, governed session Action API, MCP, immutable SPA handler |
+| `transport/sessionhttp` | Standalone Admin login/session/logout and auth/CSRF middleware |
 
 ## Selection Rules
 
-An application normally imports `appkit`, `appcmd`, `projecttool`, `module`, and
-the official adapters from its composition root. Feature modules normally
-import `action`, `module`, `database`, `scope`, and narrow domain-independent
-contracts required by their behavior.
+- API normally imports Core and consumer route packages.
+- Admin uses `postgresdb`, local Identity, RBAC, and `sessionhttp`.
+- Governed uses `postgres`, local Identity, RBAC, SQL Audit, Action transports,
+  and `task`.
+- Consumer feature packages import only the narrow contracts they use.
+- Official Adapters do not import sibling Adapters; the composition root joins
+  them.
 
-Consumers should not implement an alternative privileged database, transaction,
-idempotency, task queue, or plan store through hidden framework contracts. The
-official F0 durable boundary is PostgreSQL. A new privileged adapter is a framework
-contribution with conformance and security review, not an ordinary consumer
-plugin.
+Implementing a public interface does not grant installation into
+framework-private Action persistence. New privileged transaction or task
+adapters require framework conformance and security review.
 
-## API Documentation
-
-Go package comments and exported symbol documentation are part of the source
-contract. Use `go doc` against the pinned consumer version:
+Use `go doc` against the exact pinned version:
 
 ```bash
-go doc github.com/iiwish/modary/action
 go doc github.com/iiwish/modary/module
 go doc github.com/iiwish/modary/appkit
+go doc github.com/iiwish/modary/database
 go doc github.com/iiwish/modary/task
 ```
-
-The [F0 contract](../framework-f0.md) defines cross-package invariants that API
-documentation cannot express on one symbol.

@@ -4,6 +4,10 @@ An Action is a static business-operation contract plus a consumer-owned Handler.
 Every supported transport submits the same request to `action.Runtime`; no
 surface calls `Execute` directly.
 
+Governed Actions are optional. Ordinary application CRUD may use
+`database.Store` without Preview or River. Select an Action for operations whose
+impact, automation, retry, or audit requirements justify the stronger path.
+
 ## Descriptor
 
 The descriptor declares:

@@ -1,0 +1,148 @@
+// Package project is the Governed Profile's single explicit composition root.
+package project
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+
+	"{{.ModulePath}}/internal/config"
+	"{{.ModulePath}}/internal/limits"
+	"github.com/iiwish/modary/adapters/localidentity"
+	postgresadapter "github.com/iiwish/modary/adapters/postgres"
+	"github.com/iiwish/modary/adapters/rbac"
+	"github.com/iiwish/modary/adapters/sqlaudit"
+	"github.com/iiwish/modary/appcmd"
+	"github.com/iiwish/modary/appkit"
+	"github.com/iiwish/modary/identity"
+	"github.com/iiwish/modary/module"
+	"github.com/iiwish/modary/scope"
+	"github.com/iiwish/modary/transport/httpapi"
+)
+
+const (
+	operatorActorID = "governed-operator"
+	operatorTokenID = "governed-cli"
+)
+
+var operatorScope = scope.Must("workspace", "default")
+
+// Metadata returns the immutable consumer-owned application identity.
+func Metadata() appkit.Metadata {
+	return appkit.Metadata{ID: {{quote .ID}}, Name: {{quote .Name}}, Version: "0.1.0"}
+}
+
+// OperatorActor returns the development actor provisioned by NewDefinition.
+func OperatorActor() identity.Actor {
+	return identity.Actor{ID: operatorActorID, Type: "human", DisplayName: "Governed Operator", Scope: operatorScope}
+}
+
+// Definition loads process configuration only when a runtime command actually
+// asks to construct the application.
+func Definition() (appkit.Definition, error) {
+	runtimeConfig, err := config.Load()
+	if err != nil {
+		return appkit.Definition{}, err
+	}
+	return NewDefinition(runtimeConfig)
+}
+
+// NewDefinition composes every selected component without performing startup
+// I/O. PostgreSQL, River, Audit, Identity, RBAC, and the consumer Action are
+// visible and removable at this source boundary.
+func NewDefinition(runtimeConfig config.Config) (appkit.Definition, error) {
+	if err := runtimeConfig.Validate(); err != nil {
+		return appkit.Definition{}, err
+	}
+	databaseModule, err := postgresadapter.Module(postgresadapter.Options{
+		URL: runtimeConfig.DatabaseURL, ApplicationSchema: runtimeConfig.ApplicationSchema,
+		QueueSchema: runtimeConfig.QueueSchema,
+	})
+	if err != nil {
+		return appkit.Definition{}, fmt.Errorf("configure governed PostgreSQL: %w", err)
+	}
+	identityModule, err := localidentity.Module(localidentity.Options{
+		Principals: []localidentity.Principal{
+			{ActorID: operatorActorID, ActorType: "human", DisplayName: "Governed Operator", Scope: operatorScope},
+		},
+		PasswordCredentials: []localidentity.PasswordCredential{
+			{ActorID: operatorActorID, Username: runtimeConfig.OperatorUsername, Password: runtimeConfig.OperatorPassword},
+		},
+		BearerTokens: []localidentity.BearerToken{
+			{TokenID: operatorTokenID, ActorID: operatorActorID, Token: runtimeConfig.OperatorToken},
+		},
+	})
+	if err != nil {
+		return appkit.Definition{}, fmt.Errorf("configure local Identity: %w", err)
+	}
+	authorizationModule, err := rbac.Module(rbac.Options{
+		Roles: []rbac.Role{
+			{ID: "limit-operator", Permissions: []string{limits.Permission}, MaxRows: 1},
+		},
+		Bindings: []rbac.Binding{
+			{ActorID: operatorActorID, ActorType: "human", Scope: operatorScope, RoleID: "limit-operator"},
+		},
+	})
+	if err != nil {
+		return appkit.Definition{}, fmt.Errorf("configure RBAC: %w", err)
+	}
+	limitsModule, err := limits.Module()
+	if err != nil {
+		return appkit.Definition{}, fmt.Errorf("configure limits feature: %w", err)
+	}
+	return appkit.Definition{
+		Metadata: Metadata(),
+		Modules: []module.Registration{
+			databaseModule,
+			identityModule,
+			authorizationModule,
+			sqlaudit.Module(sqlaudit.Options{}),
+			limitsModule,
+		},
+	}, nil
+}
+
+// NewHTTPHandler explicitly mounts health, session Action API, and MCP. It
+// adds no Admin UI or runtime-generated product routes.
+func NewHTTPHandler(ctx context.Context, application *appkit.Application, insecureCookie bool) (http.Handler, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("construct HTTP handler: context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	health, err := httpapi.NewHealth(application)
+	if err != nil {
+		return nil, fmt.Errorf("construct health handler: %w", err)
+	}
+	api, err := httpapi.NewAPI(application, httpapi.APIOptions{AllowInsecureCookie: insecureCookie})
+	if err != nil {
+		return nil, fmt.Errorf("construct Action API: %w", err)
+	}
+	mcp, err := httpapi.NewMCP(application, httpapi.MCPOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("construct MCP handler: %w", err)
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/healthz", health)
+	mux.Handle("/api/", api)
+	mux.Handle("/mcp", mcp)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return mux, nil
+}
+
+// CommandOptions installs consumer-owned HTTP composition into appcmd.
+func CommandOptions() appcmd.Options {
+	return appcmd.Options{
+		Metadata: Metadata(),
+		Handler: func(ctx context.Context, application *appkit.Application) (http.Handler, error) {
+			runtimeConfig, err := config.Load()
+			if err != nil {
+				return nil, err
+			}
+			return NewHTTPHandler(ctx, application, runtimeConfig.InsecureCookie)
+		},
+	}
+}

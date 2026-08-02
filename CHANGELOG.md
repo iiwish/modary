@@ -4,9 +4,44 @@ All notable Modary changes are recorded here. Versioning follows semantic
 versioning terminology; every pre-v1 release remains an Alpha contract unless
 its release notes explicitly state otherwise.
 
-## Unreleased
+## v0.2.0-alpha.1 - Unreleased
 
-No changes have been recorded after Alpha 3.
+### Added
+
+- A create-only `modary new` Starter with database-free API, ordinary Admin,
+  and Governed Profiles.
+- A database-free component Core with explicit typed capabilities, dependency
+  ordering, lifecycle, and HTTP composition.
+- An optional React 19 Admin work surface with session/CSRF handling, backend
+  RBAC, responsive navigation, records CRUD, accessible dialogs, and explicit
+  frontend Module registration.
+- A separate ordinary PostgreSQL `database.Store` component for business CRUD.
+
+### Changed
+
+- PostgreSQL, River, Identity, RBAC, Audit, governed Actions, and frontend
+  tooling are selected components rather than Core requirements.
+- The Admin production bundle is deterministic, embedded in the Go binary, and
+  served with ETag revalidation for its stable asset names.
+- Documentation and copied-out acceptance cover all three Profiles in English
+  and Chinese.
+- Release gates scan production frontend advisories and reachable Go
+  vulnerabilities with pinned tooling.
+
+### Removed
+
+- The Admin Starter has no Vue implementation, dependency, compatibility
+  package, or dual frontend path.
+- Product manifests and advanced governed tooling are not required by Starter
+  projects.
+
+### Compatibility
+
+- The v0.2 source target is intentionally breaking and has no automatic Starter
+  patch path. Generated source belongs to the consumer and is migrated through
+  reviewed application changes.
+- `v0.1.0-alpha.3` remains immutable. Pin `v0.2.0-alpha.1` only after that tag is
+  published and repeat copied-out acceptance without a local replacement.
 
 ## v0.1.0-alpha.3 - 2026-08-02
 

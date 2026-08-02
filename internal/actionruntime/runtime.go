@@ -732,12 +732,12 @@ func (r *Engine) authorizeWithFallback(
 ) (authz.Decision, error) {
 	decision, err := invokeDependencyCallback("authorize action "+descriptor.ID, func() (authz.Decision, error) {
 		return r.authorizer.Authorize(ctx, authz.Request{
-			Actor:      request.Actor,
-			ActionID:   request.ActionID,
-			Permission: descriptor.Permission,
-			Scope:      request.Scope,
-			Phase:      phase,
-			Impact:     cloneImpact(impact),
+			Actor:       request.Actor,
+			OperationID: request.ActionID,
+			Permission:  descriptor.Permission,
+			Scope:       request.Scope,
+			Phase:       phase,
+			Impact:      cloneImpact(impact),
 		})
 	})
 	if err != nil {

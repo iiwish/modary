@@ -1,0 +1,61 @@
+// Package app owns the application's explicit backend composition.
+package app
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"time"
+
+	"{{.ModulePath}}/internal/ping"
+	"github.com/iiwish/modary/appkit"
+	"github.com/iiwish/modary/httpkit"
+	"github.com/iiwish/modary/module"
+	"github.com/iiwish/modary/transport/httpapi"
+)
+
+// Application binds the Modary lifecycle to the selected HTTP routes.
+type Application struct {
+	core    *appkit.Application
+	handler http.Handler
+}
+
+// Start assembles only the components imported and listed here.
+func Start(ctx context.Context) (*Application, error) {
+	core, err := appkit.Start(ctx, appkit.Definition{
+		Metadata: appkit.Metadata{ID: {{quote .ID}}, Name: {{quote .Name}}, Version: "0.1.0"},
+		Modules: []module.Registration{
+			ping.Registration(),
+		},
+	}, appkit.Options{})
+	if err != nil {
+		return nil, err
+	}
+	health, err := httpapi.NewHealth(core)
+	if err != nil {
+		return nil, errors.Join(err, stopAfterAssemblyFailure(core))
+	}
+	routes := []httpkit.Route{
+		{Method: http.MethodGet, Path: "/healthz", Handler: health},
+	}
+	routes = append(routes, ping.Routes()...)
+	handler, err := httpkit.NewHandler(routes...)
+	if err != nil {
+		return nil, errors.Join(err, stopAfterAssemblyFailure(core))
+	}
+	return &Application{core: core, handler: handler}, nil
+}
+
+// Handler returns the complete explicitly composed HTTP surface.
+func (application *Application) Handler() http.Handler { return application.handler }
+
+// Shutdown stops the selected components exactly once.
+func (application *Application) Shutdown(ctx context.Context) error {
+	return application.core.Shutdown(ctx)
+}
+
+func stopAfterAssemblyFailure(core *appkit.Application) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return core.Shutdown(ctx)
+}

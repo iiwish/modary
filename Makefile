@@ -1,6 +1,7 @@
 GO ?= go
 RELEASE_MODE ?= candidate
 CONSUMER_DIR := examples/counter
+ADMIN_WEB_DIR := starter/templates/admin/web
 GO_COMMAND_ENV := GO111MODULE=on GOTOOLCHAIN=local GOENV=off GOWORK=off GOFLAGS=
 CROSS_BUILD_TARGETS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 REPEAT_PACKAGES := \
@@ -9,6 +10,7 @@ REPEAT_PACKAGES := \
 	./appcmd \
 	./appkit \
 	./database \
+	./httpkit \
 	./internal/actionruntime \
 	./internal/callbackcontract \
 	./internal/databasecontrol \
@@ -20,12 +22,13 @@ REPEAT_PACKAGES := \
 	./internal/transactionoutcome \
 	./module \
 	./projecttool \
+	./starter \
 	./task \
 	./transport/httpapi
 
-.PHONY: bootstrap format-check tidy-check diff-check docs-check verify check-generated neutrality \
+.PHONY: bootstrap format-check tidy-check diff-check docs-check react-admin-check admin-frontend verify check-generated neutrality \
 	test test-framework test-consumer vet race repeat fuzz-smoke build \
-	panicnil cross-build native-platform acceptance ci-gates ci \
+	panicnil vulncheck cross-build native-platform acceptance ci-gates ci \
 	release-preflight release-readiness remote-consumer clean
 
 bootstrap:
@@ -46,6 +49,18 @@ diff-check:
 docs-check:
 	./scripts/check-docs.sh
 	./scripts/check-doc-links.sh
+
+react-admin-check:
+	./scripts/check-react-admin.sh
+
+admin-frontend:
+	cd $(ADMIN_WEB_DIR) && pnpm install --frozen-lockfile
+	cd $(ADMIN_WEB_DIR) && pnpm lint
+	cd $(ADMIN_WEB_DIR) && pnpm typecheck
+	cd $(ADMIN_WEB_DIR) && pnpm test
+	cd $(ADMIN_WEB_DIR) && pnpm build
+	cd $(ADMIN_WEB_DIR) && pnpm assets:check
+	cd $(ADMIN_WEB_DIR) && pnpm audit:prod
 
 verify:
 	cd $(CONSUMER_DIR) && $(GO_COMMAND_ENV) $(GO) run ./tools/modary verify
@@ -71,6 +86,10 @@ panicnil:
 vet:
 	$(GO_COMMAND_ENV) $(GO) vet ./...
 	cd $(CONSUMER_DIR) && $(GO_COMMAND_ENV) $(GO) vet ./...
+
+vulncheck:
+	$(GO_COMMAND_ENV) $(GO) run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+	cd $(CONSUMER_DIR) && $(GO_COMMAND_ENV) $(GO) run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
 
 race:
 	$(GO_COMMAND_ENV) $(GO) test -count=1 -race ./...
@@ -117,7 +136,7 @@ cross-build:
 
 native-platform: format-check tidy-check test panicnil vet build race fuzz-smoke
 
-acceptance: format-check tidy-check diff-check docs-check test panicnil vet verify check-generated neutrality build cross-build
+acceptance: format-check tidy-check diff-check docs-check react-admin-check admin-frontend test panicnil vet vulncheck verify check-generated neutrality build cross-build
 
 ci-gates: acceptance race repeat fuzz-smoke
 	$(MAKE) neutrality check-generated diff-check

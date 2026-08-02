@@ -67,6 +67,14 @@ func TestReleasePreflightRejectsMissingOwnerInputs(t *testing.T) {
 		want   string
 	}{
 		{
+			name: "Go baseline",
+			mutate: func(t *testing.T, repository string) {
+				t.Helper()
+				replaceDocsFixture(t, filepath.Join(repository, "go.mod"), "go 1.26.5", "go 1.26")
+			},
+			want: "security-patched 1.26.5",
+		},
+		{
 			name: "license",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
@@ -194,7 +202,7 @@ func TestRemoteConsumerFailsWhenResolutionUsesReplacement(t *testing.T) {
 func newReleaseFixture(t *testing.T) string {
 	t.Helper()
 	repository := t.TempDir()
-	writeDocsFixtureFile(t, filepath.Join(repository, "go.mod"), "module github.com/iiwish/modary\n\ngo 1.26\n")
+	writeDocsFixtureFile(t, filepath.Join(repository, "go.mod"), "module github.com/iiwish/modary\n\ngo 1.26.5\n")
 	writeDocsFixtureFile(t, filepath.Join(repository, "LICENSE"), "owner-selected license text\n")
 	writeDocsFixtureFile(t, filepath.Join(repository, "SECURITY.md"), "# Security\n\n- Private reporting channel: https://github.com/iiwish/modary/security/advisories/new\n")
 	writeDocsFixtureFile(t, filepath.Join(repository, "CHANGELOG.md"), "# Changelog\n\n## "+testReleaseVersion+" - Unreleased\n")

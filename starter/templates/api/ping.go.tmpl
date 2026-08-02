@@ -1,0 +1,36 @@
+// Package ping owns the starter application's example feature and HTTP route.
+package ping
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/iiwish/modary/httpkit"
+	"github.com/iiwish/modary/module"
+)
+
+// Registration declares the feature in the application's explicit Module graph.
+func Registration() module.Registration {
+	return module.Register(module.Manifest{
+		SchemaVersion: module.SchemaVersion,
+		ID:            "ping",
+		Version:       "1.0.0",
+		Type:          module.ModuleTypeFeature,
+		Provides:      []module.Capability{"ping"},
+	}, func(context.Context, module.Scope) error { return nil })
+}
+
+// Routes returns the HTTP contribution selected by the application.
+func Routes() []httpkit.Route {
+	return []httpkit.Route{
+		{
+			Method: http.MethodGet,
+			Path:   "/api/ping",
+			Handler: http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				writer.WriteHeader(http.StatusOK)
+				_, _ = writer.Write([]byte(`{"message":"pong"}`))
+			}),
+		},
+	}
+}

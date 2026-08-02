@@ -16,7 +16,7 @@ domain, bootstrap data, UI, policy, credentials, or release process.
 
 ## Local Requirements
 
-- Go 1.26 or newer, with the exact minimum governed by `go.mod`.
+- Go 1.26.5 or newer, with the exact minimum governed by `go.mod`.
 - Git, Make, a POSIX shell, `find`, `xargs`, and `rg`.
 - No Node.js toolchain is required for the framework or public-example gate.
 

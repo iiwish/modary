@@ -3,6 +3,9 @@
 This guide adds one transactionally enqueued task and a worker runner. The
 PostgreSQL adapter uses River internally; consumer code imports only `task`.
 
+This path requires the Governed PostgreSQL component. The API and Admin
+Profiles do not expose `task.Service` by default.
+
 ## 1. Resolve The Task Service
 
 An assembled application exposes the public service:

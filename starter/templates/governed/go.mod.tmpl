@@ -1,0 +1,8 @@
+module {{.ModulePath}}
+
+go 1.26.5
+
+require github.com/iiwish/modary {{.ModaryVersion}}
+{{if .HasModaryReplace}}
+replace github.com/iiwish/modary => {{quote .ModaryReplace}}
+{{end}}

@@ -1,0 +1,46 @@
+schema_version: 1
+packet_id: EP-008-T035
+task_id: T035
+feature_id: 008-react-admin-starter
+mode: execute_one_task
+adapter: codex
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  spec: .ai-platform/specs/008-react-admin-starter/spec.md
+  checklist: .ai-platform/specs/008-react-admin-starter/checklists/requirements.md
+  plan: .ai-platform/specs/008-react-admin-starter/plan.md
+  work_graph: .ai-platform/specs/008-react-admin-starter/tasks.md
+  analysis: .ai-platform/specs/008-react-admin-starter/analysis.md
+  approval: explicit owner approval on 2026-08-02
+work_unit:
+  title: React platform and architecture migration
+  goal: replace Vue completely while preserving Admin HTTP, module registry, and asset contracts
+  requirements: [US-001, US-003, FR-001, FR-002, FR-003, FR-004, FR-007, NFR-001, NFR-002, NFR-005]
+  depends_on: [T034]
+codebase_context:
+  relevant_files: [starter/templates/admin/web/**, starter/templates/admin/internal/web/dist/**, starter/templates/admin/application_test.go.tmpl, starter/create_test.go]
+  existing_patterns: [create-only static template tree, explicit frontend module registry, same-site API client, deterministic asset filenames]
+  forbidden_changes: [Admin backend HTTP contract, database schema, sessions, RBAC, Governed Profile, Core architecture, immutable Alpha 3 tags or evidence]
+execution_constraints:
+  allowed_files: [starter/templates/admin/web/**, starter/templates/admin/internal/web/dist/**, starter/templates/admin/application_test.go.tmpl, starter/create_test.go, .ai-platform/specs/008-react-admin-starter/**, .ai-platform/evidence/T035/**, .ai-platform/docs/tasks.md]
+  conflicts_with: [T036, T037]
+  worktree: current owner-approved worktree; preserve unrelated changes
+  delegation: direct execution because subagent delegation was not authorized
+tdd_plan:
+  red: add and run a generator contract requiring React source/dependencies and rejecting Vue
+  green: replace toolchain, source architecture, tests, and assets until focused gates pass
+  refactor: tighten providers, hooks, typed module boundary, and user-facing test contracts
+validation_loop:
+  commands: [go test ./starter -run TestCreateAdmin -count=1, pnpm install --frozen-lockfile, pnpm lint, pnpm typecheck, pnpm test, pnpm build, pnpm assets:check, go test ./starter ./transport/sessionhttp -count=1, strict T035 artifact validation, git diff --check]
+  retry_budget: 3 per failing gate before scope reassessment
+evidence_contract:
+  summary: .ai-platform/evidence/T035/summary.md
+  diff: .ai-platform/evidence/T035/diff.patch
+  test_results: .ai-platform/evidence/T035/test-results.md
+  review: .ai-platform/evidence/T035/review.md
+review_contract:
+  sequence: [spec compliance, engineering quality, frontend architecture, regression]
+  acceptance: no unresolved P0 through P2 finding
+handoff:
+  next_task: T036
+stop_conditions: [backend or security contract break required, irreconcilable user-work conflict, dependency requires dual Vue and React runtime, validation fails beyond retry budget]

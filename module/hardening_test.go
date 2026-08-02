@@ -299,7 +299,16 @@ func TestAssembleAndShutdownAreRaceSafeAndLinearizable(t *testing.T) {
 	for iteration := 0; iteration < 100; iteration++ {
 		host := NewHost()
 		if err := host.Register(
-			Register(validManifest("feature", "feature", nil, []string{"feature"}), nil),
+			Register(
+				validManifest("feature", "feature", nil, []string{"feature"}),
+				nil,
+				ActionBinding{
+					Descriptor: testActionDescriptor("feature.run"),
+					NewHandler: func(context.Context, Resolver) (action.Handler, error) {
+						return inertActionHandler{}, nil
+					},
+				},
+			),
 			testRuntimeServicesRegistration(testRuntimeServices{}),
 		); err != nil {
 			t.Fatal(err)
@@ -441,6 +450,7 @@ func TestFrameworkServiceNamesRejectForgedKeysWithoutStatePollution(t *testing.T
 		capability Capability
 	}{
 		{name: Database().Name(), capability: Database().Capability()},
+		{name: ActionDatabase().Name(), capability: ActionDatabase().Capability()},
 		{name: IdentityResolver().Name(), capability: IdentityResolver().Capability()},
 		{name: SessionAuthenticator().Name(), capability: SessionAuthenticator().Capability()},
 		{name: TokenAuthenticator().Name(), capability: TokenAuthenticator().Capability()},
@@ -471,8 +481,8 @@ func TestFrameworkServiceNamesRejectForgedKeysWithoutStatePollution(t *testing.T
 
 func TestCanonicalDatabaseAccessNameRejectsSameTypedForgedKey(t *testing.T) {
 	canonical := Database()
-	forged := MustKey[database.Access](canonical.Name(), canonical.Capability())
-	access := database.Access(inertDatabaseAccess{})
+	forged := MustKey[database.Store](canonical.Name(), canonical.Capability())
+	access := database.Store(inertDatabaseStore{})
 	host := NewHost()
 	registration := Register(validManifest("forged-database", "adapter", nil, []string{"database"}), func(_ context.Context, scope Scope) error {
 		return Provide(scope, forged, access)
@@ -491,7 +501,7 @@ func TestCanonicalDatabaseAccessNameRejectsSameTypedForgedKey(t *testing.T) {
 func TestConsumerCannotInstallCanonicalDatabaseAccess(t *testing.T) {
 	host := NewHost()
 	registration := Register(validManifest("consumer-database", "adapter", nil, []string{"database"}), func(_ context.Context, scope Scope) error {
-		return Provide(scope, Database(), database.Access(inertDatabaseAccess{}))
+		return Provide(scope, Database(), database.Store(inertDatabaseStore{}))
 	})
 	if err := host.Register(registration); err != nil {
 		t.Fatal(err)
@@ -1078,6 +1088,12 @@ func TestCanceledShutdownRevokesRuntimeBeforeReturning(t *testing.T) {
 type hostileCallbackPanic struct{}
 
 type inertDatabaseAccess struct{ database.Executor }
+
+type inertDatabaseStore struct{ database.Executor }
+
+func (inertDatabaseStore) WithinTransaction(context.Context, func(context.Context) error) error {
+	return nil
+}
 
 func (hostileCallbackPanic) Error() string  { panic("callback-secret-error") }
 func (hostileCallbackPanic) String() string { panic("callback-secret-string") }

@@ -181,7 +181,8 @@ func TestMissingGovernanceServiceCleansStartedModulesExactlyOnce(t *testing.T) {
 			application, err := Start(context.Background(), Definition{
 				Metadata: validMetadata(),
 				Modules: []module.Registration{runtimeRegistration(runtimeRegistrationOptions{
-					missing: test.missing,
+					missing:    test.missing,
+					withAction: true,
 					cleanup: func(context.Context) error {
 						cleanup.Add(1)
 						return nil
@@ -203,7 +204,8 @@ func TestPostStartFailureJoinsCleanupError(t *testing.T) {
 	application, err := Start(context.Background(), Definition{
 		Metadata: validMetadata(),
 		Modules: []module.Registration{runtimeRegistration(runtimeRegistrationOptions{
-			missing: "authorizer",
+			missing:    "authorizer",
+			withAction: true,
 			cleanup: func(context.Context) error {
 				cleanup.Add(1)
 				return errCleanup
@@ -224,7 +226,8 @@ func TestPostStartFailureUsesIndependentBoundedShutdownContext(t *testing.T) {
 	application, err := Start(context.Background(), Definition{
 		Metadata: validMetadata(),
 		Modules: []module.Registration{runtimeRegistration(runtimeRegistrationOptions{
-			missing: "authorizer",
+			missing:    "authorizer",
+			withAction: true,
 			cleanup: func(ctx context.Context) error {
 				cleanup.Add(1)
 				<-ctx.Done()

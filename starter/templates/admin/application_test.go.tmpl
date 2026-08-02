@@ -1,0 +1,287 @@
+package app
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"regexp"
+	"testing"
+	"time"
+
+	"{{.ModulePath}}/internal/config"
+	"github.com/iiwish/modary/authz"
+	"github.com/iiwish/modary/database"
+	"github.com/iiwish/modary/identity"
+	"github.com/iiwish/modary/scope"
+)
+
+const (
+	integrationFirstTitle  = "Modary integration test: first"
+	integrationActiveTitle = "Modary integration test: active"
+	integrationOtherTitle  = "Modary integration test: other"
+)
+
+var adminScriptPattern = regexp.MustCompile(`src="(/assets/app-[A-Za-z0-9_-]{8,}\.js)"`)
+
+func TestAdminBackendProfile(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is required for the generated Admin integration test")
+	}
+	runtimeConfig := config.Config{DatabaseURL: databaseURL, Schema: os.Getenv("MODARY_DATABASE_SCHEMA"),
+		AdminUser: "admin", AdminPassword: "development-password", InsecureCookie: true}
+	if runtimeConfig.Schema == "" {
+		runtimeConfig.Schema = {{quote .SchemaID}} + "_test"
+	}
+	application, err := Start(context.Background(), runtimeConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if application.Core().Runtime() != nil || application.Core().Tasks() != nil || len(application.Core().Catalog()) != 0 {
+		t.Fatalf("unselected surfaces runtime=%v tasks=%v catalog=%v", application.Core().Runtime(), application.Core().Tasks(), application.Core().Catalog())
+	}
+	store, err := application.Core().Database()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanupIntegrationRecords(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	applicationRunning := true
+	t.Cleanup(func() {
+		if !applicationRunning {
+			return
+		}
+		_ = cleanupIntegrationRecords(context.Background(), store)
+		_ = application.Shutdown(context.Background())
+	})
+
+	client := newProfileClient(t, application.Handler())
+	client.health()
+	client.web()
+	client.login("admin", "development-password")
+	client.expectCSRFDenied()
+	record := client.create(integrationFirstTitle, "draft")
+	client.expectList(record.ID, integrationFirstTitle)
+	createdAt := record.CreatedAt
+	record = client.update(record.ID, integrationActiveTitle, "active", record.Version)
+	if createdAt.IsZero() || !record.CreatedAt.Equal(createdAt) || record.UpdatedAt.Before(createdAt) {
+		t.Fatalf("update timestamps before=%s after=%#v", createdAt, record)
+	}
+
+	if err := store.WithinTransaction(context.Background(), func(txCtx context.Context) error {
+		_, err := store.ExecContext(txCtx, `INSERT INTO records
+			(record_id, scope_kind, scope_id, title, status, version, created_at, updated_at)
+			VALUES ('rec_000000000000000000000000', 'workspace', 'other', $1, 'active', 1, NOW(), NOW())`, integrationOtherTitle)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	client.expectList(record.ID, integrationActiveTitle)
+	authorizer, err := application.Core().Authorizer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	executionScope := scope.Must("workspace", "default")
+	decision, err := authorizer.Authorize(context.Background(), authz.Request{Actor: identity.Actor{ID: "admin", Type: "human", DisplayName: "Administrator", Scope: executionScope},
+		OperationID: "records.forbidden", Permission: "records.forbidden", Scope: executionScope, Phase: authz.PhaseIntent})
+	if err != nil || decision.Allowed {
+		t.Fatalf("default deny decision=%#v error=%v", decision, err)
+	}
+	if err := application.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	applicationRunning = false
+
+	restarted, err := Start(context.Background(), runtimeConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = restarted.Shutdown(context.Background()) })
+	restartedStore, err := restarted.Core().Database()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := cleanupIntegrationRecords(context.Background(), restartedStore); err != nil {
+			t.Errorf("clean integration records: %v", err)
+		}
+	})
+	restartedClient := newProfileClient(t, restarted.Handler())
+	restartedClient.login("admin", "development-password")
+	restartedClient.expectList(record.ID, integrationActiveTitle)
+	restartedClient.remove(record.ID)
+	restartedClient.expectEmpty()
+}
+
+func cleanupIntegrationRecords(ctx context.Context, store database.Store) error {
+	return store.WithinTransaction(ctx, func(txCtx context.Context) error {
+		_, err := store.ExecContext(txCtx, `DELETE FROM records
+			WHERE record_id = 'rec_000000000000000000000000'
+			OR (scope_kind = 'workspace' AND scope_id IN ('default', 'other') AND title IN ($1, $2, $3))`,
+			integrationFirstTitle, integrationActiveTitle, integrationOtherTitle)
+		return err
+	})
+}
+
+type profileRecord struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Status    string    `json:"status"`
+	Version   int64     `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type profileClient struct {
+	t *testing.T
+	handler http.Handler
+	cookie *http.Cookie
+	csrf string
+}
+
+func newProfileClient(t *testing.T, handler http.Handler) *profileClient {
+	return &profileClient{t: t, handler: handler}
+}
+
+func (client *profileClient) health() {
+	response := client.request(http.MethodGet, "/healthz", nil, false)
+	if response.Code != http.StatusOK {
+		client.t.Fatalf("health=%d %s", response.Code, response.Body.String())
+	}
+}
+
+func (client *profileClient) web() {
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Header.Set("Accept", "text/html")
+	response := httptest.NewRecorder()
+	client.handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`<div id="root"></div>`)) {
+		client.t.Fatalf("web index=%d %s", response.Code, response.Body.String())
+	}
+	match := adminScriptPattern.FindSubmatch(response.Body.Bytes())
+	if len(match) != 2 {
+		client.t.Fatalf("web index does not reference a hashed script: %s", response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodGet, string(match[1]), nil)
+	request.Header.Set("Accept", "*/*")
+	asset := httptest.NewRecorder()
+	client.handler.ServeHTTP(asset, request)
+	if asset.Code != http.StatusOK || asset.Header().Get("Content-Type") == "" || asset.Body.Len() < 1000 {
+		client.t.Fatalf("web asset=%d bytes=%d", asset.Code, asset.Body.Len())
+	}
+	if asset.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		client.t.Fatalf("web asset cache=%q", asset.Header().Get("Cache-Control"))
+	}
+	request = httptest.NewRequest(http.MethodGet, "/assets/app.js", nil)
+	request.Header.Set("Accept", "*/*")
+	legacy := httptest.NewRecorder()
+	client.handler.ServeHTTP(legacy, request)
+	if legacy.Code != http.StatusNotFound {
+		client.t.Fatalf("legacy unhashed asset=%d %s", legacy.Code, legacy.Body.String())
+	}
+}
+
+func (client *profileClient) login(username, password string) {
+	response := client.request(http.MethodPost, "/api/auth/login", map[string]any{"username": username, "password": password}, false)
+	if response.Code != http.StatusOK {
+		client.t.Fatalf("login=%d %s", response.Code, response.Body.String())
+	}
+	var result struct { CSRF string `json:"csrf_token"` }
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		client.t.Fatal(err)
+	}
+	cookies := response.Result().Cookies()
+	if len(cookies) != 1 || result.CSRF == "" {
+		client.t.Fatalf("login cookie=%#v response=%s", cookies, response.Body.String())
+	}
+	client.cookie, client.csrf = cookies[0], result.CSRF
+}
+
+func (client *profileClient) create(title, status string) profileRecord {
+	response := client.request(http.MethodPost, "/api/records", map[string]any{"title": title, "status": status}, true)
+	if response.Code != http.StatusCreated {
+		client.t.Fatalf("create=%d %s", response.Code, response.Body.String())
+	}
+	var record profileRecord
+	if err := json.Unmarshal(response.Body.Bytes(), &record); err != nil {
+		client.t.Fatal(err)
+	}
+	return record
+}
+
+func (client *profileClient) expectCSRFDenied() {
+	csrf := client.csrf
+	client.csrf = "incorrect-token"
+	response := client.request(http.MethodPost, "/api/records", map[string]any{"title": "Denied", "status": "draft"}, true)
+	client.csrf = csrf
+	if response.Code != http.StatusForbidden {
+		client.t.Fatalf("CSRF denial=%d %s", response.Code, response.Body.String())
+	}
+}
+
+func (client *profileClient) update(id, title, status string, version int64) profileRecord {
+	response := client.request(http.MethodPatch, "/api/records/"+id, map[string]any{"title": title, "status": status, "version": version}, true)
+	if response.Code != http.StatusOK {
+		client.t.Fatalf("update=%d %s", response.Code, response.Body.String())
+	}
+	var record profileRecord
+	if err := json.Unmarshal(response.Body.Bytes(), &record); err != nil {
+		client.t.Fatal(err)
+	}
+	return record
+}
+
+func (client *profileClient) remove(id string) {
+	response := client.request(http.MethodDelete, "/api/records/"+id, map[string]any{}, true)
+	if response.Code != http.StatusNoContent {
+		client.t.Fatalf("delete=%d %s", response.Code, response.Body.String())
+	}
+}
+
+func (client *profileClient) expectList(id, title string) {
+	response := client.request(http.MethodGet, "/api/records", nil, false)
+	if response.Code != http.StatusOK {
+		client.t.Fatalf("list=%d %s", response.Code, response.Body.String())
+	}
+	var result struct { Records []profileRecord `json:"records"` }
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		client.t.Fatal(err)
+	}
+	if len(result.Records) != 1 || result.Records[0].ID != id || result.Records[0].Title != title {
+		client.t.Fatalf("records=%#v", result.Records)
+	}
+}
+
+func (client *profileClient) expectEmpty() {
+	response := client.request(http.MethodGet, "/api/records", nil, false)
+	var result struct { Records []profileRecord `json:"records"` }
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &result) != nil || len(result.Records) != 0 {
+		client.t.Fatalf("empty list=%d %s", response.Code, response.Body.String())
+	}
+}
+
+func (client *profileClient) request(method, path string, body any, csrf bool) *httptest.ResponseRecorder {
+	client.t.Helper()
+	var payload []byte
+	if body != nil {
+		payload, _ = json.Marshal(body)
+	}
+	request := httptest.NewRequest(method, path, bytes.NewReader(payload))
+	request.Header.Set("Accept", "application/json")
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	if client.cookie != nil {
+		request.AddCookie(client.cookie)
+	}
+	if csrf {
+		request.Header.Set("X-CSRF-Token", client.csrf)
+	}
+	response := httptest.NewRecorder()
+	client.handler.ServeHTTP(response, request)
+	return response
+}

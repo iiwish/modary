@@ -2,93 +2,53 @@
 
 > [English](../../getting-started/first-application.md)
 
-本教程把 Counter 示例变成一个普通应用目录，并绑定当前 Modary 源码检出。
-开始前请先完成
-[快速上手](quickstart.md)。
+使用 `modary new` 创建独立 Go Module，不要复制框架内部示例。生成结果只依赖
+Modary 公共包，不包含框架实现副本。
 
-## 1. 复制示例
-
-在 Modary 源码目录的上一级执行：
+## 创建项目
 
 ```bash
-cp -R modary/examples/counter my-counter
-cd my-counter
+export MODARY_CHECKOUT=/absolute/path/to/modary
+export MODARY_STARTER_REPLACE="$MODARY_CHECKOUT"
+cd "$MODARY_CHECKOUT"
+go run ./cmd/modary new /absolute/path/to/billing-api \
+  --profile api \
+  --module company.example/platform/billing-api \
+  --name "Billing API"
 ```
 
-复制后的目录已经是独立 Go Module，包含自己的组合入口、项目命令、应用命令、
-业务 Module、迁移、生成契约、测试和静态 UI。
+目标目录名必须是小写项目 ID，父目录必须存在，符号链接和非空目录会被拒绝。
 
-## 2. 绑定框架源码
-
-把复制后的 Module 指向相邻 Modary 目录的绝对路径：
+## 验证独立边界
 
 ```bash
-GOWORK=off go mod edit -replace=github.com/iiwish/modary="$(cd ../modary && pwd -P)"
+cd /absolute/path/to/billing-api
 GOWORK=off go mod tidy
-```
-
-确认绑定结果：
-
-```bash
-GOWORK=off go list -m -f '{{.Path}} {{if .Replace}}{{.Replace.Dir}}{{end}}' github.com/iiwish/modary
-```
-
-在修改示例之前记录起点：
-
-```bash
-git init
-git add .
-git commit -m "Bootstrap Modary application"
-```
-
-## 3. 验证应用契约
-
-```bash
-GOWORK=off go run ./tools/modary verify
-GOWORK=off go run ./tools/modary generate --check
 GOWORK=off go test ./...
-GOWORK=off go run ./tools/modary build
-GOWORK=off ./dist/counter-console version
+GOWORK=off go build ./...
 ```
 
-最后一个命令输出 `counter-console 0.1.0`。应用需要 PostgreSQL，但不需要
-Node.js。执行时继续使用快速上手中导出的数据库环境变量。
-
-## 4. 使用真实 Module 路径
-
-发布应用前，把 `go.mod` 和应用内部 import 中的
-`example.com/modary-counter-consumer` 替换为应用的正式 Module 路径。应使用编辑器
-提供的 Go-aware rename，然后重新运行 `go mod tidy` 和上一节的完整命令。不要修改
-以 `github.com/iiwish/modary` 开头的框架 import。
-
-## 5. 完成第一次契约变更
-
-打开 `modules/counter/module.go`，修改 `descriptor()` 内 Action 的 `Title` 或
-`Description`。此时已提交的生成目录会变为过期状态：
+发布应用前删除本地 `replace`，并在 Modary 对应版本实际发布后固定准确标签：
 
 ```bash
-GOWORK=off go run ./tools/modary generate --check
+go mod edit -dropreplace github.com/iiwish/modary
+go get github.com/iiwish/modary@v0.2.0-alpha.1
+go mod tidy
 ```
 
-命令应失败并报告 generated drift。重新生成、检查差异并恢复全部绿色检查：
+在该版本尚未发布时不要伪造或依赖这个远程标签。
 
-```bash
-GOWORK=off go run ./tools/modary generate
-git diff -- internal/generated
-GOWORK=off go run ./tools/modary check
-GOWORK=off go test ./...
-```
+## 添加业务 Module
 
-这就是正常的契约开发流程：修改纯 `Definition` 元数据，生成可审查的产物，并把
-源码和生成结果一起提交。
+例如创建 `internal/invoices`，由它负责稳定 Module ID、迁移、Repository、领域服务、
+HTTP 路由或受治理 Action，以及相关测试。然后在
+`internal/app/application.go` 中显式注册。
 
-## 6. 替换示例业务
+业务表名、状态、角色、导航、校验文案和部署配置都属于应用。不要把产品概念放入
+Modary，也不要增加自动扫描器作为第二套组合模型。
 
-把英文[项目结构](../../getting-started/project-layout.md)作为稳定的仓库骨架，按照
-[添加 Module](../../how-to/add-module.md)创建应用自己的 Module。只有当新 Module、
-迁移、Action、组合注册、生成产物和测试一起通过后，才删除 Counter 代码。
+## 选择升级方式
 
-开发期 `replace` 只适合 Modary 和应用同时在本地检出时使用。发布应用前应删除
-它，并固定到包含 PostgreSQL 任务 Profile 的准确 Modary 版本，不得把本地路径
-提交到应用发布分支。Module 解析、生成、Capability、迁移或平台检查失败时，请查看英文
-[故障排查](../../how-to/troubleshooting.md)。
+Starter 只创建一次，不会修补产品源码。升级 Modary 时固定新版本，先编译，再根据
+升级指南手工适配公共接口和组合入口，检查依赖图并运行外部验收。这样框架不会在
+不理解产品意图的情况下改写应用。

@@ -1,124 +1,78 @@
 # Current Delivery Work Graph
 
-- Version: 6.2
+- Version: 8.0
 - Status: Confirmed
 - Last updated: 2026-08-02
 
-The active PostgreSQL-first work graph is
-`.ai-platform/specs/005-postgres-task-runtime/tasks.md`.
+The active work graph is
+`.ai-platform/specs/008-react-admin-starter/tasks.md`.
 
 | Task | State | Acceptance object |
 |---|---|---|
-| T024 | Completed | PostgreSQL control adapter, governed transaction binding, and public task contract |
-| T025 | Completed | PostgreSQL-native Action, Identity, RBAC, Audit, and migration persistence |
-| T026 | Completed | Independent consumer, deletion audit, documentation, full gates, and two-pass review |
-| T027 | Completed | Immutable Alpha 3 publication, hosted CI, remote consumption, and release evidence |
+| T035 | Completed | React-only Admin platform, typed application architecture, tests, and deterministic assets |
+| T036 | Completed | React Admin behavior, accessibility, responsive quality, and browser acceptance |
+| T037 | Completed | Copied-out React consumer, canonical docs, and final v0.2 release readiness |
+| T028 | Completed | Lightweight product contract, competitor research, Profiles, and acceptance boundary |
+| T029 | Completed | Database-free Core and optional component surfaces |
+| T030 | Completed | Create-only CLI and API Profile |
+| T031 | Completed | Optional Admin backend Profile |
+| T032 | Completed | Superseded Admin UI F0 implementation and frontend module registry |
+| T033 | Completed | Optional Governed Profile with retained Alpha 3 guarantees |
+| T034 | Completed | Copied-out Profile acceptance, docs, compatibility, and final reviews |
+| T024 | Completed | PostgreSQL control adapter and public task contract |
+| T025 | Completed | PostgreSQL-native standard persistence |
+| T026 | Completed | Alpha 3 framework and copied-out consumer acceptance |
+| T027 | Completed | Immutable Alpha 3 release and remote verification |
 
-## T026: Consumer, Deletion, And Acceptance
+## T028: Product Contract And Research
 
 Status: Completed
 Priority: P0
-Dependencies: T025
-Blocks: Modary F0 acceptance
-Story / Requirement: FR-009, FR-010, SC-001, SC-002, SC-003, SC-004, and SC-005
+Dependencies: T027
+Blocks: T029
+Story / Requirement: PR-001, PR-002, and PR-003
 Parallel: No
-Conflicts with: None
+Conflicts with: every implementation task under feature 007
 
-Goal: Prove Modary is a PostgreSQL-first framework with a public transactional
-task runtime, an independently consumable Counter application, no active
-embedded-database surface, and complete acceptance evidence.
+Goal: establish the canonical lightweight componentized Go framework contract
+from owner input, current competitor evidence, and relevant Gin-Vue-Admin Issue
+themes.
 
-Allowed files: active Modary source, tests, documentation, 005 governance
-artifacts, and T026 evidence; immutable historical evidence is excluded.
+Allowed files: canonical governance documents, feature 007 artifacts, T028
+evidence, and documentation-checker expectations for those artifacts.
 
-Test targets: framework packages, PostgreSQL adapters, copied-out Counter with
-`GOWORK=off`, task restart consumption, documentation, neutrality, builds,
-race detection, repetition, fuzzing, and source stability.
+Test targets: product-scope consistency, research source integrity, Profile and
+component boundary completeness, documentation integrity, link validity, and
+strict delivery-artifact validation.
 
-Deliverables: PostgreSQL-only framework and Counter consumer, public task
-runtime acceptance coverage, current documentation, release report, T026
-packet, test results, diff manifest, and two independent final review records.
+Deliverables: confirmed constitution and product contract, competitor research,
+feature spec, technical plan, work graph, checklist, analysis, execution packet,
+and T028 review evidence.
 
-Acceptance criteria: `make acceptance`, `make ci`, the strict T026 delivery
-artifact validator, and `git diff --check` pass; current final reviews contain
-no unresolved P0, P1, or P2 finding.
+Acceptance criteria: the artifacts agree that Core is database-free, Admin and
+Governed capabilities are optional, generation is create-only, omitted
+components are absent, and Alpha 3 is immutable. No Critical or High ambiguity
+remains.
 
-Definition of Done: no active embedded-database surface remains, Counter proves
-that a governed Action enqueue survives producer shutdown and is consumed after
-an application restart through the public Runner, and all acceptance evidence
-describes the reviewed source.
+Definition of Done: documentation and strict artifact checks pass, the research
+does not present historical Issues as current defects, and review finds no
+unresolved P0 through P2 issue.
 
 Validation commands:
-- `make acceptance`
-- `make ci`
-- `python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 005-postgres-task-runtime --task-id T026 --strict`
+- `./scripts/check-docs.sh`
+- `./scripts/check-doc-links.sh`
+- `python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 007-component-framework-refoundation --task-id T028 --strict`
 - `git diff --check`
 
-TDD plan: RED records the legacy-storage and consumer-boundary failures; GREEN
-requires PostgreSQL-only Counter and framework acceptance to pass; REFACTOR
-requires the complete CI, race, stability, and strict artifact gates to pass.
+TDD plan: documentation-only exception; strict artifact, documentation, and
+link validation replace behavior TDD.
 
-Packet path: `.ai-platform/specs/005-postgres-task-runtime/packets/T026.yaml`
+Packet path: `.ai-platform/specs/007-component-framework-refoundation/packets/T028.yaml`
 
-Evidence required: `.ai-platform/evidence/T026/summary.md`, `diff.patch`,
-`test-results.md`, and the current final review records.
+Evidence required: `.ai-platform/evidence/T028/summary.md`, `diff.patch`,
+`test-results.md`, and `review.md`.
 
-## T027: Publish PostgreSQL Alpha 3
-
-Status: Completed
-Priority: P0
-Dependencies: T026
-Blocks: Remote consumption of the PostgreSQL and River release
-Story / Requirement: 006 FR-001 through FR-007 and SC-001 through SC-006
-Parallel: No
-Conflicts with: Every release, tag, and candidate-state task
-
-Goal: Publish the accepted Modary source as immutable `v0.1.0-alpha.3`, prove
-hosted and normal Go module consumption, and record truthful release evidence.
-
-Allowed files: release metadata, canonical documentation, example dependency
-metadata, 006 governance, T027 evidence, Git commits, the Alpha 3 annotated tag,
-the canonical remote, and the matching GitHub prerelease.
-
-Test targets: candidate and tag preflight, complete CI, hosted main and tag
-workflows, Go module resolution, copied-out remote consumer, release identity,
-and final documentation consistency.
-
-Deliverables: one candidate commit, immutable annotated tag, successful hosted
-CI, verified remote consumer, GitHub prerelease, and complete T027 evidence.
-
-Acceptance criteria: every release object identifies one commit; local and
-hosted gates pass; normal module resolution and the copied-out consumer use
-`v0.1.0-alpha.3`; no earlier tag is moved.
-
-Definition of Done: Alpha 3 is released and remotely verified, final reports
-and evidence contain the exact commit, tag object, workflow, resolution, and
-release URL, and strict T027 artifact validation passes.
-
-Validation commands:
-- `make release-readiness VERSION=v0.1.0-alpha.3`
-- `make release-preflight VERSION=v0.1.0-alpha.3 RELEASE_MODE=tag`
-- hosted main and tag workflow checks
-- `go list -m github.com/iiwish/modary@v0.1.0-alpha.3`
-- `make remote-consumer VERSION=v0.1.0-alpha.3`
-- strict T027 artifact validation
-
-TDD plan: release exception; validate every reversible candidate state before
-the next irreversible transition, stop on any failed gate, and never move a
-published tag.
-
-Packet path: `.ai-platform/specs/006-postgres-alpha-release/packets/T027.yaml`
-
-Evidence required: candidate and tag identity, local and hosted validation,
-module resolution, remote consumer output, release URL, review, and residual
-risk under `.ai-platform/evidence/T027/`.
-
-Completed framework, release-readiness, and onboarding work remains available
-as historical governance under `.ai-platform/specs/002-framework-decoupling/`,
-`.ai-platform/specs/003-release-readiness/`, and
-`.ai-platform/specs/004-onboarding-release/`. Its evidence describes the source
-accepted at that time and does not override the current 005 contract.
-
-Task completion requires its implementation, focused and full validation,
-evidence packet, and review contract. Current framework acceptance requires no
-unresolved P0, P1, or P2 finding in T026.
+Completed component-framework, PostgreSQL, task, release, and onboarding work
+remains available as historical governance under features 002 through 007. The immutable
+`v0.1.0-alpha.3` release remains accepted and remotely consumable while feature
+008 defines the active React-only Admin delivery contract.

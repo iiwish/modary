@@ -32,7 +32,7 @@ var allowedDirectLayerImports = map[architectureLayer]map[architectureLayer]bool
 	layerAppKit:      {layerKernel: true},
 	layerTransport:   {layerKernel: true, layerAppKit: true, layerTransport: true},
 	layerAdapter:     {layerKernel: true, layerAdapter: true},
-	layerProjectTool: {layerKernel: true, layerAppKit: true},
+	layerProjectTool: {layerKernel: true, layerAppKit: true, layerProjectTool: true},
 	layerCommand:     {layerKernel: true, layerAppKit: true},
 }
 
@@ -46,13 +46,18 @@ var publicProductionPackages = map[string]architectureLayer{
 	modaryImportPath + "/scope":                  layerKernel,
 	modaryImportPath + "/task":                   layerKernel,
 	modaryImportPath + "/appkit":                 layerAppKit,
+	modaryImportPath + "/httpkit":                layerTransport,
 	modaryImportPath + "/transport/httpapi":      layerTransport,
+	modaryImportPath + "/transport/sessionhttp":  layerTransport,
 	modaryImportPath + "/adapters":               layerAdapter,
 	modaryImportPath + "/adapters/localidentity": layerAdapter,
 	modaryImportPath + "/adapters/rbac":          layerAdapter,
 	modaryImportPath + "/adapters/sqlaudit":      layerAdapter,
 	modaryImportPath + "/adapters/postgres":      layerAdapter,
+	modaryImportPath + "/adapters/postgresdb":    layerAdapter,
 	modaryImportPath + "/projecttool":            layerProjectTool,
+	modaryImportPath + "/starter":                layerProjectTool,
+	modaryImportPath + "/cmd/modary":             layerProjectTool,
 	modaryImportPath + "/appcmd":                 layerCommand,
 }
 
@@ -69,6 +74,7 @@ var privilegedInternalImporters = map[string]map[string]bool{
 		modaryImportPath + "/adapters/rbac":          true,
 		modaryImportPath + "/adapters/sqlaudit":      true,
 		modaryImportPath + "/adapters/postgres":      true,
+		modaryImportPath + "/adapters/postgresdb":    true,
 	},
 	modaryImportPath + "/internal/filepolicy": {
 		modaryImportPath + "/appcmd":      true,
@@ -87,23 +93,27 @@ var privilegedInternalImporters = map[string]map[string]bool{
 		modaryImportPath + "/adapters/rbac":          true,
 		modaryImportPath + "/adapters/sqlaudit":      true,
 		modaryImportPath + "/adapters/postgres":      true,
+		modaryImportPath + "/adapters/postgresdb":    true,
 	},
 	modaryImportPath + "/internal/runtimecontrol": {
 		modaryImportPath + "/module": true,
 	},
 	modaryImportPath + "/internal/safeerr": {
-		modaryImportPath + "/action":            true,
-		modaryImportPath + "/database":          true,
-		modaryImportPath + "/module":            true,
-		modaryImportPath + "/appcmd":            true,
-		modaryImportPath + "/projecttool":       true,
-		modaryImportPath + "/transport/httpapi": true,
+		modaryImportPath + "/action":                true,
+		modaryImportPath + "/database":              true,
+		modaryImportPath + "/module":                true,
+		modaryImportPath + "/appcmd":                true,
+		modaryImportPath + "/projecttool":           true,
+		modaryImportPath + "/transport/httpapi":     true,
+		modaryImportPath + "/transport/sessionhttp": true,
 	},
 	modaryImportPath + "/internal/sqlpolicy": {
-		modaryImportPath + "/adapters/postgres": true,
+		modaryImportPath + "/adapters/postgres":   true,
+		modaryImportPath + "/adapters/postgresdb": true,
 	},
 	modaryImportPath + "/internal/transactionoutcome": {
-		modaryImportPath + "/adapters/postgres": true,
+		modaryImportPath + "/adapters/postgres":   true,
+		modaryImportPath + "/adapters/postgresdb": true,
 	},
 }
 

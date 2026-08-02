@@ -1,100 +1,113 @@
 # Release Process
 
 This process publishes the Modary Go source module and documentation. It does
-not publish a consumer application, binary, container, UI, or domain starter.
+not publish a consumer application, container, UI service, or product database.
 
 ## Roles
 
-- The owner selects repository visibility, redistribution license, canonical
-  remote, release version, and final publish approval.
-- The maintainer prepares the candidate, runs validation, writes release notes,
-  and records evidence.
-- The reviewer checks compatibility, security claims, consumer conformance, and
-  the exact candidate commit.
+- The owner approves repository visibility, license, canonical remote, version,
+  and final publication.
+- The maintainer prepares and validates the exact candidate.
+- The reviewer checks compatibility, security claims, Profile conformance, and
+  evidence against that commit.
 
-One person may hold several roles, but owner decisions must remain explicit.
+One person may hold several roles, but owner publication approval is explicit.
 
 ## Prerequisites
 
-Before release:
-
-1. The F0 technical acceptance report is `Accepted`.
-2. `CHANGELOG.md` contains the intended release entry and no unresolved item is
-   silently omitted.
-3. An owner-selected redistribution license is present as `LICENSE` or
-   `LICENSE.txt`.
-4. `origin` is the canonical repository and matches the module ownership plan.
-5. The candidate is on a clean worktree and all intended changes are committed.
-6. The version is a valid semantic prerelease such as `v0.1.0-alpha.3`.
-7. Documentation and examples describe the same candidate.
+1. The current F0 acceptance report is `Accepted`.
+2. `CHANGELOG.md` describes the exact candidate and migration impact.
+3. The Apache-2.0 license and third-party notices are present.
+4. `origin` is the canonical repository.
+5. The candidate worktree is clean and all intended changes are committed.
+6. The proposed version is an unused semantic prerelease such as
+   `v0.2.0-alpha.1`.
+7. English and Chinese onboarding, examples, support matrix, security,
+   limitations, and release notes describe the same candidate.
+8. Every copied-out Profile and the Admin frontend pipeline pass from the exact
+   commit.
 
 ## Candidate Validation
 
-Run from the repository root:
+Set but do not create the intended tag:
 
 ```bash
+VERSION=v0.2.0-alpha.1
 make bootstrap
 make acceptance
 make ci
-make release-readiness VERSION=v0.1.0-alpha.3
+make release-readiness VERSION="$VERSION"
 ```
 
-The final command must verify the module path, version, license, origin, clean
-source, tag relationship, dependency metadata, canonical docs, and complete
-gates. On an untagged candidate it may be run in candidate mode only when the
-script documents that no release is claimed; tag CI requires an exact tag.
+Candidate mode must state that no release is claimed. Record the commit ID,
+toolchain versions, PostgreSQL version, Profile results, frontend lockfile
+result, and immutable Alpha 3 tag identity.
 
-Record the commit ID and produce release notes from the matching changelog
-entry. Do not move or reuse a published tag.
+## Review And Approval
+
+Review the complete candidate diff from the last published tag. Confirm that:
+
+- Core remains database-free;
+- each Profile contains only its selected components;
+- ordinary and governed transaction authority remain separate;
+- generated projects work outside the Modary checkout with `GOWORK=off`;
+- no Rulary or other product domain has entered framework packages;
+- production frontend dependencies and reachable Go vulnerabilities are clear;
+- known limitations and breaking migration notes are complete;
+- no P0, P1, or P2 review finding remains.
+
+The owner then gives explicit approval to publish that exact commit and version.
 
 ## Tag And Publish
 
-After explicit owner approval:
-
 ```bash
-git tag -a v0.1.0-alpha.3 -m "Modary v0.1.0-alpha.3"
-git push origin v0.1.0-alpha.3
+git tag -a "$VERSION" -m "Modary $VERSION"
+git push origin "$VERSION"
 ```
 
-Wait for tag CI. Then verify normal remote module resolution:
+Wait for tag CI. Never move or reuse a published tag.
+
+## Remote Verification
+
+Verify normal Go module resolution without a source-checkout replacement:
 
 ```bash
-make remote-consumer VERSION=v0.1.0-alpha.3
+make remote-consumer VERSION="$VERSION"
+go list -m "github.com/iiwish/modary@$VERSION"
 ```
 
-The remote gate copies the conformance consumer outside the repository, removes
-the source-checkout replacement, downloads the requested version with
-`GOWORK=off`, and runs project verification, generated drift, tests, build, and
-the version command.
+The remote gate creates fresh consumers outside the repository, removes local
+`replace` directives and work files, downloads the tag, and repeats the relevant
+Profile tests and builds. Admin verification also uses its pinned frontend
+dependencies and deterministic asset check.
 
-Create the repository-host release from the same tag. Release notes must include
-scope, compatibility status, supported platform profile, upgrade requirements,
-known limitations, security contact, and remote-consumer result.
+Create the repository-host release from the same tag. Release notes include
+scope, breaking changes, supported Profiles and platforms, database and
+frontend requirements, upgrade guide, known limitations, security contact, and
+remote-consumer result.
 
 ## Post-Release Checks
 
-- `go list -m github.com/iiwish/modary@v0.1.0-alpha.3` resolves the expected
-  module and version.
-- A new temporary consumer builds with no `replace` directive or Go work file.
-- Release links, changelog, license, and source tag are visible.
-- The tag commit matches successful CI and review evidence.
-- The first design-partner application pins the exact version before implementation.
+- the module query resolves the expected version and commit;
+- a new temporary consumer builds without `replace` or a Go work file;
+- release links, changelog, license, and source tag are visible;
+- tag CI and review evidence reference the same commit;
+- a design-partner application pins and validates the exact version.
 
 ## Failure And Rollback
 
-Never overwrite a published tag. If publication fails before the tag is pushed,
-repair the candidate and create the tag only after validation. If an immutable
-published tag is defective, document it, publish the next prerelease or patch,
-and advise consumers to upgrade. If a migration is unsafe, stop rollout and
-restore consumer data from the verified pre-upgrade backup; do not rewrite the
-published migration.
+Before tag publication, repair the candidate and repeat all gates. After an
+immutable tag is published, document defects and issue the next prerelease or
+patch. For unsafe migrations, stop rollout and restore verified consumer data;
+do not edit the published migration or tag.
 
 ## Release States
 
-- `Technical_Accepted`: local framework behavior and conformance are accepted.
-- `Engineering_Ready`: docs, policy, automation, and review are complete.
-- `Distribution_Ready`: owner license and canonical remote are present.
-- `Released`: the approved tag is pushed and tag CI succeeds.
-- `Remote_Verified`: normal Go module resolution and copied-out consumer pass.
+- `Technical_Accepted`: local implementation and copied-out Profiles pass.
+- `Engineering_Ready`: docs, policy, automation, and reviews pass.
+- `Distribution_Ready`: exact clean commit, owner approval, license, and remote
+  are ready.
+- `Released`: immutable tag is pushed and tag CI succeeds.
+- `Remote_Verified`: normal module resolution and external consumers pass.
 
-Reports must use the earliest state actually proved by evidence.
+Reports use the earliest state actually proved by evidence.

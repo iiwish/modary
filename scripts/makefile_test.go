@@ -32,6 +32,51 @@ func TestMakeDocsCheckRunsCanonicalAndLinkChecks(t *testing.T) {
 	}
 }
 
+func TestMakeAcceptanceRunsReactAdminResidueGate(t *testing.T) {
+	data, err := os.ReadFile(repositoryMakefile(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	makefile := string(data)
+	if !strings.Contains(makefile, "react-admin-check:\n\t./scripts/check-react-admin.sh") {
+		t.Fatal("Makefile does not define the React Admin residue gate")
+	}
+	if !strings.Contains(makefile, "acceptance: format-check tidy-check diff-check docs-check react-admin-check") {
+		t.Fatal("acceptance does not run the React Admin residue gate")
+	}
+	for _, command := range []string{
+		"pnpm install --frozen-lockfile",
+		"pnpm lint",
+		"pnpm typecheck",
+		"pnpm test",
+		"pnpm build",
+		"pnpm assets:check",
+		"pnpm audit:prod",
+	} {
+		if strings.Count(makefile, command) != 1 {
+			t.Errorf("React Admin frontend gate invocation count for %q is not one", command)
+		}
+	}
+	if !strings.Contains(makefile, "acceptance: format-check tidy-check diff-check docs-check react-admin-check admin-frontend") {
+		t.Fatal("acceptance does not run the complete React Admin frontend gate")
+	}
+}
+
+func TestMakeAcceptanceRunsPinnedVulnerabilityScans(t *testing.T) {
+	data, err := os.ReadFile(repositoryMakefile(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	makefile := string(data)
+	const command = "$(GO_COMMAND_ENV) $(GO) run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./..."
+	if strings.Count(makefile, command) != 2 {
+		t.Fatalf("govulncheck command count = %d, want framework and consumer", strings.Count(makefile, command))
+	}
+	if !strings.Contains(makefile, "acceptance: format-check tidy-check diff-check docs-check react-admin-check admin-frontend test panicnil vet vulncheck") {
+		t.Fatal("acceptance does not run the pinned vulnerability scans")
+	}
+}
+
 func TestMakeReleaseTargetsSeparateMetadataFullAndRemoteGates(t *testing.T) {
 	data, err := os.ReadFile(repositoryMakefile(t))
 	if err != nil {
@@ -303,10 +348,10 @@ func TestMakeRepeatTargetsOnlyStatefulHighRiskPackages(t *testing.T) {
 		}
 	}
 	for _, required := range []string{
-		"./action", "./adapters/...", "./appcmd", "./appkit", "./database",
+		"./action", "./adapters/...", "./appcmd", "./appkit", "./database", "./httpkit",
 		"./internal/actionruntime", "./internal/callbackcontract", "./internal/databasecontrol",
 		"./internal/jsonschema/...", "./internal/jsonvalue", "./internal/runtimecontrol",
-		"./internal/safeerr", "./internal/sqlpolicy", "./internal/transactionoutcome", "./module", "./projecttool",
+		"./internal/safeerr", "./internal/sqlpolicy", "./internal/transactionoutcome", "./module", "./projecttool", "./starter",
 		"./transport/httpapi",
 	} {
 		if !strings.Contains(packages, required) {
@@ -380,6 +425,15 @@ func TestCIUsesCompleteHistoryAndCurrentNode24Actions(t *testing.T) {
 	} {
 		if count := strings.Count(contents, contract.needle); count != contract.count {
 			t.Errorf("CI %s contract count = %d, want %d", name, count, contract.count)
+		}
+	}
+	for _, required := range []string{
+		"actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0",
+		"node-version: 24",
+		"npm install --global pnpm@11.1.3 && pnpm --version",
+	} {
+		if !strings.Contains(contents, required) {
+			t.Errorf("CI React Admin toolchain does not contain %q", required)
 		}
 	}
 }

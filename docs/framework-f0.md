@@ -1,499 +1,304 @@
-# Modary Framework F0 Contract
+# Modary v0.2 F0 Framework Contract
 
-- Status: Accepted implementation contract
-- Stability: Alpha
-- Go module: `github.com/iiwish/modary`
-- Runtime profile: PostgreSQL control database with a River task schema
+- Product: lightweight, componentized Go backend framework
+- Source target: `v0.2.0-alpha.1`
+- Distribution status: not released
+- Frozen published baseline: `v0.1.0-alpha.3`
+- License: Apache-2.0
 
-## Product Boundary
+This document is the canonical technical contract for the v0.2 F0 source. It
+defines what Core guarantees, which official components exist, what each
+Starter Profile selects, and where consumer ownership begins.
 
-Modary is an independently consumable application framework. It defines the
-governance and lifecycle mechanics shared by modular applications; it does not
-define a consumer product, business schema, navigation model, bootstrap user,
-default policy, frontend build, or release executable.
+## 1. Product Boundary
 
-A consumer owns:
+Modary helps a Go team build a modular monolith without accepting a bundled
+product. It provides explicit Module composition, typed capabilities, ordered
+lifecycle, narrow infrastructure contracts, selectable official components,
+and create-only starters. A generated project is ordinary consumer-owned Go
+and, for the Admin Profile, React source.
 
-- one explicit Go composition function;
-- feature and adapter selection;
-- domain Actions, migrations, policy, provisioning, and configuration;
-- HTTP route mounting, UI assets, branding, and deployment;
-- a pinned project-tool entry point and its release command.
+Modary is not an admin product, low-code platform, ORM, workflow engine,
+runtime plugin marketplace, or mandatory architecture for every application.
+It does not own consumer domain models, menus, routes, deployment manifests, or
+release cadence.
 
-The framework owns:
+The governing rule is:
 
-- pure Module definitions and dependency verification;
-- typed, capability-scoped services and lifecycle cleanup;
-- typed Action contracts and compiled schema validation;
-- authorization, Preview plans, idempotency, transactions, and audit ordering;
-- opaque application assembly and explicit transport adapters;
-- bounded deterministic project inspection, generation, and checking, plus a
-  cancelable root-verified consumer build workflow.
+> Core defines composition and lifecycle. Components add capabilities.
+> Profiles select a coherent starting set. The application owns the product.
 
-The production import matrix uses an explicit public package inventory and a
-per-package privileged-internal allowlist. Unknown public packages fail closed;
-`appcmd` cannot depend on transports or project tooling, and official Adapters
-cannot depend on sibling Adapters. Action and transport packages reach the JSON
-Schema implementation only through `internal/jsonschema`; direct engine imports
-are not allowlisted.
+## 2. Core
 
-## Composition
+Core consists primarily of `module`, `appkit`, `httpkit`, and their narrow
+contract packages. It is database-free and does not require PostgreSQL, River,
+Identity, RBAC, Audit, governed Actions, MCP, React, Node.js, or a project
+manifest.
 
-`appkit.DefinitionProvider` is the canonical error-returning composition
-contract. `appcmd.DefinitionProvider` and `projecttool.DefinitionProvider` are
-aliases of that contract, so one consumer function is used by both the
-application and the consumer-owned project-tool entry point. The command
-identity is a pure value reused by the Definition and `appcmd` options:
+### 2.1 Module Definition
 
-```go
-func ApplicationMetadata() appkit.Metadata {
-	return appkit.Metadata{
-		ID: "example-app", Name: "Example App", Version: "0.1.0",
-	}
-}
+A consumer defines Modules in Go. Each Module has a stable manifest and may
+declare dependencies, capabilities, migrations, lifecycle callbacks, and
+governed Actions. Go source is the only runtime composition source.
 
-func Definition(config Config) (appkit.Definition, error) {
-	storage, err := postgres.Module(postgres.Options{
-		URL: config.DatabaseURL,
-		ApplicationSchema: "example_app",
-		QueueSchema: "example_queue",
-	})
-	if err != nil {
-		return appkit.Definition{}, fmt.Errorf("configure PostgreSQL: %w", err)
-	}
-	return appkit.Definition{
-		Metadata: ApplicationMetadata(),
-		Modules: []module.Registration{
-			storage,
-			identities,
-			authorization,
-			auditLog,
-			feature,
-		},
-	}, nil
-}
+The graph:
 
-func CommandOptions() appcmd.Options {
-	return appcmd.Options{
-		Metadata: ApplicationMetadata(),
-		Handler:  NewHTTPHandler,
-	}
-}
-```
+- rejects duplicate IDs and invalid dependencies;
+- detects cycles before runtime effects;
+- resolves dependencies in deterministic order;
+- starts providers before dependants;
+- cleans up in reverse dependency order;
+- validates required capabilities before invoking Module startup;
+- retains no source-scanning or hidden registration path.
 
-Official Adapter factories validate and copy their options while constructing a
-Registration, but perform no I/O, random generation, password hashing, migration
-read, handler construction, or Module startup. Consumer Registrations are
-validated by the Host and `projecttool`; inspection never invokes their runtime
-callbacks. `projecttool` can therefore inspect the same Definition without
-creating runtime state. Consumers return Adapter construction errors with
-operation context instead of converting them to panics.
+Module identity is a persisted contract when used in migrations, Actions,
+permissions, or generated metadata. Consumers do not rename it casually.
 
-Every Module declares a `modary.module/v1alpha2` manifest with a SemVer version,
-typed `module.ModuleType`, required capabilities, and provided capabilities.
-`module.ModuleTypeFeature` and `module.ModuleTypeAdapter` are the supported
-manifest types. `module.Capability` is an open named string type. The standard
-framework values are `module.CapabilityDatabase`, `CapabilityIdentity`,
-`CapabilityAuthorization`, and `CapabilityAudit`; consumer modules may declare
-validated namespaced capabilities and bind them to typed `module.Key[T]`
-values. A provider and its consumers import one package-level typed key;
-recreating its name and type produces a different identity and fails closed.
-The Host verifies the complete graph and Action catalog before side
-effects. During startup a Module
-can resolve only declared requirements and capabilities, provide only declared
-capabilities, and register process cleanup only while its Start callback is
-active. The Host applies each matching migration set after the database becomes
-available and before constructing that Module's Action handlers. Handler
-factories receive a sealed read-only `module.Resolver`, not the mutable startup
-scope. The HandlerFactory Resolver is valid only during the factory call.
-Factories resolve and retain service values rather than the Resolver; retained
-use returns `module.ErrInvalidResolver`.
+### 2.2 Capability Model
 
-Hosts are constructed only through `module.NewHost` or
-`module.NewHostWithOptions`. Nil, zero, forged-initialization, or copied Host
-values report `module.StateUnavailable`; stateful public operations return
-`module.ErrHostUnavailable` without reaching lifecycle state. `Register`
-defensively copies the manifest, Action descriptors, callback slices, and
-migration declarations. After the one permitted Start attempt reaches success,
-failure, or cancellation, the Host releases its Start callbacks, handler
-factories, and migration filesystem references while retaining only static
-catalog metadata. It never mutates the caller's Registration. The consumer owns
-the lifetime of its original Definition and any credentials captured by its
-callbacks.
+Capabilities are typed keys resolved through the Module assembly boundary.
+They express actual dependencies rather than enabling a service locator.
+Providers are installed explicitly by the composition root or a selected
+component. Missing required capabilities fail startup.
 
-Startup failure revokes partially constructed services and Actions and attempts
-all cleanup. Cleanup guarantees invocation-start order: LIFO within a Module and
-reverse dependency order across Modules.
-A timed-out cleanup callback may overlap later callbacks and provider cleanup,
-so trusted callbacks honor cancellation and stop using dependent services
-before returning. Completion order is not guaranteed after a timeout. The first
-`Host.Assemble` call caches either its immutable facade set or its failure.
-Every returned Runtime, actor-resolution, session, and bearer-token
-facade shares one Host-owned assembly gate and lifecycle domain. `Shutdown`
-delegates to the Host shutdown sequence, which rejects new leases, cancels active
-leased contexts, and waits for all active leases to release before invoking
-cleanup exactly once. New calls through a retained Runtime or identity facade
-fail closed after revocation and never reach a cleaned Module service. Each
-caller context bounds only that caller's wait for shutdown. If an active facade
-ignores cancellation, `Shutdown` returns the caller context error while the gate
-stays revoked. The Host shutdown sequence waits independently and starts cleanup
-automatically when the final lease is released; another `Shutdown` call is not
-required. Once cleanup begins, each cleanup callback has an independent timeout
-so a non-cooperative callback cannot prevent later callbacks from being
-attempted.
+Consumer code imports the narrow public contract it needs. Official adapters
+do not import sibling adapters; the composition root joins them.
 
-`action.Runtime` methods may run concurrently. Handlers, authorization, audit,
-identity, database, and Clock implementations are trusted concurrency-safe
-dependencies that honor their supplied contexts and return promptly after
-cancellation. `AuditFailure` has the same contract and receives an
-independent deadline context for every notification; it cannot replace the
-primary Runtime result.
+### 2.3 Lifecycle
 
-Panic containment uses callback completion state rather than the recovered value.
-This keeps lifecycle, Runtime, transaction, transport, command, and tooling
-boundaries correct for both ordinary panic values and `panic(nil)`, including
-the legacy behavior selected by `GODEBUG=panicnil=1`.
+Definition inspection is pure. It opens no database, starts no worker, creates
+no Handler, and performs no migration. Runtime assembly and startup are
+separate operations.
 
-## Governed Actions
+Startup is single-use. A failed start is terminal for that Host. Shutdown
+revokes new facade leases, cancels active leased contexts, and performs
+exactly-once cleanup. Trusted callbacks must honor context cancellation; Go
+cannot forcibly terminate a callback that does not cooperate.
 
-An Action descriptor fixes its ID, version, permission, allowed channels,
-Preview policy, idempotency requirement, audit level, strict input, Preview, and
-output schemas, and its consumer-owned public error codes. `action.Channel` is
-an open named string type; the built-in surfaces use `action.ChannelCLI`,
-`action.ChannelHTTP`, and `action.ChannelMCP`, while consumers may declare
-additional validated channels. Each custom error is
-a bounded namespace-qualified code paired with one closed semantic `ErrorKind`.
-Framework-owned codes cannot be redeclared, and custom `internal` errors are not
-valid contracts. Registration canonicalizes and compiles the descriptor once;
-the contract hash binds every governance field, including error code and kind.
-The public catalog returns defensive copies and never exposes a Handler.
+### 2.4 Optional Runtime Facades
 
-An Action schema, request input, or Handler plan payload is one separate Action
-JSON document. A Preview summary, Result data, or persisted Action JSON value is
-also one separate Action JSON document. Every Action JSON document has
-independent limits of at most 1 MiB (1,048,576) source bytes,
-256 nested object or array containers including the root container,
-65,536 JSON value nodes including containers and scalar values but excluding
-object member names, and 4,096 source bytes for any one JSON number token. Every
-document is valid UTF-8, contains exactly one JSON value, and has no
-duplicate object member names. HTTP and MCP request envelopes have
-independent byte budgets. Their 2 MiB defaults can carry one complete
-maximum-size Action JSON document plus required envelope fields.
-Every extracted Action document is revalidated against the
-per-document Action limits.
+`appkit.Application` exposes only assembled capabilities. Database, Identity,
+Authorizer, Action Runtime, and task behavior are optional. A database-free
+application receives no synthetic database facade. Declaring a governed Action
+without its required providers fails closed.
 
-Action schemas implement JSON Schema Draft 7 with object and boolean roots. The
-compiler clones the source once and builds one immutable executable SchemaGraph.
-That graph contains every schema-syntax location plus the unique closure reached
-through arbitrary local JSON Pointer references; the Action compiler, static profiler, and
-MCP embedder consume the same graph.
+### 2.5 HTTP Composition
 
-A `$ref` must be a URI fragment that decodes to the root JSON Pointer (`#`) or
-an absolute JSON Pointer (`#/...`, including valid percent-encoding). Empty,
-relative, query, named-fragment, file, and network references are rejected.
-Every actual schema node prohibits `id` and `$id`. An object containing those
-keys inside `const`, `enum`, or another annotation remains literal data unless a
-local reference targets it as a schema. The graph root and every hidden
-reference root are validated offline against an embedded Draft 7 metaschema
-whose SHA-256 is pinned before compilation. There is no external schema
-registry, file access, or network I/O.
+`httpkit` composes explicit standard-library handlers under bounded prefixes.
+It does not scan Modules or infer routes. Consumer modules own route paths,
+request models, handlers, and presentation behavior.
 
-The executable profile allows at most 2,048 schema nodes, 512 entries in one
-schema collection, 256 enum values, 16 KiB for one encoded `const` or `enum`,
-4 KiB for one Go RE2 regular-expression pattern, 1,024 same-instance schema
-visits, and 64 Mi cumulative numeric compilation work units across constraints
-and numeric `const` or `enum` literals. Draft 7 integer-valued limits accept
-mathematically integral forms such as `1.0` and `1e1`. Schema numbers retain
-exact native JSON equality and rational comparison semantics.
+## 3. Public Infrastructure Contracts
 
-Each validation call receives 64 Mi work units, 4,096 mismatch events, and 4,096 active evaluation frames.
-Work is charged for recursive visits,
-collection iteration, actual key and string bytes, Go RE2 evaluation, instance
-numbers, and compiled numeric operands. Validation is flag-only and never
-constructs or exposes the dependency engine's diagnostic tree. Static profile
-exhaustion rejects Action descriptor construction. Evaluation resource
-exhaustion maps to `LIMIT_EXCEEDED`; a completed non-match maps to
-`VALIDATION_FAILED`. Validators are immutable and concurrency-safe.
+### 3.1 Ordinary Business Store
 
-MCP rebases references from that SchemaGraph. Structural targets remain direct;
-a target originating inside literal or unknown-keyword data is copied to one
-collision-free framework annotation while its original literal is unchanged.
-Tool-schema compilation retains every Action collection, enum, literal,
-pattern, same-instance, and evaluation limit. Its fixed wrapper adds exactly
-128 schema nodes, a 1 Mi numeric wrapper allowance, and 4,096 compile-only JSON
-value nodes for wrapper structure and hidden-reference copies.
+`database.Store` is the provider-neutral contract for ordinary application
+data. It supports reads, writes, and explicit `WithinTransaction` units. The
+consumer owns repositories, SQL, migrations, and transaction boundaries.
 
-The vendored official Draft 7 mandatory corpus is pinned by commit and snapshot
-digest. It contains 37 files, 257 cases, and 927 instance tests. Modary executes
-223 cases and 856 tests. An exact manifest accounts for the 34 excluded cases
-and 71 tests that require schema identifiers, URI bases, anchors, or non-local
-resources, and verifies that each excluded schema still fails for its declared
-F0 policy.
+`adapters/postgresdb` is the official PostgreSQL implementation. It does not
+install River, Action persistence, audit tables, or governed transaction
+authority.
 
-HTTP and MCP require an explicit `input` member. A missing member is a protocol
-validation failure and does not enter or audit Runtime. Present `null`, `{}`,
-array, string, number, and boolean values remain distinct JSON documents and
-reach Runtime, where the Action schema decides whether they are valid. Direct
-Runtime callers receive the same Action JSON and schema validation, including a
-rejected audit event for a malformed request.
+### 3.2 Governed Database Access
 
-Preview execution canonicalizes and validates the envelope and input before
-planning, then performs intent authorization, handler planning, impact
-authorization and constraint checks. Plan persistence and its required Preview
-audit record share a transaction. Plans bind the Action contract, actor, channel,
-execution scope, canonical input, impact, snapshot, authorization fingerprint,
-and expiration.
+`database.Access` is a deliberately narrower contract used inside governed
+Action execution. It cannot begin its own transaction. Mutations are accepted
+only while the Runtime owns the transaction. This prevents a Handler from
+escaping idempotency, audit, and task atomicity.
 
-Write execution validates the request and current intent before looking up an
-idempotency result. A new write resolves and authorizes its plan, then repeats
-intent and impact authorization inside the write transaction before reserving
-the idempotency key or calling the Handler. The business mutation, completed
-result, and allowed audit event share that transaction. A completed replay is
-reread and reauthorized inside a transaction before its stored result is
-disclosed. Denied and failed audit events use a detached bounded context after
-rollback and report persistence failure without replacing the primary error.
+### 3.3 Identity And Authorization
 
-Framework-internal database control owns commit, rollback, administrative SQL,
-and migration execution. Consumer handlers receive only the narrow governed
-`database.Access`. Its write methods fail outside the transaction-bound context
-supplied by the Runtime. Reads accept one `SELECT`; writes accept one `INSERT`,
-`UPDATE`, or `DELETE`. Multiple statements, DDL, administration, transaction
-control, and executable rollback conflict forms fail closed before reaching the
-backend or resolving its transaction-bound write executor. Returned SQL results
-and rows are guarded against nil, typed-nil,
-panicking, and failing dependency implementations. The framework-provided
-capability cannot be asserted to privileged control or a raw database handle. A
-private typed service key connects official durable adapters to Host assembly;
-the key and control type are unavailable to external Modules and cannot be
-reached through the reflected method set of `module.Scope` or
-`module.Resolver`.
+`identity` and `authz` are contracts. `adapters/localidentity` and
+`adapters/rbac` are selectable implementations for development and bounded
+internal deployments. Core does not select an identity model or default policy.
 
-The transaction callback is synchronous and exactly once. The official PostgreSQL
-owner supplies private operation-correlated completion proof. Runtime preserves
-a business rejection only after confirmed rollback; uncertain rollback,
-rollback failure, commit failure, forged or wrapped proof, and callback contract
-violations are `INTERNAL_ERROR`. Nested PostgreSQL transactions join the outer unit
-without a savepoint. An inner error or panic marks the outer transaction
-rollback-only, so an outer callback cannot commit by swallowing the inner
-failure. PostgreSQL transaction state detect SQL that prematurely ends the
-framework-owned transaction.
+`transport/sessionhttp` supplies standalone login, current-session, logout,
+CSRF, and authenticated middleware for Admin applications. It does not require
+the Action Runtime.
 
-The official durable profile also provides `module.CapabilityTasks`. A Module
-that declares it resolves the public `task.Service` and may enqueue only from a
-governed Action transaction. The domain write and River insertion use the exact
-same PostgreSQL transaction internally; neither River nor raw transaction types
-cross the public boundary. Runners are configured before start, delivery is at
-least once, and consumer handlers own stable identity and idempotent external
-effects.
+### 3.4 Governed Actions
 
-Handler failures may return exactly one governed `action.Error` through a
-bounded trusted error graph. Framework business codes are restricted by source;
-custom codes must appear in the current descriptor, match their declared kind,
-and carry a trimmed, valid UTF-8 message of at most 512 runes with no control or
-line-separator characters. Denial codes come only from a validated denied
-`authz.Decision`; Handler `denied` and `internal` custom errors are rejected.
-Operational failures from authorization, plan, idempotency, audit, and
-transaction dependencies are always `INTERNAL_ERROR`, regardless of an
-`action.Error` in their cause graph.
+The governed component is for high-impact mutations that need Preview,
+authorization over intended effects, optimistic state binding, idempotency,
+transactional audit, and durable follow-up work.
 
-The normalized code, kind, and message form one channel-independent public
-contract. HTTP derives status from kind, MCP returns the same structured fields,
-and CLI prints the same safe code and message while retaining bounded
-`errors.Is`/`errors.As` identity. Audit records use `denied` for denied kinds,
-`rejected` for public business kinds, and `failed` for unavailable or internal
-kinds. Internal and malformed envelopes are replaced with stable generic output;
-dependency and panic detail never enters a public channel.
+The flow is:
 
-## Application And Transports
+1. authenticate actor and validate input;
+2. authorize intent;
+3. preview current and intended effects;
+4. bind an expiring plan to actor, scope, input, and state;
+5. execute the exact plan in one framework-owned transaction;
+6. commit business control state, idempotency, required audit, and task insert
+   together;
+7. return stable public results and errors.
 
-`appkit.Start` asks the Module Host to assemble one atomic snapshot of required
-governance services and optional identity facades, then returns an opaque
-`Application`. Its public surface contains immutable
-metadata, a read-only Action catalog, the governed Runtime, identity facades,
-readiness, and shutdown. It does not expose the Host, mutable registry, concrete
-database, service container, or raw Action handlers.
+This path is optional. Ordinary Admin CRUD does not need Preview or River.
 
-Consumers mount transports explicitly:
+### 3.5 Durable Tasks
 
-- `httpapi.NewHealth` exposes application-owned health metadata;
-- `httpapi.NewAPI` exposes session-authenticated Action routes with strict JSON,
-  bounded bodies, request deadlines, CSRF protection, and secure cookies by
-  default;
-- `httpapi.NewMCP` exposes only Actions declaring the MCP channel and reports
-  consumer-supplied application identity;
-- `httpapi.NewSPA` validates and snapshots a bounded consumer-provided regular-
-  file tree at construction, then serves immutable bytes without coupling routes
-  to a Module ID;
-- `appcmd` owns process signal, serve/drain, token-authenticated Action command,
-  and version orchestration while all business execution remains inside the
-  Runtime. CLI `--token-file <path>` is supported only on Linux and Darwin. The
-  token must remain a regular file owned by the effective UID with exact mode
-  `0400` or `0600`; Darwin also queries the retained open file descriptor and
-  rejects any extended ACL. Every other operating system rejects a token path
-  before any filesystem access. Only `--token-file -` remains available there
-  and reads from standard input.
+`task` contains provider-neutral enqueue and runner contracts.
+`adapters/postgres` implements the governed PostgreSQL control store and River
+queue. It uses distinct application and queue schemas in the same physical
+database so a governed write and job insertion share one PostgreSQL
+transaction. Delivery is at least once; task consumers must be idempotent.
 
-`appcmd.Run` parses and validates help, version, and command syntax without
-invoking the Definition provider. Help and version use `Options.Metadata`.
-Serve and Action commands invoke the provider exactly once after pure command
-preflight, return ordinary provider errors with composition context, contain
-provider panics without exposing the panic value, and require the resulting
-Definition metadata to exactly match `Options.Metadata`. `appcmd.Serve` and
-`appcmd.RunAction` remain lower-level entry points for callers that already own
-an assembled Definition. `appcmd.HandlerFactory` receives the active Serve
-context and the fully started `appkit.Application`; handler construction must
-observe context cancellation cooperatively.
+River tables need a schema, not a dedicated database. PostgreSQL provisioning,
+TLS, backup, failover, and monitoring remain operator responsibilities.
 
-The authenticated `httpapi.NewAPI` and `httpapi.NewMCP` constructors require
-`application.Ready()` to be true. Handlers constructed while ready retain leased
-Runtime and identity facades, so requests fail closed once shutdown revokes the
-Application gate. Lifecycle revocation and lifecycle-canceled authentication are
-reported as unavailable rather than as internal server failures.
+## 4. Official Profiles
 
-HTTP sessions, MCP bearer authentication, and command bearer authentication
-validate every actor returned by the installed Identity adapter before catalog
-discovery or Action execution. Invalid adapter output fails closed as a
-dependency failure. All extension and dependency causes cross one opaque public
-error-chain boundary. Standard `errors.Is` and `errors.As` perform bounded
-matching without calling caller-defined `Error`, `Is`, `As`, or `Unwrap`; an
-external consumer needs no internal helper import. `appcmd.Options.Stdout` and
-`Stderr` are trusted, cooperative dependencies: `Write` must return because
-context cancellation and shutdown timeouts cannot interrupt a blocked writer.
+Profiles are create-time selections, not runtime modes. Generated composition
+and source contain the selected concrete component set. Omitted adapters and
+infrastructure libraries are absent from the consumer package graph. Core's
+small provider-neutral contract packages may remain because Module and AppKit
+expose typed optional capabilities; their presence installs no service.
 
-Unconfigured MCP and UI routes do not exist. The framework never discovers or
-embeds consumer assets implicitly.
+### 4.1 API Profile
 
-## Project Tooling
+`modary new <destination> --profile api` creates a database-free HTTP service
+with:
 
-The consumer pins a small Go entry point that calls `projecttool.Run` with the
-same error-returning Definition provider. The tool validates command syntax and
-`modary.yaml` before invoking that provider exactly once. `modary.yaml` declares
-application metadata, generated artifact paths, and one build target; it never
-declares the Module list.
+- explicit application Definition and lifecycle;
+- health and sample feature routes;
+- Go tests and buildable command;
+- no database, Identity, RBAC, Action, Audit, River, MCP, or frontend.
 
-- `verify` validates metadata, definitions, graph, capabilities, schemas,
-  migration declarations, and output policy without writing or starting a
-  Module. Migration source contents are opened and validated by the Host's
-  internal migration controller during application startup.
-- `generate` renders the graph, Action catalog, and optional TypeScript contract
-  deterministically, prepares the complete batch, and installs each changed file
-  with one sibling rename. That rename is atomic only where the host filesystem
-  guarantees rename atomicity. The TypeScript contract includes the complete
-  framework error map plus Action-specific declared codes, code unions, and
-  code-to-kind lookup types.
-- `generate --check` and `check` report drift without modifying files.
-- `build` verifies current artifacts and builds exactly one configured consumer
-  command before installing the output binary with the same sibling-rename
-  boundary. Build does not claim byte-for-byte reproducible binaries.
+Use it for small APIs, gateways, or services whose storage and auth decisions
+are not yet selected.
 
-The tool validates one strict bounded YAML document, rejects aliases, duplicate
-semantic identities, non-portable paths, path ancestry conflicts, symlinks, and
-project-root replacement. Filesystem validation and artifact mutation use one
-verified `os.Root`, honor context cancellation, and clean temporary files on
-failure. Same-root operations serialize within one process by the filesystem identity
-captured when the Project is loaded, not by pathname spelling.
-The generated set is not a filesystem-wide or crash-atomic transaction; a commit failure attempts
-in-process rollback, and separate processes must be serialized by consumer
-automation. Definition inspection never opens a migration filesystem or invokes
-Start or Handler factories.
+### 4.2 Admin Profile
 
-The Go build subprocess uses the verified absolute project pathname as its
-working directory, but its `-o` target is an outside-project operating system
-temporary directory rather than the configured project output.
-Before invoking Go, Modary canonicalizes `TMPDIR`, rejects it when it is inside
-or resolves through a symlink into the project, and retains a file descriptor
-and filesystem identity for that directory and every ancestor through `/`.
-Every retained directory is revalidated, must be owned by the effective UID or
-root, and may be group- or other-writable only when root-owned and sticky.
-Darwin also rejects any extended ACL at every retained level. The child staging
-directory must be effective-UID-owned with exact mode `0700`; Darwin also
-rejects an extended ACL on that child. Build removes every inherited
-case-variant `TMPDIR` and `GOTMPDIR` entry from the child environment, then sets both
-exactly once to the same canonical staging parent whose descriptor and ancestry
-are retained and revalidated. An ambient `GOTMPDIR` cannot override that parent.
-Every other platform,
-including other Unix variants and Windows, fails Build.
-F0 has no validated ACL policy there. Such platforms are cross-compile-only where
-covered. F0 claims no native Build, ACL, or rename runtime validation for them.
+`modary new <destination> --profile admin` creates a source-owned internal admin
+application with:
 
-Build sets `GO111MODULE=on`, `GOTOOLCHAIN=local`, `GOENV=off`, `GOWORK=off`,
-and an empty `GOFLAGS`, then invokes `go build` with `-mod=readonly` and
-`-buildvcs=false`. Other inherited environment, the selected Go executable and
-toolchain, and consumer source remain trusted inputs; Build is not a sandbox. Modary
-validates the staged regular non-empty file, copies it through the verified
-`os.Root` to a sibling temporary file, and installs it by rename. Root identity
-is rechecked after the subprocess returns. The working-directory pathname and
-same-UID concurrent replacement are also outside the sandbox boundary. Together
-these trusted inputs and deployment conditions are not a sandbox boundary.
+- ordinary PostgreSQL Store;
+- local Identity and scoped RBAC;
+- session and CSRF HTTP component;
+- React 19, React Router, Lucide React, and TypeScript source;
+- small typed context providers instead of a mandatory global state library;
+- an explicit frontend module registry;
+- responsive login, shell, and records CRUD vertical slice;
+- deterministic prebuilt assets embedded by the Go binary.
 
-On Linux and Darwin, Build starts Go in an independent process group. After
-`Start`, `waitid(WEXITED|WNOWAIT)` observes the group leader without reaping it.
-While the leader PID and PGID remain reserved, Build kills residual same-group
-descendants after either a zero or non-zero leader exit, then calls `Cmd.Wait`.
-When the leader exited successfully, pre-reap group cleanup succeeded, and the
-context remains active, `exec.ErrWaitDelay` from `Cmd.Wait` is only a residual
-inherited-pipe close backstop and does not fail Build. Writer, process-exit,
-cancellation, and cleanup errors still fail. Context cancellation also targets
-the same group. A trusted descendant that daemonizes or enters
-another process group can escape cleanup, so this is not a strong process sandbox.
-With cooperative output writers, compiler cancellation and inherited output
-pipes have a bounded wait. Caller-supplied `io.Writer.Write` must return; Go
-cannot interrupt a blocked call.
+The Profile contains no River schema, worker, Action Runtime, SQL Audit, MCP, or
+governed endpoint. The sample records module is instructional application code,
+not a framework domain model. Consumers replace it with their own Modules.
 
-## Official Adapters
+Node.js and pnpm are needed when changing or rebuilding Admin frontend source.
+They are not needed to run the built Go artifact.
 
-The official F0 stack consists of:
+### 4.3 Governed Profile
 
-- `adapters/postgres`: pgx-backed PostgreSQL control storage, module and River
-  migrations, transaction ownership, plan and idempotency storage, transactional
-  task insertion, and River worker lifecycle;
-- `adapters/localidentity`: explicitly provisioned principals with independent
-  optional password and bearer credentials, Argon2id, bounded password-check concurrency, sessions,
-  rotation, and revocation;
-- `adapters/rbac`: explicitly provisioned roles and scope-bound actor bindings,
-  default deny, row constraints, and transaction-aware authorization reads;
-- `adapters/sqlaudit`: bounded structured audit persistence with corruption
-  checks and transaction-aware writes.
+`modary new <destination> --profile governed` creates a headless governed service
+with:
 
-The official PostgreSQL stack is the F0 durable adapter boundary. Public
-`database.Access`, `database.Executor`, `database.Row`, and `database.Rows`
-describe only the consumer-side data capability and values. Backend
-construction, SQL policy wrapping, migration, Action persistence, and
-transaction control are framework-internal. External packages may implement
-`database.Access` for isolated consumer tests, but cannot install a substitute
-as the Host's canonical database service. The Host accepts privileged services
-only as one bundle owned by one official adapter, so mixed persistence owners
-and non-atomic transaction substitutes are not representable. A custom durable
-adapter therefore requires a framework contribution rather than an
-application-level plug-in.
+- governed PostgreSQL and River components;
+- local Identity, RBAC, and SQL Audit;
+- a required-preview `limits.set` consumer Action;
+- HTTP, CLI, and MCP Action exposure;
+- a durable worker consuming `limits.changed` tasks;
+- integration tests for Preview, Execute, replay, restart, audit, and task
+  consumption.
 
-Each Module migration source is a root `fs.ReadDirFile` containing at most 256
-entries. Names are valid single path elements of at most 255 bytes; each SQL file
-is at most 1 MiB and one source retains at most 16 MiB. Reads stop one byte beyond
-the applicable bound and all files are loaded and validated before any database
-effect. The PostgreSQL migration profile accepts forward DDL and DML but rejects
-transaction control, savepoints, temporary objects, administrative statements,
-trigger rollback expressions, `OR ROLLBACK` conflict actions, and every bare or
-quoted `temp.` schema reference. Applied
-history is also capped at 256 rows. One Module's complete pending suffix and its
-history records commit together.
+It includes no Admin UI. A product may adopt governed capabilities later for
+only the operations that justify them.
 
-Adapter options are copied and validated before startup. The PostgreSQL URL is
-required. Application and queue schemas are distinct, non-system names and must
-be owned by the configured role. Adapters do not read environment variables or
-global configuration and do not create product policy, secrets, or domain data.
-The application owns configuration loading and secret management.
+## 5. Starter And CLI Contract
 
-## Compatibility And Release
+`starter.Create` and `modary new` are create-only. They accept a valid Go
+module path, one known Profile, and a new or empty destination. They reject
+non-empty destinations, symlink traversal, unsafe paths, invalid names, and
+repeat creation. A failed creation rolls back files created by that attempt.
 
-All public packages are alpha. Generated JSON and TypeScript outputs are also
-alpha consumer artifacts and are guarded by deterministic drift tests rather
-than a long-term compatibility promise. Consumers pin an exact Modary version
-and upgrade deliberately.
+The generated project is intentionally visible rather than hidden behind
+configuration:
 
-The F0 acceptance fixture proves a separate module by copying it outside the
-framework checkout and using an absolute local `replace`. Remote installation
-becomes a release claim only after this module path is published and tagged. The
-source and documentation are licensed under Apache-2.0 with applicable
-third-party notices preserved. Licensing does not turn local technical
-acceptance into a remote installation or release claim.
+- the composition root lists selected adapters and Modules;
+- routes are mounted explicitly;
+- migrations and SQL remain in consumer source;
+- frontend modules are explicitly registered;
+- `go.mod` shows the actual dependency set.
+
+There is no patch or automatic upgrade command in F0. Consumers upgrade the
+pinned module deliberately and review source changes. This avoids a generator
+silently rewriting product-owned code.
+
+`projecttool` and `modary.yaml` remain optional advanced tooling for consumers
+that want deterministic graph, Action catalog, TypeScript contract, and
+constrained build outputs. Starter projects do not need them.
+
+## 6. Admin UI Contract
+
+The Admin UI is an optional baseline, not a universal backend console. It must
+remain useful after generation and easy to delete or replace.
+
+F0 guarantees:
+
+- authentication restoration and protected routes;
+- desktop and mobile navigation;
+- explicit module navigation entries and route registration;
+- list, create, edit, delete, loading, error, and empty states;
+- keyboard-operable dialogs, focus restoration, and accessible labels;
+- bounded responsive layouts without horizontal overflow;
+- deterministic frontend build and embedded asset verification.
+
+F0 does not provide a page builder, schema-driven form engine, visual policy
+editor, dashboard marketplace, theme marketplace, or runtime frontend plugin
+registry.
+
+## 7. Security Boundary
+
+Modary treats consumer Modules, callbacks, SQL, handlers, task consumers,
+configuration, and output writers as trusted process code. It validates its
+own public boundaries but is not a hostile plugin or build sandbox.
+
+Local Identity credentials generated for development must be replaced before
+deployment. Internet-facing products require an appropriate external identity
+adapter plus product-specific session, recovery, MFA, proxy, rate-limit, and
+abuse controls.
+
+Profile absence is a security property: selecting API or Admin cannot expose
+governed Action, task, audit, or MCP surfaces that were not compiled into the
+application.
+
+## 8. Persistence Ownership
+
+Each consumer Module owns its schema objects and ordered forward migrations.
+Applied migration history is immutable. The controller validates complete
+history and commits one Module's pending migrations atomically. Cross-Module
+migrations are ordered, not one global transaction.
+
+Ordinary Admin data may use the selected PostgreSQL Store. A consumer can
+implement another `database.Store` without changing Core. F0 provides no
+official MySQL or embedded adapter and makes no cross-database transaction
+claim.
+
+## 9. Acceptance Contract
+
+F0 acceptance requires all three Profiles to be generated outside the source
+tree and verified with `GOWORK=off`:
+
+- API tests and builds without optional component packages;
+- Admin tests, real PostgreSQL CRUD/restart, frontend frozen install, lint,
+  types, tests, build, asset parity, and absence of River and governed
+  adapters/routes/services;
+- Governed tests, real PostgreSQL/River Preview-to-task flow, restart, worker,
+  CLI/HTTP/MCP parity, and absence of Admin UI;
+- full repository tests, race tests, vet, formatting, tidy, repeat, cross-build,
+  documentation, generated-state, import-direction, and diff checks;
+- product and engineering review with no unresolved P0, P1, or P2 finding;
+- visual QA at desktop and mobile viewports with no browser errors.
+
+The detailed current result is in
+[F0 acceptance report](f0-acceptance-report.md). Operational exclusions are in
+[known limitations](f0-known-limitations.md).
+
+## 10. Release Boundary
+
+The current source targets `v0.2.0-alpha.1` but is not a published release.
+`v0.1.0-alpha.3` remains an immutable historical Governed-first release. The
+v0.2 candidate may be tagged only after a clean committed candidate passes the
+release-readiness and remote-consumer gates. No acceptance document moves or
+rewrites a published tag.

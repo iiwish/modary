@@ -1,0 +1,82 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"{{.ModulePath}}/internal/config"
+	"{{.ModulePath}}/internal/limits"
+	"{{.ModulePath}}/internal/project"
+	"github.com/iiwish/modary/appkit"
+	"github.com/iiwish/modary/task"
+)
+
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func run(ctx context.Context) error {
+	runtimeConfig, err := config.Load()
+	if err != nil {
+		return err
+	}
+	definition, err := project.NewDefinition(runtimeConfig)
+	if err != nil {
+		return err
+	}
+	application, err := appkit.Start(ctx, definition, appkit.Options{})
+	if err != nil {
+		return fmt.Errorf("start worker application: %w", err)
+	}
+	handler, err := limits.NewTaskHandler(func(_ context.Context, event limits.ChangeEvent) error {
+		// Replace this idempotent callback with the product's downstream effect.
+		log.Printf("processed %s for %s at version %d", limits.TaskKind, event.Scope, event.Version)
+		return nil
+	})
+	if err != nil {
+		return errors.Join(err, stopApplication(application))
+	}
+	tasks := application.Tasks()
+	if tasks == nil {
+		return errors.Join(fmt.Errorf("governed task service is unavailable"), stopApplication(application))
+	}
+	runner, err := tasks.NewRunner(handler, task.RunnerOptions{
+		Queues: []task.Queue{
+			{Name: task.DefaultQueue, MaxWorkers: 4},
+		},
+		JobTimeout: 30 * time.Second,
+		SoftStopTimeout: 10 * time.Second,
+	})
+	if err != nil {
+		return errors.Join(err, stopApplication(application))
+	}
+	if err := runner.Start(context.Background()); err != nil {
+		return errors.Join(err, stopApplication(application))
+	}
+	log.Printf("worker started for queue %q", task.DefaultQueue)
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		return errors.Join(runner.Stop(shutdownCtx), application.Shutdown(shutdownCtx))
+	case <-runner.Stopped():
+		return errors.Join(fmt.Errorf("task runner stopped unexpectedly"), stopApplication(application))
+	}
+}
+
+func stopApplication(application *appkit.Application) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return application.Shutdown(ctx)
+}

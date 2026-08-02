@@ -1,0 +1,330 @@
+// Package records is a consumer-owned vertical slice: schema, authorization,
+// repository, and HTTP routes stay together instead of entering framework Core.
+package records
+
+import (
+	"context"
+	"crypto/rand"
+	"embed"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"net/http"
+	"regexp"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/iiwish/modary/authz"
+	"github.com/iiwish/modary/database"
+	"github.com/iiwish/modary/httpkit"
+	"github.com/iiwish/modary/identity"
+	"github.com/iiwish/modary/module"
+	"github.com/iiwish/modary/transport/sessionhttp"
+)
+
+const (
+	permissionList   = "records.list"
+	permissionCreate = "records.create"
+	permissionUpdate = "records.update"
+	permissionDelete = "records.delete"
+	maximumBodyBytes = int64(64 << 10)
+	maximumListRows  = 100
+)
+
+var recordIDPattern = regexp.MustCompile(`^rec_[0-9a-f]{24}$`)
+
+//go:embed migrations/postgres/*.sql
+var migrationFiles embed.FS
+
+func Registration() module.Registration {
+	migrations, err := fs.Sub(migrationFiles, "migrations/postgres")
+	if err != nil {
+		panic(err)
+	}
+	return module.Registration{Definition: module.Definition{
+		Manifest: module.Manifest{SchemaVersion: module.SchemaVersion, ID: "records", Version: "1.0.0",
+			Type: module.ModuleTypeFeature, Requires: []module.Capability{module.CapabilityDatabase}, Provides: []module.Capability{"records"}},
+		Migrations: []module.MigrationSource{ {Driver: "postgres", Files: migrations} },
+	}}
+}
+
+type Record struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Status    string    `json:"status"`
+	Version   int64     `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type createRequest struct {
+	Title  string `json:"title"`
+	Status string `json:"status"`
+}
+
+type updateRequest struct {
+	Title   string `json:"title"`
+	Status  string `json:"status"`
+	Version int64  `json:"version"`
+}
+
+type handler struct {
+	store      database.Store
+	authorizer authz.Authorizer
+}
+
+func Routes(store database.Store, authorizer authz.Authorizer, sessions *sessionhttp.API) ([]httpkit.Route, error) {
+	if store == nil || authorizer == nil || sessions == nil {
+		return nil, fmt.Errorf("records routes require Store, Authorizer, and session HTTP")
+	}
+	handler := &handler{store: store, authorizer: authorizer}
+	list, err := sessions.Authenticate(http.HandlerFunc(handler.list))
+	if err != nil {
+		return nil, err
+	}
+	create, err := sessions.Mutate(http.HandlerFunc(handler.create))
+	if err != nil {
+		return nil, err
+	}
+	update, err := sessions.Mutate(http.HandlerFunc(handler.update))
+	if err != nil {
+		return nil, err
+	}
+	remove, err := sessions.Mutate(http.HandlerFunc(handler.remove))
+	if err != nil {
+		return nil, err
+	}
+	return []httpkit.Route{
+		{Method: http.MethodGet, Path: "/api/records", Handler: list},
+		{Method: http.MethodPost, Path: "/api/records", Handler: create},
+		{Method: http.MethodPatch, Path: "/api/records/{id}", Handler: update},
+		{Method: http.MethodDelete, Path: "/api/records/{id}", Handler: remove},
+	}, nil
+}
+
+func (handler *handler) list(writer http.ResponseWriter, request *http.Request) {
+	actor, decision, ok := handler.authorize(writer, request, permissionList)
+	if !ok {
+		return
+	}
+	limit := maximumListRows
+	if decision.Constraints.MaxRows > 0 && decision.Constraints.MaxRows < limit {
+		limit = decision.Constraints.MaxRows
+	}
+	rows, err := handler.store.QueryContext(request.Context(), `
+		SELECT record_id, title, status, version, created_at, updated_at
+		FROM records WHERE scope_kind = $1 AND scope_id = $2
+		ORDER BY updated_at DESC, record_id LIMIT $3`, actor.Scope.Kind, actor.Scope.ID, limit)
+	if err != nil {
+		writeError(writer, request, http.StatusInternalServerError, "INTERNAL", "could not list records")
+		return
+	}
+	defer rows.Close()
+	records := make([]Record, 0)
+	for rows.Next() {
+		var record Record
+		if err := rows.Scan(&record.ID, &record.Title, &record.Status, &record.Version, &record.CreatedAt, &record.UpdatedAt); err != nil {
+			writeError(writer, request, http.StatusInternalServerError, "INTERNAL", "could not list records")
+			return
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(writer, request, http.StatusInternalServerError, "INTERNAL", "could not list records")
+		return
+	}
+	writeJSON(writer, http.StatusOK, struct {
+		Records []Record `json:"records"`
+	}{Records: records})
+}
+
+func (handler *handler) create(writer http.ResponseWriter, request *http.Request) {
+	actor, _, ok := handler.authorize(writer, request, permissionCreate)
+	if !ok {
+		return
+	}
+	var input createRequest
+	if decodeJSON(writer, request, &input) != nil || validateFields(input.Title, input.Status) != nil {
+		writeError(writer, request, http.StatusBadRequest, "VALIDATION_FAILED", "record title or status is invalid")
+		return
+	}
+	id, err := newRecordID()
+	if err != nil {
+		writeError(writer, request, http.StatusInternalServerError, "INTERNAL", "could not create record")
+		return
+	}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	record := Record{ID: id, Title: input.Title, Status: input.Status, Version: 1, CreatedAt: now, UpdatedAt: now}
+	err = handler.store.WithinTransaction(request.Context(), func(txCtx context.Context) error {
+		_, err := handler.store.ExecContext(txCtx, `INSERT INTO records
+			(record_id, scope_kind, scope_id, title, status, version, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, record.ID, actor.Scope.Kind, actor.Scope.ID,
+			record.Title, record.Status, record.Version, record.CreatedAt, record.UpdatedAt)
+		return err
+	})
+	if err != nil {
+		writeError(writer, request, http.StatusInternalServerError, "INTERNAL", "could not create record")
+		return
+	}
+	writeJSON(writer, http.StatusCreated, record)
+}
+
+func (handler *handler) update(writer http.ResponseWriter, request *http.Request) {
+	actor, _, ok := handler.authorize(writer, request, permissionUpdate)
+	if !ok {
+		return
+	}
+	id := request.PathValue("id")
+	var input updateRequest
+	if !recordIDPattern.MatchString(id) || decodeJSON(writer, request, &input) != nil ||
+		validateFields(input.Title, input.Status) != nil || input.Version < 1 {
+		writeError(writer, request, http.StatusBadRequest, "VALIDATION_FAILED", "record update is invalid")
+		return
+	}
+	updatedAt := time.Now().UTC().Truncate(time.Microsecond)
+	var affected int64
+	var updated Record
+	err := handler.store.WithinTransaction(request.Context(), func(txCtx context.Context) error {
+		result, err := handler.store.ExecContext(txCtx, `UPDATE records SET title=$1, status=$2, version=version+1, updated_at=$3
+			WHERE record_id=$4 AND scope_kind=$5 AND scope_id=$6 AND version=$7`, input.Title, input.Status,
+			updatedAt, id, actor.Scope.Kind, actor.Scope.ID, input.Version)
+		if err != nil {
+			return err
+		}
+		affected, err = result.RowsAffected()
+		if err != nil || affected != 1 {
+			return err
+		}
+		return handler.store.QueryRowContext(txCtx, `
+			SELECT record_id, title, status, version, created_at, updated_at
+			FROM records WHERE record_id=$1 AND scope_kind=$2 AND scope_id=$3`,
+			id, actor.Scope.Kind, actor.Scope.ID).Scan(&updated.ID, &updated.Title, &updated.Status,
+			&updated.Version, &updated.CreatedAt, &updated.UpdatedAt)
+	})
+	if err != nil {
+		writeError(writer, request, http.StatusInternalServerError, "INTERNAL", "could not update record")
+		return
+	}
+	if affected != 1 {
+		writeError(writer, request, http.StatusConflict, "VERSION_CONFLICT", "record changed or is not available in this scope")
+		return
+	}
+	writeJSON(writer, http.StatusOK, updated)
+}
+
+func (handler *handler) remove(writer http.ResponseWriter, request *http.Request) {
+	actor, _, ok := handler.authorize(writer, request, permissionDelete)
+	if !ok {
+		return
+	}
+	id := request.PathValue("id")
+	if !recordIDPattern.MatchString(id) {
+		writeError(writer, request, http.StatusBadRequest, "VALIDATION_FAILED", "record id is invalid")
+		return
+	}
+	var affected int64
+	err := handler.store.WithinTransaction(request.Context(), func(txCtx context.Context) error {
+		result, err := handler.store.ExecContext(txCtx, `DELETE FROM records WHERE record_id=$1 AND scope_kind=$2 AND scope_id=$3`,
+			id, actor.Scope.Kind, actor.Scope.ID)
+		if err != nil {
+			return err
+		}
+		affected, err = result.RowsAffected()
+		return err
+	})
+	if err != nil {
+		writeError(writer, request, http.StatusInternalServerError, "INTERNAL", "could not delete record")
+		return
+	}
+	if affected != 1 {
+		writeError(writer, request, http.StatusNotFound, "NOT_FOUND", "record was not found")
+		return
+	}
+	writer.WriteHeader(http.StatusNoContent)
+}
+
+func (handler *handler) authorize(writer http.ResponseWriter, request *http.Request, permission string) (identity.Actor, authz.Decision, bool) {
+	actor, ok := sessionhttp.Actor(request.Context())
+	if !ok {
+		writeError(writer, request, http.StatusUnauthorized, "AUTHENTICATION_REQUIRED", "authentication is required")
+		return identity.Actor{}, authz.Decision{}, false
+	}
+	decision, err := handler.authorizer.Authorize(request.Context(), authz.Request{Actor: actor, OperationID: permission,
+		Permission: permission, Scope: actor.Scope, Phase: authz.PhaseIntent})
+	if err != nil {
+		writeError(writer, request, http.StatusInternalServerError, "INTERNAL", "authorization is unavailable")
+		return identity.Actor{}, authz.Decision{}, false
+	}
+	if !decision.Allowed {
+		writeError(writer, request, http.StatusForbidden, "AUTHORIZATION_DENIED", "permission is not granted")
+		return identity.Actor{}, decision, false
+	}
+	return actor, decision, true
+}
+
+func validateFields(title, status string) error {
+	if !utf8.ValidString(title) || strings.TrimSpace(title) != title || strings.ContainsFunc(title, unicode.IsControl) || utf8.RuneCountInString(title) < 1 || utf8.RuneCountInString(title) > 200 {
+		return errors.New("title is invalid")
+	}
+	switch status {
+	case "draft", "active", "archived":
+		return nil
+	default:
+		return errors.New("status is invalid")
+	}
+}
+
+func newRecordID() (string, error) {
+	var value [12]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		return "", err
+	}
+	return "rec_" + hex.EncodeToString(value[:]), nil
+}
+
+func decodeJSON(writer http.ResponseWriter, request *http.Request, value any) error {
+	request.Body = http.MaxBytesReader(writer, request.Body, maximumBodyBytes)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(value); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return errors.New("body must contain one JSON value")
+	}
+	return nil
+}
+
+func writeError(writer http.ResponseWriter, request *http.Request, status int, code, message string) {
+	writeJSON(writer, status, struct {
+		Error struct {
+			Code string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+		RequestID string `json:"request_id,omitempty"`
+	}{Error: struct {
+		Code string `json:"code"`
+		Message string `json:"message"`
+	}{Code: code, Message: message}, RequestID: sessionhttp.RequestID(request.Context())})
+}
+
+func writeJSON(writer http.ResponseWriter, status int, value any) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		http.Error(writer, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	data = append(data, '\n')
+	writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+	writer.Header().Set("Content-Length", fmt.Sprint(len(data)))
+	writer.WriteHeader(status)
+	if status != http.StatusNoContent {
+		_, _ = writer.Write(data)
+	}
+}

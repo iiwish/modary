@@ -1,4 +1,4 @@
-// Package postgres provides Modary's canonical PostgreSQL durable profile and
+// Package postgres provides Modary's governed PostgreSQL profile and
 // River-backed transactional task service.
 //
 // Stability: alpha. Consumers should pin an exact pre-v1 Modary version.
@@ -74,9 +74,7 @@ func start(ctx context.Context, scope module.Scope, options Options, config *pgx
 		return fmt.Errorf("PostgreSQL start context is required")
 	}
 	db := stdlib.OpenDB(*config)
-	db.SetMaxOpenConns(options.MaxOpenConnections)
-	db.SetMaxIdleConns(options.MaxIdleConnections)
-	db.SetConnMaxLifetime(options.ConnectionMaxLifetime)
+	configurePool(db, options.MaxOpenConnections, options.MaxIdleConnections, options.ConnectionMaxLifetime)
 	resource := &databaseResource{db: db}
 	if err := module.OnStop(scope, resource.close); err != nil {
 		_ = db.Close()
@@ -112,6 +110,12 @@ func start(ctx context.Context, scope module.Scope, options Options, config *pgx
 		return err
 	}
 	return module.Provide[task.Service](scope, module.Tasks(), tasks)
+}
+
+func configurePool(db *sql.DB, maxOpen, maxIdle int, lifetime time.Duration) {
+	db.SetMaxOpenConns(maxOpen)
+	db.SetMaxIdleConns(maxIdle)
+	db.SetConnMaxLifetime(lifetime)
 }
 
 func prepareSchemasAndQueue(
@@ -163,8 +167,8 @@ func prepareSchemasAndQueue(
 	return nil
 }
 
-func createSchemas(ctx context.Context, connection *pgx.Conn, application, queue string) error {
-	for _, schema := range []string{application, queue} {
+func createSchemas(ctx context.Context, connection *pgx.Conn, schemas ...string) error {
+	for _, schema := range schemas {
 		if _, err := connection.Exec(ctx, `CREATE SCHEMA IF NOT EXISTS `+quoteIdentifier(schema)); err != nil {
 			return fmt.Errorf("create PostgreSQL schema %q: %w", schema, err)
 		}

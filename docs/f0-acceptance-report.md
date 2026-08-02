@@ -1,48 +1,62 @@
-# Modary Framework F0 Acceptance Report
+# Modary v0.2 F0 Acceptance Report
 
-- Acceptance object: independently consumable Modary Go framework
-- Governing contract: `.ai-platform/specs/005-postgres-task-runtime/spec.md`
+- Acceptance object: componentized Modary Go framework and three Starter Profiles
+- Governing contracts: `.ai-platform/specs/007-component-framework-refoundation/spec.md`
+  and `.ai-platform/specs/008-react-admin-starter/spec.md`
 - Date: 2026-08-02
 - Status: Accepted
-- Accepted source: f39457a52c10ceecd8defb77e0def1b331c45dd2
-- Consumption status: Tagged Go module and source checkout
-- Distribution status: Released
-- Version tag: v0.1.0-alpha.3
+- Distribution status: Not released
+- Target version: v0.2.0-alpha.1
+- Frozen baseline tag: v0.1.0-alpha.3
 - License: Apache-2.0
 
 ## Verdict
 
-The PostgreSQL-first Modary F0 is technically accepted for coordinated local
-source consumption. PostgreSQL is the only official durable profile; the public
-task API is domain-neutral; River and raw transaction authority remain private;
-and the independently copied-out Counter consumer uses only public contracts.
+The v0.2 F0 source is technically accepted as a lightweight componentized Go
+backend framework. Core starts without a database or governance stack. API,
+Admin, and Governed Profiles select materially different dependency graphs and
+produce visible consumer-owned composition. Ordinary Admin CRUD is independent
+from River and governed Actions; the Governed Profile retains the strict
+Preview, transaction, audit, idempotency, and durable-task path.
 
-The accepted source is published as `v0.1.0-alpha.3`. Hosted tag CI and normal
-copied-out Go module consumption verify the same immutable commit.
+Technical acceptance does not claim publication. The v0.2 candidate still
+requires a clean committed source candidate, owner release approval, immutable
+tag, hosted tag CI, and normal remote module verification.
 
 ## Acceptance Matrix
 
-| Area | Current result | Evidence gate |
+| Area | Result | Proved behavior |
 |---|---|---|
-| Public Kernel and lifecycle | Accepted | Public API, lifecycle, capability, cleanup, race, and unavailable-Host tests |
-| Governed Action runtime | Accepted | Transaction, rollback-only nesting, idempotency, audit, bounded JSON, and schema tests |
-| PostgreSQL durable profile | Accepted | Real PostgreSQL startup, owned schemas, migrations, restart, corruption, and transaction tests |
-| Durable task runtime | Accepted | Exact-transaction enqueue, retry, recovery, multi-runner, lifecycle, and secret-safety tests |
-| Standard adapters | Accepted | PostgreSQL-native Identity, RBAC, SQL Audit, migration, plan, and idempotency tests |
-| Independent consumer | Accepted | Copied-out, `GOWORK=off`, Node-free PostgreSQL Counter conformance, transactional enqueue, restart, and worker consumption |
-| Architecture and neutrality | Accepted | Public-boundary, import-direction, generated-drift, and active-tree neutrality gates |
-| Repository gates | Accepted | `make acceptance`, `make ci`, race, repetition, fuzz, build, and source-diff checks |
-| Engineering review | Accepted | Two current post-remediation review passes with no unresolved P0, P1, or P2 finding |
+| Core | Accepted | Database-free Module graph, capabilities, lifecycle, health, explicit routes, absent optional facades |
+| API Profile | Accepted | Create-only external project, `GOWORK=off` test/build/start/shutdown, no optional infrastructure imports |
+| Admin backend | Accepted | Ordinary PostgreSQL Store, local Identity, scoped RBAC, session/CSRF, CRUD and restart, no River/Action/Audit/MCP |
+| Admin UI | Accepted | React source, explicit module registry, session expiry, login and CRUD states, responsive/accessibility QA, deterministic embedded assets |
+| Governed Profile | Accepted | Preview/Execute/replay/restart/audit/task consumption through CLI, HTTP, MCP, and worker |
+| Component boundaries | Accepted | Separate ordinary and governed database authority; omitted concrete adapters and infrastructure libraries absent from generated graphs |
+| Architecture | Accepted | Public import direction, explicit composition, no Rulary product code in framework, optional advanced project tooling |
+| Repository quality | Accepted | Full tests, race, vet, formatting, tidy, repeat, cross-build, generated, documentation, neutrality, and diff gates |
+| Product review | Accepted | Profiles solve the lightweight-starting-point problem with no unresolved P0 through P2 finding |
+| Engineering review | Accepted | Current implementation and external acceptance have no unresolved P0 through P2 finding |
 
-## Evidence
+## External Acceptance
 
-- PostgreSQL and task contracts: `.ai-platform/evidence/T024/`
-- Standard durable persistence: `.ai-platform/evidence/T025/`
-- Consumer, deletion, and final acceptance: `.ai-platform/evidence/T026/`
-- Exact operational boundaries: `docs/f0-known-limitations.md`
+All Profiles are generated into temporary directories outside the repository.
+Validation disables Go work-file discovery and binds the candidate source only
+for local pre-release testing. The API project runs without infrastructure; the
+Admin and Governed projects pass real PostgreSQL integration. Admin frontend
+validation uses a frozen pnpm install and checks lint, types, tests, production
+build, and byte-for-byte embedded asset parity.
+
+The Profile-wide commands and results are recorded in
+`.ai-platform/evidence/T034/test-results.md` and
+`.ai-platform/evidence/T034/external-acceptance.md`. The React Admin replacement,
+copied-out frontend pipeline, generated Go application, and browser acceptance
+are recorded in `.ai-platform/evidence/T037/`.
 
 ## Release Boundary
 
-Alpha 3 passed clean candidate validation, hosted CI against PostgreSQL 17,
-normal Go module resolution, and copied-out remote consumer verification.
-Future releases repeat those gates and never move a published tag.
+`v0.1.0-alpha.3` remains immutable and continues to describe its historical
+Governed-first contract. The v0.2 work does not move or rewrite that tag. A
+future `v0.2.0-alpha.1` release must be created from the accepted source through
+the documented release process; until then consumers evaluate v0.2 from a
+pinned source checkout.

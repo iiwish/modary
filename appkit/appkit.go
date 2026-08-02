@@ -7,13 +7,15 @@ import (
 	"time"
 
 	"github.com/iiwish/modary/action"
+	"github.com/iiwish/modary/authz"
+	"github.com/iiwish/modary/database"
 	"github.com/iiwish/modary/identity"
 	"github.com/iiwish/modary/module"
 	"github.com/iiwish/modary/task"
 )
 
-// DefaultRollbackTimeout bounds Start's wait for cleanup when Runtime assembly
-// fails after Modules have started.
+// DefaultRollbackTimeout bounds Start's wait for cleanup when application
+// assembly fails after Modules have started.
 const DefaultRollbackTimeout = 10 * time.Second
 
 var (
@@ -27,6 +29,10 @@ var (
 	ErrSessionsUnavailable = errors.New("session authenticator is unavailable")
 	// ErrTokensUnavailable reports that no token authenticator was installed.
 	ErrTokensUnavailable = errors.New("token authenticator is unavailable")
+	// ErrDatabaseUnavailable reports that no business-data Store was installed.
+	ErrDatabaseUnavailable = errors.New("database store is unavailable")
+	// ErrAuthorizerUnavailable reports that no policy evaluator was installed.
+	ErrAuthorizerUnavailable = errors.New("authorizer is unavailable")
 )
 
 // Definition is the consumer-owned application composition source. Inspecting
@@ -46,7 +52,7 @@ type Definition struct {
 // commands and project-tool operations may invoke the provider independently.
 type DefinitionProvider func() (Definition, error)
 
-// Runtime is the complete governed execution surface exposed by Application.
+// Runtime is the optional governed execution surface exposed by Application.
 // It aliases action.Runtime and provides no Registry or Handler access.
 type Runtime = action.Runtime
 
@@ -63,21 +69,23 @@ type Options struct {
 	RollbackTimeout time.Duration
 }
 
-// Application is an opaque, fully assembled governed application.
+// Application is an opaque, fully assembled modular application.
 type Application struct {
 	metadata   Metadata
 	catalog    []action.CatalogEntry
 	runtime    Runtime
+	database   database.Store
 	identities identity.Resolver
 	sessions   identity.Authenticator
 	tokens     identity.TokenAuthenticator
 	tasks      task.Service
+	authorizer authz.Authorizer
 	ready      func() bool
 	shutdown   func(context.Context) error
 }
 
 // Start validates the complete static application contract before Module side
-// effects, then starts Modules and assembles the governed Runtime.
+// effects, then starts Modules and assembles the selected component facades.
 func Start(ctx context.Context, definition Definition, options Options) (*Application, error) {
 	if ctx == nil {
 		return nil, ErrContextRequired
@@ -123,10 +131,12 @@ func Start(ctx context.Context, definition Definition, options Options) (*Applic
 		return nil, rollbackAssembly(host, rollbackTimeout, fmt.Errorf("assemble application: %w", err))
 	}
 	runtime := assembly.Runtime()
+	store := assembly.Database()
 	identities := assembly.Identities()
 	sessions := assembly.Sessions()
 	tokens := assembly.Tokens()
 	tasks := assembly.Tasks()
+	authorizer := assembly.Authorizer()
 	if err := ctx.Err(); err != nil {
 		return nil, rollbackAssembly(host, rollbackTimeout, fmt.Errorf("assemble application: %w", err))
 	}
@@ -135,10 +145,12 @@ func Start(ctx context.Context, definition Definition, options Options) (*Applic
 		metadata:   definition.Metadata,
 		catalog:    cloneCatalog(catalog),
 		runtime:    runtime,
+		database:   store,
 		identities: identities,
 		sessions:   sessions,
 		tokens:     tokens,
 		tasks:      tasks,
+		authorizer: authorizer,
 		ready:      func() bool { return host.State() == module.StateRunning },
 		shutdown:   host.Shutdown,
 	}
@@ -189,7 +201,8 @@ func (application *Application) Catalog() []action.CatalogEntry {
 	return cloneCatalog(application.catalog)
 }
 
-// Runtime returns the governed Action execution facade.
+// Runtime returns the governed Action execution facade, or nil when the
+// application declares no Actions.
 func (application *Application) Runtime() Runtime {
 	if application == nil {
 		return nil

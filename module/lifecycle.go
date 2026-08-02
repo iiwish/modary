@@ -2,10 +2,13 @@ package module
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"sync"
 
 	"github.com/iiwish/modary/action"
+	"github.com/iiwish/modary/authz"
+	"github.com/iiwish/modary/database"
 	"github.com/iiwish/modary/identity"
 	"github.com/iiwish/modary/task"
 )
@@ -101,6 +104,158 @@ func (gate *assemblyGate) revoke() <-chan struct{} {
 type assemblyRuntime struct {
 	gate *assemblyGate
 	next action.Runtime
+}
+
+type assemblyStore struct {
+	gate *assemblyGate
+	next database.Store
+}
+
+func (store *assemblyStore) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	callCtx, release, err := store.acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return store.next.ExecContext(callCtx, query, args...)
+}
+
+func (store *assemblyStore) QueryContext(ctx context.Context, query string, args ...any) (database.Rows, error) {
+	callCtx, release, err := store.acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := store.next.QueryContext(callCtx, query, args...)
+	if err != nil {
+		release()
+		return nil, err
+	}
+	return &assemblyRows{next: rows, release: release}, nil
+}
+
+func (store *assemblyStore) QueryRowContext(ctx context.Context, query string, args ...any) database.Row {
+	if ctx == nil {
+		return assemblyErrorRow{err: ErrContextRequired}
+	}
+	return &assemblyLazyRow{store: store, ctx: ctx, query: query, args: append([]any(nil), args...)}
+}
+
+func (store *assemblyStore) WithinTransaction(ctx context.Context, operation func(context.Context) error) error {
+	callCtx, release, err := store.acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	return store.next.WithinTransaction(callCtx, operation)
+}
+
+func (store *assemblyStore) acquire(ctx context.Context) (context.Context, func(), error) {
+	if store == nil || store.gate == nil || store.next == nil {
+		return nil, nil, database.ErrAccessUnavailable
+	}
+	callCtx, release, err := store.gate.acquire(ctx)
+	if err != nil {
+		if errors.Is(err, ErrContextRequired) {
+			return nil, nil, ErrContextRequired
+		}
+		return nil, nil, ErrApplicationUnavailable
+	}
+	return callCtx, release, nil
+}
+
+type assemblyErrorRow struct{ err error }
+
+func (row assemblyErrorRow) Scan(...any) error { return row.err }
+
+type assemblyLazyRow struct {
+	store *assemblyStore
+	ctx   context.Context
+	query string
+	args  []any
+	once  sync.Once
+	err   error
+}
+
+func (row *assemblyLazyRow) Scan(destinations ...any) error {
+	if row == nil || row.store == nil {
+		return database.ErrAccessUnavailable
+	}
+	row.once.Do(func() {
+		callCtx, release, err := row.store.acquire(row.ctx)
+		if err != nil {
+			row.err = err
+			return
+		}
+		defer release()
+		row.err = row.store.next.QueryRowContext(callCtx, row.query, row.args...).Scan(destinations...)
+		row.args = nil
+	})
+	return row.err
+}
+
+type assemblyRows struct {
+	next    database.Rows
+	release func()
+	once    sync.Once
+}
+
+func (rows *assemblyRows) finish() { rows.once.Do(rows.release) }
+
+func (rows *assemblyRows) Next() bool {
+	if rows == nil || rows.next == nil {
+		return false
+	}
+	next := rows.next.Next()
+	if !next {
+		rows.finish()
+	}
+	return next
+}
+
+func (rows *assemblyRows) Scan(destinations ...any) error {
+	if rows == nil || rows.next == nil {
+		return database.ErrAccessUnavailable
+	}
+	return rows.next.Scan(destinations...)
+}
+
+func (rows *assemblyRows) Err() error {
+	if rows == nil || rows.next == nil {
+		return database.ErrAccessUnavailable
+	}
+	return rows.next.Err()
+}
+
+func (rows *assemblyRows) Columns() ([]string, error) {
+	if rows == nil || rows.next == nil {
+		return nil, database.ErrAccessUnavailable
+	}
+	return rows.next.Columns()
+}
+
+func (rows *assemblyRows) Close() error {
+	if rows == nil || rows.next == nil {
+		return database.ErrAccessUnavailable
+	}
+	defer rows.finish()
+	return rows.next.Close()
+}
+
+type assemblyAuthorizer struct {
+	gate *assemblyGate
+	next authz.Authorizer
+}
+
+func (authorizer *assemblyAuthorizer) Authorize(ctx context.Context, request authz.Request) (authz.Decision, error) {
+	if authorizer == nil || authorizer.gate == nil || authorizer.next == nil {
+		return authz.Decision{}, ErrApplicationUnavailable
+	}
+	callCtx, release, err := authorizer.gate.acquire(ctx)
+	if err != nil {
+		return authz.Decision{}, err
+	}
+	defer release()
+	return authorizer.next.Authorize(callCtx, request)
 }
 
 func (runtime *assemblyRuntime) Preview(ctx context.Context, request action.Request) (action.Preview, error) {

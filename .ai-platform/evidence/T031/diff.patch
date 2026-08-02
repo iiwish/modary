@@ -1,0 +1,17 @@
+# T031 reviewed diff manifest
+
+Ordinary data contract and lifecycle: `database/**`, `internal/databasecontrol/**`,
+`module/services.go`, `module/host.go`, `module/assembly.go`,
+`module/lifecycle.go`, `appkit/appkit.go`, `appkit/services.go`
+
+General authorization naming: `authz/authz.go`, `adapters/rbac/**`,
+`internal/actionruntime/runtime.go`
+
+Optional components: `adapters/postgresdb/**`, `transport/sessionhttp/**`
+
+Admin generation and copied-out acceptance: `starter/**`,
+`starter/templates/admin/**`
+
+Architecture and governance: `internal/quality/import_direction_test.go`,
+`.ai-platform/specs/007-component-framework-refoundation/**`,
+`.ai-platform/docs/tasks.md`, `.ai-platform/evidence/T031/**`

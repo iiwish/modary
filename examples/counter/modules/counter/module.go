@@ -96,7 +96,7 @@ func Module() (module.Registration, error) {
 			Actions: []module.ActionBinding{{
 				Descriptor: descriptor(),
 				NewHandler: func(_ context.Context, services module.Resolver) (action.Handler, error) {
-					db, err := module.Resolve(services, module.Database())
+					db, err := module.Resolve(services, module.ActionDatabase())
 					if err != nil {
 						return nil, fmt.Errorf("resolve Counter database: %w", err)
 					}

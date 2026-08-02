@@ -1,0 +1,50 @@
+// Package config owns explicit runtime configuration.
+package config
+
+import (
+	"fmt"
+	"os"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
+
+type Config struct {
+	DatabaseURL  string
+	Schema       string
+	HTTPAddress  string
+	AdminUser    string
+	AdminPassword string
+	InsecureCookie bool
+}
+
+func Load() (Config, error) {
+	config := Config{
+		DatabaseURL: os.Getenv("DATABASE_URL"),
+		Schema: os.Getenv("MODARY_DATABASE_SCHEMA"),
+		HTTPAddress: os.Getenv("MODARY_HTTP_ADDR"),
+		AdminUser: os.Getenv("MODARY_ADMIN_USERNAME"),
+		AdminPassword: os.Getenv("MODARY_ADMIN_PASSWORD"),
+		InsecureCookie: os.Getenv("MODARY_ALLOW_INSECURE_COOKIE") == "true",
+	}
+	if config.Schema == "" {
+		config.Schema = {{quote .SchemaID}}
+	}
+	if config.HTTPAddress == "" {
+		config.HTTPAddress = "127.0.0.1:8080"
+	}
+	if config.DatabaseURL == "" {
+		return Config{}, fmt.Errorf("DATABASE_URL is required")
+	}
+	if invalidCredential(config.AdminUser, 256) {
+		return Config{}, fmt.Errorf("MODARY_ADMIN_USERNAME is required and must be a bounded value")
+	}
+	if !utf8.ValidString(config.AdminPassword) || len(config.AdminPassword) > 4096 || utf8.RuneCountInString(config.AdminPassword) < 12 {
+		return Config{}, fmt.Errorf("MODARY_ADMIN_PASSWORD must contain 12 to 4096 bytes of valid UTF-8")
+	}
+	return config, nil
+}
+
+func invalidCredential(value string, max int) bool {
+	return value == "" || !utf8.ValidString(value) || strings.TrimSpace(value) != value || strings.ContainsFunc(value, unicode.IsControl) || utf8.RuneCountInString(value) > max
+}

@@ -1,4 +1,6 @@
 .DS_Store
+starter/templates/admin/web/node_modules/
+starter/templates/admin/web/.asset-check/
 .idea/
 .vscode/
 

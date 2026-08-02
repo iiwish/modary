@@ -79,7 +79,10 @@ by consumer code. Runtime metadata comes from the consumer Definition; pure help
 and version commands use the same value through `appcmd.Options` without
 constructing that Definition. UI assets are copied from a bounded consumer
 `fs.FS` into an immutable construction-time snapshot; the framework contains no
-application route registry or frontend build dependency. `appcmd` authenticates
+application route registry or mandatory frontend build dependency. The optional
+Admin Starter copies a React application and its deterministic prebuilt assets
+into the consumer project; those files are ordinary consumer source rather than
+a runtime UI registry. `appcmd` authenticates
 Action callers through a bearer token.
 CLI `--token-file <path>` is supported only on Linux and Darwin and must remain
 a regular file owned by the effective UID with exact mode `0400` or `0600`.
@@ -108,12 +111,14 @@ verified separately through an immutable version tag and remote consumer gate.
 
 - A consumer can add Modules, Actions, migrations, assets, and release behavior
   without editing framework source.
-- Headless framework and consumer gates need only the Go toolchain.
+- API and Governed framework gates need only the Go toolchain. Modifying the
+  optional Admin frontend also needs its pinned Node.js and pnpm toolchain.
 - The consumer tool must be built from trusted pinned source; it intentionally
   executes the consumer's Definition provider and Go compiler.
 - Consumer CI must serialize generator or build processes that target the same
   project root.
-- UI frameworks, deployment systems, and configuration loaders remain consumer
+- The Admin Profile offers one removable React baseline; consumer products may
+  replace it. Deployment systems and configuration loaders remain consumer
   choices.
 
 ## Rejected Alternatives
@@ -123,5 +128,5 @@ verified separately through an immutable version tag and remote consumer gate.
   depend on repository layout.
 - Automatic route mounting based on Module IDs couples transports to concrete
   products.
-- Embedding one frontend or release binary turns framework distribution into an
-  application release.
+- Owning product-specific frontend behavior or a release binary would turn
+  framework distribution into an application release.

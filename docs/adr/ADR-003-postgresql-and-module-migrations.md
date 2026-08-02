@@ -1,4 +1,4 @@
-# ADR-003: PostgreSQL Control Store And Module-Atomic Migrations
+# ADR-003: PostgreSQL Stores And Module-Atomic Migrations
 
 - Status: Accepted
 - Date: 2026-08-01
@@ -6,14 +6,18 @@
 
 ## Context
 
-Modary needs one durable control plane with precise Action transaction semantics,
+Modary needs ordinary business persistence without forcing task infrastructure,
+and an optional durable control plane with precise Action transaction semantics,
 multiple-process concurrency, recoverable background work, and migration history
-that fails closed. Product business data must remain consumer-owned and may live
-in another database or service.
+that fails closed.
 
 ## Decision
 
-The official durable profile uses one PostgreSQL control database. Modary and
+The ordinary PostgreSQL component implements `database.Store` in
+`adapters/postgresdb`. It owns application connectivity and Module migrations,
+but installs no River, governed Action, idempotency, or audit storage.
+
+The official Governed component uses one PostgreSQL control database. Modary and
 consumer control tables live in an application schema. River owns a distinct
 queue schema in the same database. Sharing the database is intentional: an
 Action can update domain control state and insert a River job through the exact
@@ -46,6 +50,8 @@ closed while identical profile pairs may start concurrently.
 
 ## Consequences
 
+- Admin and other ordinary applications can use PostgreSQL without selecting
+  River or governed transaction authority.
 - Action state, idempotency, required audit, and task insertion can commit or
   roll back as one unit.
 - River needs tables in a separate schema, not a separate database.

@@ -1,87 +1,88 @@
 # Troubleshoot Modary Applications
 
-Start with the exact failing command and keep `GOWORK=off`. Do not bypass a
-failure by deleting generated artifacts, weakening a descriptor, skipping
-migrations, or importing framework internals.
+Run the failing command with `GOWORK=off` and keep the first structured error.
+Do not bypass it by importing `internal` packages, weakening a descriptor, or
+rewriting an applied migration.
 
-## The Modary Version Is Empty Or Replaced
+## Starter Refuses The Destination
 
-Inspect the selected module:
+`modary new` accepts one nonexistent or empty real directory whose base is a
+lowercase project ID. It rejects symlinks, non-directories, unsafe parents, and
+any existing content. The command is create-only and intentionally has no force
+or merge flag.
+
+## The Generated Project Cannot Resolve Modary
+
+Inspect module selection:
 
 ```bash
 GOWORK=off go list -m -json github.com/iiwish/modary
 ```
 
-For a released application, `Version` must be the intended exact tag and
-`Replace` must be absent. Remove a committed replacement with `go mod edit
--dropreplace=github.com/iiwish/modary`, require the exact release, and run
-`go mod tidy`.
+The current source workflow needs the local replacement written through
+`MODARY_STARTER_REPLACE`. A released consumer removes that replacement and pins
+an exact published tag.
 
-## Verify Rejects The Definition
+## Graph Validation Fails
 
-`verify` evaluates the pure application Definition without starting modules.
-Read the first reported manifest, capability, metadata, Action descriptor, or
-project-path error. Common causes are duplicate module IDs, a missing required
-capability provider, a dependency cycle, invalid namespaced identifiers, and
-metadata disagreement between `appcmd.Options` and `appkit.Definition`.
+Common causes are duplicate Module IDs, a missing capability provider, multiple
+providers for one capability, a dependency cycle, an undeclared resolve/provide
+operation, or an invalid Action descriptor. Definition construction must remain
+free of database, network, random, hashing, and goroutine work.
 
-Do not add runtime I/O to Definition creation. Filesystem access, database
-opening, migrations, handler construction, password hashing, random values, and
-goroutines belong to the runtime assembly path.
+## A Typed Service Cannot Be Resolved
 
-## Generate Check Reports Drift
+Provider and consumer must import the same package-level `module.Key[T]`.
+Recreating its string and type does not recreate identity. Also verify that the
+consumer declares the capability requirement and the provider declares it.
 
-Run the write form, inspect every changed generated artifact, and check again:
+## A PostgreSQL Migration Is Rejected
 
-```bash
-GOWORK=off go run ./tools/modary generate
-git diff -- internal/generated
-GOWORK=off go run ./tools/modary generate --check
-```
+Migration history is forward-only. Add a new file; never change or remove an
+applied migration. The policy rejects transaction control, temporary objects,
+administrative statements, invalid ordering, and bounded-source violations.
 
-Generated files are consumer-owned review artifacts. Commit them with the
-Definition change and never edit them manually.
+For Governed startup, application and queue schemas must be distinct, owned by
+the configured role, and consistently paired. For Admin, configure only the
+application schema used by `postgresdb`.
 
-## A Capability Cannot Be Resolved
+## An Ordinary Mutation Requires A Transaction
 
-Provider and consumer modules must share the same package-level typed
-`module.Key`. Recreating a key with the same name does not reproduce its
-identity. Put custom capability names and keys in one small consumer contract
-package, declare the capability in both manifests, publish it during provider
-startup, and resolve it only inside the Handler factory.
+Call `database.Store.ExecContext` only with the context supplied to
+`WithinTransaction`. Do not use a request context directly for a write.
 
-## A Migration Is Rejected
+## A Task Enqueue Requires A Transaction
 
-Use ordered forward-only PostgreSQL connections. The supported policy rejects transaction
-control, temporary schemas, unsupported statement kinds, excessive source
-counts or sizes, and changed content for an applied migration. Add a new
-migration rather than rewriting released history.
+`task.Service.Enqueue` is available only inside Governed
+`Handler.Execute`. Admin has no task service by default. Do not retain the
+transaction-bound context or enqueue from a route after Execute returns.
 
 ## An Action Request Is Rejected
 
-Check the Action ID, channel, input presence, JSON document limits, schema,
-permission, execution scope, Preview plan hash, idempotency key, and declared
-public error code. A required-Preview Action must execute the exact bound plan;
-repeat Preview when state has changed.
+Check Action ID, channel, actor, scope, permission, exact input, Preview policy,
+plan hash, idempotency key, optimistic version, and declared error code. Repeat
+Preview after relevant state changes.
 
-Framework errors intentionally hide private dependency details at public
-transport boundaries. Reproduce the failure in a consumer module test when the
-public result is insufficient for diagnosis.
+Public errors intentionally omit dependency diagnostics. Reproduce the path in
+a protected integration test and observability sink when more detail is needed.
 
-## Build Is Unsupported On This Host
+## Admin Login Works Locally But Not Over HTTP
 
-F0 native project builds support Linux and Darwin under the documented
-filesystem policy. Other support-matrix targets are cross-build claims. On a
-supported host, verify ownership and permissions for the project, output path,
-and temporary directory; on Darwin, remove unexpected extended ACLs instead of
-disabling the policy.
+Secure cookies are the default. Set `MODARY_ALLOW_INSECURE_COOKIE=true` only for
+local HTTP. Production uses TLS. Also check CSRF header propagation, duplicate
+cookies, account rate limiting, and the configured Identity replacement.
 
-## PostgreSQL Connections Are Rejected
+## Admin Assets Drift
 
-Use a regular database path whose final directory is owned by the effective
-user and is not writable by group or others. Writable ancestors are accepted
-only under the documented root-owned sticky-directory rule. Do not use a
-symlinked database file or weaken permissions to make startup succeed.
+From `web/` run:
 
-Continue with the [testing guide](test-application.md), [security boundary](../operations/security.md),
-and [known limitations](../f0-known-limitations.md) before deployment.
+```bash
+pnpm install --frozen-lockfile
+pnpm build
+pnpm assets:check
+```
+
+Commit the source and matching `internal/web/dist` outputs together.
+
+Continue with [testing](test-application.md), [security](../operations/security.md),
+and [known limitations](../f0-known-limitations.md).

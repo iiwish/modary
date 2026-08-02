@@ -1,0 +1,35 @@
+package limits
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/iiwish/modary/task"
+)
+
+// EventConsumer applies one decoded limits.changed event. It must be
+// idempotent because task delivery is at least once.
+type EventConsumer func(context.Context, ChangeEvent) error
+
+// NewTaskHandler validates the task envelope before invoking consumer.
+func NewTaskHandler(consumer EventConsumer) (task.Handler, error) {
+	if consumer == nil {
+		return nil, fmt.Errorf("limit event consumer is required")
+	}
+	return task.HandlerFunc(func(ctx context.Context, job task.Job) error {
+		if ctx == nil {
+			return fmt.Errorf("limit task context is required")
+		}
+		if job.Kind != TaskKind {
+			return fmt.Errorf("limit task handler received unsupported kind %q", job.Kind)
+		}
+		var event ChangeEvent
+		if err := decodeStrictJSON(job.Payload, &event); err != nil {
+			return fmt.Errorf("decode limit task: %w", err)
+		}
+		if err := event.Scope.Validate(); err != nil || event.Version < 1 || event.Value < 0 || event.Value > 1_000_000 {
+			return fmt.Errorf("limit task payload is invalid")
+		}
+		return consumer(ctx, event)
+	}), nil
+}

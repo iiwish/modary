@@ -57,6 +57,7 @@ type migrationLocker interface {
 type Control interface {
 	Driver() string
 	Access() database.Access
+	Store() database.Store
 	Executor(context.Context) (database.Executor, error)
 	WithinTransaction(context.Context, func(context.Context) error) error
 	ApplyMigrations(context.Context, string, fs.FS) error
@@ -66,6 +67,7 @@ type Control interface {
 type control struct {
 	backend Backend
 	access  database.Access
+	store   database.Store
 	driver  string
 }
 
@@ -89,7 +91,10 @@ func New(backend Backend) (Control, error) {
 	if !driverNamePattern.MatchString(driver) {
 		return nil, fmt.Errorf("database driver %q is invalid", driver)
 	}
-	return &control{backend: backend, access: &access{backend: backend}, driver: driver}, nil
+	access := &access{backend: backend}
+	control := &control{backend: backend, access: access, driver: driver}
+	control.store = &store{access: access, control: control}
+	return control, nil
 }
 
 func (*control) databaseControl() {}
@@ -106,6 +111,15 @@ func (control *control) Access() database.Access {
 		return nil
 	}
 	return control.access
+}
+
+// Store returns the ordinary business-data facade with callback transaction
+// authority but no raw transaction object.
+func (control *control) Store() database.Store {
+	if control == nil {
+		return nil
+	}
+	return control.store
 }
 
 func (control *control) Executor(ctx context.Context) (database.Executor, error) {

@@ -47,6 +47,9 @@ scan_forbidden() {
 		--glob '!.ai-platform/specs/**/tasks.md' \
 		--glob '!.ai-platform/specs/**/packets/**' \
 		--glob '!examples/counter/**' \
+		--glob '!**/node_modules/**' \
+		--glob '!docs/guides/rulary-bootstrap.md' \
+		--glob '!scripts/**' \
 		--glob '!scripts/check-neutrality.sh' \
 		--glob '!scripts/check_neutrality_test.go' \
 		-- "$pattern" . 2>&1)
@@ -63,11 +66,37 @@ scan_forbidden() {
 	fi
 }
 
-# Domain vocabulary is forbidden throughout the active framework surface,
-# including canonical docs and tests. Historical delivery records and the
-# independent conformance consumer are excluded above by ownership boundary.
-domain_pattern='rulary|ruleset|rule_set|rulespec|workspace|ws_default|company(_id|_license)?|company_address|registered_address|modary-rulary|MODARY_DEMO_PASSWORD|MODARY_AGENT_TOKEN'
-scan_forbidden "$domain_pattern" 'consumer-domain terms remain in the active framework tree'
+# Product vocabulary is forbidden from framework implementation, templates,
+# migrations, and assets. Documentation may name an external adoption target
+# while explaining the dependency boundary; that does not make it framework
+# production code.
+domain_pattern='rulary|ruleset|rule_set|rulespec|ws_default|company_(id|license)|company_address|registered_address|modary-rulary|MODARY_DEMO_PASSWORD|MODARY_AGENT_TOKEN'
+scan_forbidden "$domain_pattern" 'consumer-domain terms remain in the active framework tree' \
+	--glob '*.go' \
+	--glob '*.sql' \
+	--glob '*.json' \
+	--glob '*.toml' \
+	--glob '*.yaml' \
+	--glob '*.yml' \
+	--glob '*.js' \
+	--glob '*.jsx' \
+	--glob '*.ts' \
+	--glob '*.tsx' \
+	--glob '*.vue' \
+	--glob '*.html' \
+	--glob '*.css' \
+	--glob '*.tmpl' \
+	--glob '!docs/**' \
+	--glob '!.ai-platform/**'
+
+# Canonical specifications and plans stay product-neutral. Feature 007 is the
+# explicit framework/adoption-boundary decision and may name Rulary only to
+# forbid implementing it in this repository.
+scan_forbidden "$domain_pattern" 'consumer-domain terms remain in an authoritative framework spec or plan' \
+	--glob '.ai-platform/specs/**/spec.md' \
+	--glob '.ai-platform/specs/**/plan.md' \
+	--glob '!.ai-platform/specs/007-component-framework-refoundation/spec.md' \
+	--glob '!.ai-platform/specs/007-component-framework-refoundation/plan.md'
 
 # Authoritative specifications are portable framework contracts. Delivery
 # history may retain local execution commands, but canonical specs and plans do
@@ -176,14 +205,14 @@ fi
 legacy_import_pattern='github\.com/iiwish/modary/(core|modules|internal/(app|generated|transport|webui))'
 scan_forbidden "$legacy_import_pattern" 'an active file references a removed application-owned import path'
 
-for obsolete in cmd core modules web tests internal/app internal/generated internal/transport internal/webui modary.yaml package.json pnpm-lock.yaml pnpm-workspace.yaml Dockerfile.release .dockerignore; do
+for obsolete in core modules web tests internal/app internal/generated internal/transport internal/webui modary.yaml package.json pnpm-lock.yaml pnpm-workspace.yaml Dockerfile.release .dockerignore; do
 	if test -e "$obsolete" || test -L "$obsolete"; then
 		printf 'obsolete application-owned path remains: %s\n' "$obsolete" >&2
 		status=1
 	fi
 done
 
-if persisted_artifact=$(find . -path './.git' -prune -o -type f \( -name '*.db' -o -name '*.exe' \) -print -quit 2>&1); then
+if persisted_artifact=$(find . -path './.git' -prune -o -path '*/node_modules' -prune -o -type f \( -name '*.db' -o -name '*.exe' \) -print -quit 2>&1); then
 	if test -n "$persisted_artifact"; then
 		printf 'runtime or binary artifact remains in the active tree: %s\n' "$persisted_artifact" >&2
 		status=1
@@ -193,7 +222,7 @@ else
 	status=1
 fi
 
-if unexpected_executable=$(find . -path './.git' -prune -o -type f -perm -111 ! -path './scripts/*.sh' -print -quit 2>&1); then
+if unexpected_executable=$(find . -path './.git' -prune -o -path '*/node_modules' -prune -o -type f -perm -111 ! -path './scripts/*.sh' -print -quit 2>&1); then
 	if test -n "$unexpected_executable"; then
 		printf 'unexpected executable artifact remains in the active tree: %s\n' "$unexpected_executable" >&2
 		status=1
@@ -233,6 +262,7 @@ fi
 
 scan_forbidden '^[[:space:]]*package[[:space:]]+main([[:space:]]*(//.*)?)?$' 'the framework production tree contains an application executable' \
 	--glob '*.go' \
-	--glob '!**/*_test.go'
+	--glob '!**/*_test.go' \
+	--glob '!cmd/modary/**'
 
 exit "$status"

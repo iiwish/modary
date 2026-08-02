@@ -50,8 +50,10 @@ untrusted callers, not trusted module extensions.
 ## Static UI
 
 Pass consumer-owned assets to `httpapi.NewSPA`, or serve UI through the
-consumer's own stack. Modary does not embed product assets, select routes based
-on module IDs, or define application branding.
+consumer's own stack. The Admin Starter copies source and a prebuilt bundle into
+the consumer project; the generated Go package embeds those consumer-owned
+assets. Modary does not select product routes from Module IDs, generate UI at
+runtime, or define application branding.
 
 ## Custom Surfaces
 
@@ -67,5 +69,5 @@ during application shutdown. The lifecycle gate rejects new Runtime and identity
 leases, cancels active contexts, and begins cleanup after cooperative calls
 drain. Bound the server shutdown in the consumer process as well.
 
-See the [consumer composition root](../../examples/counter/internal/project/project.go)
-for explicit health, API, MCP, SPA, and command wiring.
+See the generated Governed `internal/project/project.go` for explicit health,
+API, MCP, and command wiring.

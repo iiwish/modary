@@ -1,0 +1,49 @@
+schema_version: 1
+packet_id: EP-007-T033
+task_id: T033
+feature_id: 007-component-framework-refoundation
+mode: execute_one_task
+adapter: codex-direct
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  feature_spec: .ai-platform/specs/007-component-framework-refoundation/spec.md
+  requirements_checklist: .ai-platform/specs/007-component-framework-refoundation/checklists/requirements.md
+  technical_decisions: .ai-platform/specs/007-component-framework-refoundation/plan.md
+  work_graph: .ai-platform/specs/007-component-framework-refoundation/tasks.md
+  analysis: .ai-platform/specs/007-component-framework-refoundation/analysis.md
+  approval: explicit owner approval on 2026-08-02
+work_unit:
+  title: Governed Profile Optionalization
+  goal: Make the accepted Governed Action and River stack an explicit copied-out Profile with no leakage into lighter Profiles.
+  requirements: [FR-005, FR-008, FR-011, FR-018, FR-019, NFR-002, NFR-003, NFR-004, NFR-005]
+  depends_on: [T029, T030]
+execution_constraints:
+  branch_or_worktree: current
+  allowed_files: [starter/**, cmd/modary/**, appcmd/**, transport/httpapi/**, internal/quality/**, scripts/**, .ai-platform/specs/007-component-framework-refoundation/**, .ai-platform/evidence/T033/**, .ai-platform/docs/tasks.md]
+  ownership_notes: Governed example vocabulary and migrations stay consumer-owned; framework Core remains database-free; API and Admin graphs must remain River-free.
+tdd_plan:
+  required: true
+  red:
+    command: Governed Starter selection and copied-out transaction/worker acceptance
+    expected_failure: ProfileGoverned is explicitly unavailable
+  green:
+    command: focused Starter real-PostgreSQL tests
+    expected_signal: Preview, Execute, audit, restart, and task consumption pass
+  refactor:
+    command: race, vet, dependency absence, existing governed conformance, strict artifacts, and diff checks
+    expected_signal: optional profile retains accepted guarantees without dependency leakage
+validation_loop:
+  commands: [go test ./starter -count=1, go test -race ./starter -count=1, go vet ./starter ./cmd/modary, go test ./adapters/postgres ./internal/actionruntime ./transport/httpapi -count=1, python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 007-component-framework-refoundation --task-id T033 --strict, git diff --check]
+  retry_budget: 3
+evidence_contract:
+  summary: .ai-platform/evidence/T033/summary.md
+  diff: .ai-platform/evidence/T033/diff.patch
+  test_results: .ai-platform/evidence/T033/test-results.md
+review_contract:
+  required_passes: [profile_boundary, governed_transaction, durable_work, authorization, restart, copied_out, regression]
+stop_conditions: [Governed dependencies enter Core, API, or Admin graphs, generated worker bypasses task.Runner, accepted transaction ownership is weakened]
+codebase_context:
+  current_gap: ProfileGoverned is named but unavailable; the accepted governed stack exists only as framework packages and a hand-maintained Counter consumer.
+  target_boundary: a generated source-visible consumer composition that teaches explicit governed selection and remains removable by choosing another Profile
+handoff:
+  next_task: T034 after T033 validation and completion evidence

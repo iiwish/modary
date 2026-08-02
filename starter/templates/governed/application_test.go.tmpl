@@ -1,0 +1,251 @@
+package project_test
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"testing"
+	"time"
+
+	"{{.ModulePath}}/internal/config"
+	"{{.ModulePath}}/internal/limits"
+	"{{.ModulePath}}/internal/project"
+	"github.com/iiwish/modary/action"
+	"github.com/iiwish/modary/appkit"
+	"github.com/iiwish/modary/identity"
+	"github.com/iiwish/modary/scope"
+	"github.com/iiwish/modary/task"
+)
+
+func TestGovernedProfileCommitsAndConsumesDurableWork(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is required for the generated Governed integration test")
+	}
+	runtimeConfig := config.Config{
+		DatabaseURL: databaseURL,
+		ApplicationSchema: environmentOr("MODARY_APPLICATION_SCHEMA", {{quote .SchemaID}}+"_test"),
+		QueueSchema: environmentOr("MODARY_QUEUE_SCHEMA", {{quote .QueueSchemaID}}+"_test"),
+		OperatorUsername: "operator",
+		OperatorPassword: "development-password",
+		OperatorToken: "development-bearer-token-000000000001",
+		InsecureCookie: true,
+	}
+	definition, err := project.NewDefinition(runtimeConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	producer := startApplication(t, definition)
+	if producer.Runtime() == nil || producer.Tasks() == nil || len(producer.Catalog()) != 1 ||
+		producer.Catalog()[0].Descriptor.ID != limits.ActionID {
+		t.Fatalf("governed services runtime=%v tasks=%v catalog=%#v", producer.Runtime(), producer.Tasks(), producer.Catalog())
+	}
+	handler, err := project.NewHTTPHandler(context.Background(), producer, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	health := httptest.NewRecorder()
+	handler.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if health.Code != http.StatusOK {
+		t.Fatalf("health=%d %s", health.Code, health.Body.String())
+	}
+
+	current := readState(t, producer)
+	nextValue := (current.Value + 17) % 1_000_001
+	input, err := json.Marshal(map[string]int64{"value": nextValue, "expected_version": current.Version})
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := project.OperatorActor()
+	request := action.Request{
+		RequestID: "governed-preview", Actor: actor, Channel: action.ChannelCLI,
+		ActionID: limits.ActionID, Scope: actor.Scope, Input: input,
+	}
+	preview, err := producer.Runtime().Preview(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var summary struct {
+		CurrentValue int64 `json:"current_value"`
+		CurrentVersion int64 `json:"current_version"`
+		NextValue int64 `json:"next_value"`
+		NextVersion int64 `json:"next_version"`
+	}
+	if err := json.Unmarshal(preview.Summary, &summary); err != nil {
+		t.Fatal(err)
+	}
+	if summary.CurrentValue != current.Value || summary.CurrentVersion != current.Version ||
+		summary.NextValue != nextValue || summary.NextVersion != current.Version+1 || preview.PlanHash == "" {
+		t.Fatalf("preview=%#v summary=%#v current=%#v", preview, summary, current)
+	}
+
+	unbound := identity.Actor{ID: "unbound", Type: "human", DisplayName: "Unbound", Scope: actor.Scope}
+	denied := request
+	denied.RequestID = "governed-default-deny"
+	denied.Actor = unbound
+	if _, err := producer.Runtime().Preview(context.Background(), denied); !action.IsCode(err, action.CodeAuthzDenied) {
+		t.Fatalf("default-deny Preview error=%v", err)
+	}
+
+	execute := request
+	execute.RequestID = "governed-execute"
+	execute.PlanHash = preview.PlanHash
+	execute.IdempotencyKey = fmt.Sprintf("limit-version-%d", current.Version+1)
+	result, err := producer.Runtime().Execute(context.Background(), execute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var committed limits.State
+	if err := json.Unmarshal(result.Data, &committed); err != nil {
+		t.Fatal(err)
+	}
+	if committed != (limits.State{Value: nextValue, Version: current.Version + 1}) {
+		t.Fatalf("committed state=%#v", committed)
+	}
+	replay := execute
+	replay.RequestID = "governed-replay"
+	replayed, err := producer.Runtime().Execute(context.Background(), replay)
+	if err != nil || !bytes.Equal(replayed.Data, result.Data) || replayed.Summary != result.Summary {
+		t.Fatalf("idempotent replay=%#v error=%v, want %#v", replayed, err, result)
+	}
+	shutdownApplication(t, producer)
+
+	worker := startApplication(t, definition)
+	t.Cleanup(func() {
+		if worker.Ready() {
+			shutdownApplication(t, worker)
+		}
+	})
+	restartInput, _ := json.Marshal(map[string]int64{"value": (nextValue + 1) % 1_000_001, "expected_version": committed.Version})
+	restartPreview, err := worker.Runtime().Preview(context.Background(), action.Request{
+		RequestID: "governed-restart", Actor: actor, Channel: action.ChannelCLI,
+		ActionID: limits.ActionID, Scope: actor.Scope, Input: restartInput,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(restartPreview.Summary, &summary); err != nil ||
+		summary.CurrentValue != committed.Value || summary.CurrentVersion != committed.Version {
+		t.Fatalf("restart preview=%#v summary=%#v error=%v", restartPreview, summary, err)
+	}
+
+	store, err := worker.Database()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var auditCount int
+	if err := store.QueryRowContext(context.Background(),
+		"SELECT COUNT(*) FROM modary_audit_event WHERE action_id = $1", limits.ActionID,
+	).Scan(&auditCount); err != nil || auditCount < 4 {
+		t.Fatalf("audit count=%d error=%v", auditCount, err)
+	}
+
+	events := make(chan limits.ChangeEvent, 16)
+	decoded, err := limits.NewTaskHandler(func(_ context.Context, event limits.ChangeEvent) error {
+		events <- event
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs := make(chan task.Job, 16)
+	runner, err := worker.Tasks().NewRunner(task.HandlerFunc(func(ctx context.Context, job task.Job) error {
+		jobs <- job
+		return decoded.Handle(ctx, job)
+	}), task.RunnerOptions{Queues: []task.Queue{
+		{Name: task.DefaultQueue, MaxWorkers: 1},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitForCommittedEvent(t, jobs, events, committed, actor.Scope)
+	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := runner.Stop(stopCtx); err != nil {
+		t.Fatal(err)
+	}
+	shutdownApplication(t, worker)
+}
+
+func readState(t *testing.T, application *appkit.Application) limits.State {
+	t.Helper()
+	store, err := application.Database()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state limits.State
+	err = store.QueryRowContext(context.Background(),
+		"SELECT value, version FROM governed_limits WHERE scope_kind = $1 AND scope_id = $2",
+		project.OperatorActor().Scope.Kind, project.OperatorActor().Scope.ID,
+	).Scan(&state.Value, &state.Version)
+	if errors.Is(err, sql.ErrNoRows) {
+		return limits.State{}
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return state
+}
+
+func waitForCommittedEvent(t *testing.T, jobs <-chan task.Job, events <-chan limits.ChangeEvent, state limits.State, executionScope scope.Execution) {
+	t.Helper()
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+	jobSeen := false
+	eventSeen := false
+	for {
+		select {
+		case job := <-jobs:
+			if job.Kind != limits.TaskKind || job.Queue != task.DefaultQueue || job.Attempt < 1 {
+				t.Fatalf("worked task=%#v", job)
+			}
+			jobSeen = true
+		case event := <-events:
+			if event.Version == state.Version && event.Value == state.Value {
+				if event.Scope.String() != executionScope.String() {
+					t.Fatalf("event scope=%s want=%s", event.Scope, executionScope.String())
+				}
+				eventSeen = true
+			}
+		case <-deadline.C:
+			t.Fatal("committed Action task was not consumed after restart")
+		}
+		if jobSeen && eventSeen {
+			return
+		}
+	}
+}
+
+func startApplication(t *testing.T, definition appkit.Definition) *appkit.Application {
+	t.Helper()
+	application, err := appkit.Start(context.Background(), definition, appkit.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return application
+}
+
+func shutdownApplication(t *testing.T, application *appkit.Application) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := application.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func environmentOr(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
+}

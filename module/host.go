@@ -31,7 +31,8 @@ const (
 	StateNew State = "new"
 	// StateStarting is validating or starting registered Modules.
 	StateStarting State = "starting"
-	// StateRunning exposes services and permits governed execution.
+	// StateRunning exposes assembled component facades and, when declared,
+	// permits governed Action execution.
 	StateRunning State = "running"
 	// StateStopping is draining execution and cleaning Module resources.
 	StateStopping State = "stopping"
@@ -72,8 +73,8 @@ type ShutdownPolicy struct {
 	CallbackTimeout time.Duration
 }
 
-// HostOptions configures lifecycle and governed Runtime behavior without
-// changing Module contracts.
+// HostOptions configures lifecycle and optional governed Runtime behavior
+// without changing Module contracts.
 type HostOptions struct {
 	Shutdown ShutdownPolicy
 	Runtime  action.RuntimePolicy
@@ -291,9 +292,9 @@ func prepareRegistration(registration Registration) (map[string]action.PreparedD
 		return nil, err
 	}
 	if len(registration.Definition.Migrations) > 0 &&
-		!contains(manifest.Requires, databaseKey.Capability()) &&
-		!contains(manifest.Provides, databaseKey.Capability()) {
-		return nil, fmt.Errorf("module %s declares migrations without requiring or providing capability %q", manifest.ID, databaseKey.Capability())
+		!contains(manifest.Requires, CapabilityDatabase) &&
+		!contains(manifest.Provides, CapabilityDatabase) {
+		return nil, fmt.Errorf("module %s declares migrations without requiring or providing capability %q", manifest.ID, CapabilityDatabase)
 	}
 	seenMigrationDrivers := make(map[string]struct{}, len(registration.Definition.Migrations))
 	for _, migration := range registration.Definition.Migrations {
@@ -410,7 +411,7 @@ func (host *Host) Start(ctx context.Context) error {
 		install := &installScope{
 			host: host, manifest: registration.Definition.Manifest, runtime: runtime, active: true,
 		}
-		providesDatabase := contains(registration.Definition.Manifest.Provides, databaseKey.Capability())
+		providesDatabase := contains(registration.Definition.Manifest.Provides, CapabilityDatabase)
 		if !providesDatabase {
 			if err := host.applyMigrations(startCtx, registration.Definition); err != nil {
 				install.expire()
@@ -661,7 +662,7 @@ func (host *Host) cleanup(parent context.Context, runtimes []*moduleRuntime) err
 		for _, name := range services {
 			if record, ok := host.services[name]; ok && record.owner == runtime.id {
 				delete(host.services, name)
-				if name == databaseKey.Name() && host.databaseOwner == runtime.id {
+				if name == databaseStoreKey.Name() && host.databaseOwner == runtime.id {
 					host.database = nil
 					host.databaseOwner = ""
 				}
@@ -830,7 +831,7 @@ func (scope *installScope) provideService(key keySpec, value any) error {
 	if !scope.runtime.active || !scope.runtime.mutable || !contains(scope.manifest.Provides, key.identity.capability) {
 		return fmt.Errorf("module %s cannot provide capability %q through service %s", scope.manifest.ID, key.identity.capability, key.identity.name)
 	}
-	if key.identity == databaseKey.spec.identity {
+	if key.identity == databaseStoreKey.spec.identity || key.identity == actionDatabaseKey.spec.identity {
 		return fmt.Errorf("database access must be installed through privileged database control")
 	}
 	scope.host.mu.Lock()
@@ -857,28 +858,32 @@ func (scope *installScope) provideService(key keySpec, value any) error {
 // holds the scope, runtime, and Host locks in that order.
 func (scope *installScope) provideDatabaseServiceLocked(key keySpec, value any) error {
 	controlType := reflect.TypeOf((*databasecontrol.Control)(nil)).Elem()
-	if key.identity.capability != databaseKey.Capability() || key.identity.valueType != controlType {
+	if key.identity.capability != CapabilityDatabase || key.identity.valueType != controlType {
 		return fmt.Errorf("%w: %s requires internal database control", ErrReservedServiceName, databasecontrol.ServiceName)
 	}
 	control, ok := value.(databasecontrol.Control)
-	if !ok || isNilValue(control) || isNilValue(control.Access()) {
-		return fmt.Errorf("database control and access are required")
+	if !ok || isNilValue(control) || isNilValue(control.Access()) || isNilValue(control.Store()) {
+		return fmt.Errorf("database control, store, and governed access are required")
 	}
 	if existing, exists := scope.host.services[databasecontrol.ServiceName]; exists {
 		return fmt.Errorf("service %s is already provided by module %s", databasecontrol.ServiceName, existing.owner)
 	}
-	if existing, exists := scope.host.services[databaseKey.Name()]; exists {
-		return fmt.Errorf("service %s is already provided by module %s", databaseKey.Name(), existing.owner)
+	if existing, exists := scope.host.services[databaseStoreKey.Name()]; exists {
+		return fmt.Errorf("service %s is already provided by module %s", databaseStoreKey.Name(), existing.owner)
+	}
+	if existing, exists := scope.host.services[actionDatabaseKey.Name()]; exists {
+		return fmt.Errorf("service %s is already provided by module %s", actionDatabaseKey.Name(), existing.owner)
 	}
 	if scope.host.database != nil {
 		return fmt.Errorf("database control is already provided by module %s", scope.host.databaseOwner)
 	}
 	owner := scope.manifest.ID
 	scope.host.services[databasecontrol.ServiceName] = serviceRecord{key: key, value: control, owner: owner}
-	scope.host.services[databaseKey.Name()] = serviceRecord{key: databaseKey.spec, value: control.Access(), owner: owner}
+	scope.host.services[databaseStoreKey.Name()] = serviceRecord{key: databaseStoreKey.spec, value: control.Store(), owner: owner}
+	scope.host.services[actionDatabaseKey.Name()] = serviceRecord{key: actionDatabaseKey.spec, value: control.Access(), owner: owner}
 	scope.host.database = control
 	scope.host.databaseOwner = owner
-	scope.runtime.services = append(scope.runtime.services, databasecontrol.ServiceName, databaseKey.Name())
+	scope.runtime.services = append(scope.runtime.services, databasecontrol.ServiceName, databaseStoreKey.Name(), actionDatabaseKey.Name())
 	return nil
 }
 
@@ -886,7 +891,7 @@ func (scope *installScope) provideDatabaseServiceLocked(key keySpec, value any) 
 // bundle. The caller holds the scope, runtime, and Host locks in that order.
 func (scope *installScope) provideActionPersistenceLocked(key keySpec, value any) error {
 	persistenceType := reflect.TypeOf((*runtimecontrol.Persistence)(nil)).Elem()
-	if key.identity.capability != databaseKey.Capability() || key.identity.valueType != persistenceType {
+	if key.identity.capability != CapabilityDatabase || key.identity.valueType != persistenceType {
 		return fmt.Errorf("%w: %s requires internal Action persistence", ErrReservedServiceName, runtimecontrol.ServiceName)
 	}
 	persistence, ok := value.(runtimecontrol.Persistence)

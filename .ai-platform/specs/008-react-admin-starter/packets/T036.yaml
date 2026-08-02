@@ -1,0 +1,46 @@
+schema_version: 1
+packet_id: EP-008-T036
+task_id: T036
+feature_id: 008-react-admin-starter
+mode: execute_one_task
+adapter: codex
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  spec: .ai-platform/specs/008-react-admin-starter/spec.md
+  checklist: .ai-platform/specs/008-react-admin-starter/checklists/requirements.md
+  plan: .ai-platform/specs/008-react-admin-starter/plan.md
+  work_graph: .ai-platform/specs/008-react-admin-starter/tasks.md
+  analysis: .ai-platform/specs/008-react-admin-starter/analysis.md
+  approval: explicit owner approval on 2026-08-02
+work_unit:
+  title: Admin experience and visual acceptance
+  goal: deliver complete, accessible, responsive, polished React Admin workflows
+  requirements: [US-002, FR-005, FR-006, NFR-003, NFR-004]
+  depends_on: [T035]
+codebase_context:
+  relevant_files: [starter/templates/admin/web/src/**, starter/templates/admin/internal/web/dist/**, starter/templates/admin/application.go.tmpl, starter/templates/admin/application_test.go.tmpl]
+  existing_patterns: [quiet operational UI, explicit modules, native dialog, responsive table-to-list layout]
+  forbidden_changes: [backend API semantics, generated backend domain, new UI framework, Rulary product screens]
+execution_constraints:
+  allowed_files: [starter/templates/admin/web/src/**, starter/templates/admin/web/package.json, starter/templates/admin/web/pnpm-lock.yaml, starter/templates/admin/web/vite.config.ts, starter/templates/admin/internal/web/dist/**, starter/templates/admin/application.go.tmpl, starter/templates/admin/application_test.go.tmpl, .ai-platform/specs/008-react-admin-starter/**, .ai-platform/evidence/T036/**, .ai-platform/docs/tasks.md]
+  conflicts_with: [T035, T037]
+  worktree: current owner-approved worktree; preserve unrelated changes
+  delegation: direct execution because subagent delegation was not authorized
+tdd_plan:
+  red: add user-visible Testing Library expectations for any missing workflow or accessibility behavior
+  green: implement the smallest complete UI behavior that satisfies each failing test
+  refactor: improve component boundaries, focus management, stable layout, and visual hierarchy while green
+validation_loop:
+  commands: [pnpm lint, pnpm typecheck, pnpm test, pnpm build, pnpm assets:check, desktop browser QA, mobile browser QA, strict T036 artifact validation, git diff --check]
+  retry_budget: 3 per failing gate before scope reassessment
+evidence_contract:
+  summary: .ai-platform/evidence/T036/summary.md
+  diff: .ai-platform/evidence/T036/diff.patch
+  test_results: .ai-platform/evidence/T036/test-results.md
+  review: .ai-platform/evidence/T036/review.md
+review_contract:
+  sequence: [spec compliance, engineering quality, UX and accessibility, responsive visual QA]
+  acceptance: no unresolved P0 through P2 finding
+handoff:
+  next_task: T037
+stop_conditions: [backend contract cannot express required state, inaccessible behavior requires architecture change outside allowed files, browser acceptance environment unavailable after documented recovery, validation fails beyond retry budget]

@@ -1,82 +1,77 @@
-# Persistence And Durable Tasks
+# Persistence And Tasks
 
-Modary separates three kinds of state that are easy to confuse.
+Modary does not require a database. Persistence enters through one of two
+explicit PostgreSQL components with different authority and dependency graphs.
 
-## Control Database
+## Ordinary PostgreSQL
 
-The official PostgreSQL Profile owns one control database with two schemas:
+`adapters/postgresdb` installs one provider-neutral `database.Store` and one
+application schema. It has no River, Action plan, idempotency, or audit
+dependency.
 
-| Boundary | Schema | Examples |
-| --- | --- | --- |
-| Application control plane | `modary` by default | Module migrations, Action plans, idempotency results, identity, RBAC, audit, consumer control tables |
-| Durable task runtime | `modary_queue` by default | Modary profile binding plus River jobs, queues, leaders, schedules, migration state |
+Reads use bounded `SELECT` statements. Mutations use one `INSERT`, `UPDATE`, or
+`DELETE` inside `Store.WithinTransaction`:
 
-The schema names are configurable, must be distinct, and must be owned by the
-configured database role. Modary pins the pgx `search_path` to the application
-schema. River always receives its schema explicitly. An application schema and
-queue schema form one durable profile: the adapter persists both directions of
-that binding and rejects re-pairing or sharing either schema with another
-profile. Each schema carries the same role-aware profile marker, so a schema
-cannot be reused by changing it from application to queue or vice versa.
-Multiple processes configured with the same pair are supported.
+```go
+err := store.WithinTransaction(ctx, func(txCtx context.Context) error {
+    _, err := store.ExecContext(txCtx,
+        "UPDATE records SET status = $1 WHERE record_id = $2", status, id)
+    return err
+})
+```
 
-The two schemas use the same database because PostgreSQL cannot atomically
-commit one transaction across independent databases. Keeping River beside the
-application schema lets a governed Action write control state and enqueue a job
-using the exact same `*sql.Tx` internally.
+The callback is synchronous. The Store owns begin/commit/rollback and does not
+expose a raw connection. This is the Admin Profile path.
 
-## Business Data
+## Governed PostgreSQL And River
 
-Modary does not require product business data to use PostgreSQL. A consumer may
-use PostgreSQL, MySQL, an API, object storage, or another system behind a
-consumer-owned Connector. That dependency is outside the local control-store
-transaction.
+`adapters/postgres` installs governed Action persistence, `database.Access`, and
+the provider-neutral `task.Service`. It uses one PostgreSQL database with two
+owned schemas:
 
-Use the control database for workflow and governance state that must be atomic
-with task creation. Use Connectors for product data and external effects. When a
-task crosses that boundary, design the external operation to be idempotent.
+| Schema | Contents |
+|---|---|
+| application | Module history, product control tables, plans, idempotency, Identity, RBAC, audit |
+| queue | profile binding and River migrations/jobs/coordination |
 
-## Transactional Enqueue
+The schemas must be distinct and owned by the configured role. River needs a
+schema and tables, not a dedicated database. Each schema stores a role-aware
+pair binding; sharing, re-pairing, or exchanging application/queue roles fails
+closed.
 
-`task.Service.Enqueue` is available only inside a governed transaction. Calling
-it outside that context returns `task.ErrTransactionRequired`. This rule avoids
-the two classic split-brain outcomes:
+The same database is required for the F0 atomicity claim. A governed Action can
+write application state and call `task.Service.Enqueue` through the exact same
+internal PostgreSQL transaction. Enqueue outside that context returns
+`task.ErrTransactionRequired`.
 
-- product state commits but no job exists;
-- a job exists for state that rolled back.
+## Business Database Choice
 
-The public API exposes neither River nor PostgreSQL transaction types. The
-PostgreSQL adapter recognizes its own context-bound transaction and calls River
-`InsertTx` internally.
+F0 officially implements PostgreSQL. Core contracts remain provider-neutral,
+and a consumer may use another database or service behind its own Module, but
+Modary does not ship or claim MySQL conformance yet. An external database cannot
+join the governed PostgreSQL transaction; use idempotency, reconciliation, or a
+product saga across that boundary.
 
-## Delivery Semantics
+## Delivery
 
-Jobs are delivered at least once. A handler may run again after a process crash,
-timeout, lease loss, or completion persistence failure. The framework supplies
-job ID, task kind, queue, attempt, maximum attempts, and a defensive payload
-copy. It does not claim exactly-once external effects.
+River delivery is at least once. A handler may run again after timeout, lease
+loss, process crash, or completion-persistence failure. Use stable product
+identity and make external effects idempotent.
 
-Choose a stable product identity such as a Run ID. Before an external effect,
-load the current product state. After success, persist a terminal state through
-a governed Action. Repeated delivery should observe that terminal state and
-return without repeating the effect. Where the external system supports an
-idempotency key, send the same stable identity on every attempt.
+`task.Job` contains the job ID, kind, queue, attempt, maximum attempts, and a
+defensive payload copy. A runner has immutable queue/concurrency/timeouts and an
+explicit Start/Stop lifecycle. API and worker processes may scale separately.
 
-Handler error text is stored in River's job history. Return a stable,
-presentation-safe error and send dependency detail to a separately protected
-observability sink. Never wrap database URLs, credentials, tokens, request
-bodies, or third-party response bodies into the returned task error.
+Returned task errors may be retained in River history. Keep them bounded and
+presentation-safe; send credentials, connection strings, response bodies, and
+other dependency details only to a protected observability sink.
 
-## Process Topology
+## Choosing The Path
 
-An API process may enqueue without starting a runner. A worker process may start
-one or more immutable runners for selected queues. Multiple processes can work
-the same queue because River owns job leasing and coordination in PostgreSQL.
-Queue concurrency is a per-runner process limit, not a global limit.
+- No persistence: API Profile.
+- Ordinary business CRUD: `postgresdb` plus `database.Store`.
+- Previewed/audited/idempotent mutation with atomic task insertion:
+  `postgres` plus `action.Runtime` and `task.Service`.
 
-## Failure Boundary
-
-The transactional guarantee ends at the control database. A handler that writes
-another database or calls an API cannot extend the PostgreSQL transaction over
-that operation. Use idempotency, reconciliation, or a product-specific saga when
-the external system can partially succeed.
+Do not select River simply to run any asynchronous function. Select it when
+durability, retry, and transactionally recorded intent are product requirements.

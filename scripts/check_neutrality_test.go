@@ -169,6 +169,7 @@ func newNeutralityRepository(t *testing.T) string {
 	writeNeutralityFile(t, filepath.Join(repository, "scripts", "check-neutrality.sh"), string(script), 0o755)
 	writeNeutralityFile(t, filepath.Join(repository, "go.mod"), "module github.com/iiwish/modary\n\ngo 1.26\n", 0o644)
 	writeNeutralityFile(t, filepath.Join(repository, "framework.go"), "package modary\n", 0o644)
+	writeNeutralityFile(t, filepath.Join(repository, "cmd", "modary", "main.go"), "package main\n\nfunc main() {}\n", 0o644)
 	for _, packageName := range []string{
 		"actionruntime", "callbackcontract", "databasecontrol", "filepolicy", "jsonschema", "jsonvalue", "moduleassembly", "quality",
 		"runtimecontrol", "safeerr", "sqlpolicy", "testsupport", "transactionoutcome",

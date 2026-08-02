@@ -1,0 +1,116 @@
+// Package app owns the application's explicit backend composition.
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"time"
+
+	"{{.ModulePath}}/internal/config"
+	"{{.ModulePath}}/internal/records"
+	"{{.ModulePath}}/internal/web"
+	"github.com/iiwish/modary/adapters/localidentity"
+	"github.com/iiwish/modary/adapters/postgresdb"
+	"github.com/iiwish/modary/adapters/rbac"
+	"github.com/iiwish/modary/appkit"
+	"github.com/iiwish/modary/httpkit"
+	"github.com/iiwish/modary/module"
+	"github.com/iiwish/modary/scope"
+	"github.com/iiwish/modary/transport/httpapi"
+	"github.com/iiwish/modary/transport/sessionhttp"
+)
+
+type Application struct {
+	core    *appkit.Application
+	handler http.Handler
+}
+
+func Start(ctx context.Context, runtimeConfig config.Config) (*Application, error) {
+	adminScope := scope.Must("workspace", "default")
+	databaseModule, err := postgresdb.Module(postgresdb.Options{URL: runtimeConfig.DatabaseURL, Schema: runtimeConfig.Schema})
+	if err != nil {
+		return nil, err
+	}
+	identityModule, err := localidentity.Module(localidentity.Options{
+		Principals: []localidentity.Principal{ {ActorID: "admin", ActorType: "human", DisplayName: "Administrator", Scope: adminScope} },
+		PasswordCredentials: []localidentity.PasswordCredential{ {ActorID: "admin", Username: runtimeConfig.AdminUser, Password: runtimeConfig.AdminPassword} },
+	})
+	if err != nil {
+		return nil, err
+	}
+	rbacModule, err := rbac.Module(rbac.Options{
+		Roles: []rbac.Role{ {ID: "records-admin", Permissions: []string{"records.create", "records.delete", "records.list", "records.update"}} },
+		Bindings: []rbac.Binding{ {ActorID: "admin", ActorType: "human", Scope: adminScope, RoleID: "records-admin"} },
+	})
+	if err != nil {
+		return nil, err
+	}
+	core, err := appkit.Start(ctx, appkit.Definition{
+		Metadata: appkit.Metadata{ID: {{quote .ID}}, Name: {{quote .Name}}, Version: "0.1.0"},
+		Modules: []module.Registration{databaseModule, identityModule, rbacModule, records.Registration()},
+	}, appkit.Options{})
+	if err != nil {
+		return nil, err
+	}
+	handler, err := assembleHTTP(core, runtimeConfig.InsecureCookie)
+	if err != nil {
+		return nil, errors.Join(err, stopAfterAssemblyFailure(core))
+	}
+	return &Application{core: core, handler: handler}, nil
+}
+
+func assembleHTTP(core *appkit.Application, insecureCookie bool) (http.Handler, error) {
+	health, err := httpapi.NewHealth(core)
+	if err != nil {
+		return nil, err
+	}
+	sessions, err := sessionhttp.New(core, sessionhttp.Options{AllowInsecureCookie: insecureCookie})
+	if err != nil {
+		return nil, err
+	}
+	store, err := core.Database()
+	if err != nil {
+		return nil, err
+	}
+	authorizer, err := core.Authorizer()
+	if err != nil {
+		return nil, err
+	}
+	recordRoutes, err := records.Routes(store, authorizer, sessions)
+	if err != nil {
+		return nil, err
+	}
+	spa, err := httpapi.NewSPA(web.Assets(), httpapi.SPAOptions{
+		IndexCacheControl: "no-cache",
+		AssetCacheControl: "public, max-age=31536000, immutable",
+	})
+	if err != nil {
+		return nil, err
+	}
+	metadata := core.Metadata()
+	routes := []httpkit.Route{
+		{Method: http.MethodGet, Path: "/healthz", Handler: health},
+		{Method: http.MethodGet, Path: "/api/meta", Handler: http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+			_ = json.NewEncoder(writer).Encode(struct { Name string `json:"name"`; Version string `json:"version"` }{Name: metadata.Name, Version: metadata.Version})
+		})},
+		{Method: http.MethodPost, Path: "/api/auth/login", Handler: sessions},
+		{Method: http.MethodGet, Path: "/api/auth/session", Handler: sessions},
+		{Method: http.MethodPost, Path: "/api/auth/logout", Handler: sessions},
+	}
+	routes = append(routes, recordRoutes...)
+	routes = append(routes, httpkit.Route{Method: http.MethodGet, Path: "/", Handler: spa})
+	return httpkit.NewHandler(routes...)
+}
+
+func (application *Application) Handler() http.Handler { return application.handler }
+func (application *Application) Core() *appkit.Application { return application.core }
+func (application *Application) Shutdown(ctx context.Context) error { return application.core.Shutdown(ctx) }
+
+func stopAfterAssemblyFailure(core *appkit.Application) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return core.Shutdown(ctx)
+}

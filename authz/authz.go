@@ -7,8 +7,8 @@ import (
 	"github.com/iiwish/modary/scope"
 )
 
-// Decision field limits bound every policy-controlled value that can enter an
-// Action error, plan, or audit record.
+// Decision field limits bound every policy-controlled value that can enter a
+// public error, governed plan, or audit record.
 const (
 	MaxDecisionCodeRunes   = 64
 	MaxDecisionReasonRunes = 512
@@ -19,7 +19,9 @@ const (
 // planned impact.
 type Phase string
 
-// Authorization phases are evaluated in order for governed writes.
+// Authorization phases describe an operation before and after its concrete
+// mutation footprint is known. Ordinary business handlers usually evaluate
+// only PhaseIntent.
 const (
 	PhaseIntent Phase = "intent"
 	PhaseImpact Phase = "impact"
@@ -33,12 +35,12 @@ type Impact struct {
 
 // Request contains the complete policy input for one authorization decision.
 type Request struct {
-	Actor      identity.Actor
-	ActionID   string
-	Permission string
-	Scope      scope.Execution
-	Phase      Phase
-	Impact     Impact
+	Actor       identity.Actor
+	OperationID string
+	Permission  string
+	Scope       scope.Execution
+	Phase       Phase
+	Impact      Impact
 }
 
 // Constraints contains limits that an allowed decision still enforces.
@@ -60,7 +62,7 @@ type Decision struct {
 	Fingerprint        string      `json:"fingerprint"`
 }
 
-// Authorizer evaluates current policy for Action intent and impact phases.
+// Authorizer evaluates current policy for ordinary or governed operations.
 // Policy denial is expressed as a successful denied Decision. A returned error
 // is an operational dependency failure and Runtime classifies it as
 // CodeInternal. The same Authorizer may be called concurrently; implementations

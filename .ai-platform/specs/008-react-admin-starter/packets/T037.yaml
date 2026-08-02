@@ -1,0 +1,46 @@
+schema_version: 1
+packet_id: EP-008-T037
+task_id: T037
+feature_id: 008-react-admin-starter
+mode: execute_one_task
+adapter: codex
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  spec: .ai-platform/specs/008-react-admin-starter/spec.md
+  checklist: .ai-platform/specs/008-react-admin-starter/checklists/requirements.md
+  plan: .ai-platform/specs/008-react-admin-starter/plan.md
+  work_graph: .ai-platform/specs/008-react-admin-starter/tasks.md
+  analysis: .ai-platform/specs/008-react-admin-starter/analysis.md
+  approval: explicit owner approval on 2026-08-02
+work_unit:
+  title: Generated consumer and release readiness
+  goal: prove the React-only Admin Profile outside the repository and restore v0.2 release readiness
+  requirements: [US-001, US-003, FR-008, FR-009, FR-010, NFR-001, NFR-002, NFR-003, NFR-004, NFR-005]
+  depends_on: [T035, T036]
+codebase_context:
+  relevant_files: [starter/**, scripts/**, Makefile, go.mod, go.sum, examples/counter/go.mod, .github/workflows/ci.yml, README.md, CONTRIBUTING.md, CHANGELOG.md, docs/**, .ai-platform/docs/**]
+  existing_patterns: [copied-out Profile acceptance, strict docs checks, immutable release evidence, deterministic production assets]
+  forbidden_changes: [v0.1.0-alpha.3 tag, historical Alpha 3 evidence, backend architecture expansion, Rulary product development]
+execution_constraints:
+  allowed_files: [starter/**, scripts/**, Makefile, go.mod, go.sum, examples/counter/go.mod, .github/workflows/ci.yml, README.md, CONTRIBUTING.md, CHANGELOG.md, docs/**, .ai-platform/docs/**, .ai-platform/specs/008-react-admin-starter/**, .ai-platform/evidence/T037/**, internal/quality/**]
+  conflicts_with: [T035, T036]
+  worktree: current owner-approved worktree; preserve unrelated changes
+  delegation: direct execution because subagent delegation was not authorized
+tdd_plan:
+  red: add checks that reproduce Vue residue, stale docs, repeated generated-test contamination, incomplete update timestamps, false local logout, hidden initialization failure, and insufficient normal-text contrast
+  green: update generation, backend example responses, React error handling, styling, assets, canonical docs, and release checks until external and repository gates pass
+  refactor: consolidate typed state and deterministic checks without weakening accepted coverage
+validation_loop:
+  commands: [make acceptance, make race, make repeat, make fuzz-smoke, make cross-build, two consecutive copied-out Admin Go tests plus frontend gates with GOWORK=off, ./scripts/check-docs.sh, ./scripts/check-doc-links.sh, actual-worktree make release-preflight VERSION=v0.2.0-alpha.1, strict T037 artifact validation, git diff --check]
+  retry_budget: 3 per failing gate before scope reassessment
+evidence_contract:
+  summary: .ai-platform/evidence/T037/summary.md
+  diff: .ai-platform/evidence/T037/diff.patch
+  test_results: .ai-platform/evidence/T037/test-results.md
+  review: .ai-platform/evidence/T037/review.md
+review_contract:
+  sequence: [spec compliance, engineering quality, UX and accessibility, release readiness]
+  acceptance: no unresolved P0 through P2 finding
+handoff:
+  next_task: complete persistent React migration goal after final acceptance
+stop_conditions: [immutable release history would need modification, copied-out consumer exposes backend contract regression, destructive migration is required, validation fails beyond retry budget]

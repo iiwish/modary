@@ -9,9 +9,9 @@ import (
 )
 
 var (
-	// ErrTransactionRequired reports a write attempted without the transaction
-	// binding installed by the governed Runtime.
-	ErrTransactionRequired = errors.New("database write requires a governed transaction")
+	// ErrTransactionRequired reports a write attempted without a transaction
+	// context supplied by Store or the governed Runtime.
+	ErrTransactionRequired = errors.New("database write requires a transaction")
 	// ErrReadQueryRequired reports a non-read statement submitted through a
 	// Query method. Mutations must use ExecContext and a governed transaction.
 	ErrReadQueryRequired = errors.New("database query must be a single SELECT statement")
@@ -56,16 +56,25 @@ type Executor interface {
 	QueryRowContext(context.Context, string, ...any) Row
 }
 
-// Access is the database capability exposed to consumer Modules. The
-// framework-owned implementation accepts one SELECT for reads and permits one
-// INSERT, UPDATE, or DELETE only through the transaction-bound context supplied
-// by the governed Runtime.
+// Access is the narrow database capability exposed to governed operation
+// handlers. The framework-owned implementation accepts one SELECT for reads
+// and permits one INSERT, UPDATE, or DELETE only through a transaction-bound
+// context supplied by the governed Runtime.
 //
 // Consumers may implement Access in isolated tests. Implementing this method
 // set does not make a value installable as the Host's canonical database
 // service and grants no migration, administration, or transaction ownership.
 type Access interface {
 	Executor
+}
+
+// Store is the ordinary business-data capability. Reads use the same bounded
+// SQL surface as Access. Mutations require the context supplied synchronously
+// to WithinTransaction, so repositories can own ordinary atomic work without
+// receiving governed Action transaction authority or raw commit/rollback.
+type Store interface {
+	Access
+	WithinTransaction(context.Context, func(context.Context) error) error
 }
 
 // IsDependencyPanic reports whether err contains ErrDependencyPanic without

@@ -1,0 +1,49 @@
+schema_version: 1
+packet_id: EP-007-T032
+task_id: T032
+feature_id: 007-component-framework-refoundation
+mode: execute_one_task
+adapter: codex-direct
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  feature_spec: .ai-platform/specs/007-component-framework-refoundation/spec.md
+  requirements_checklist: .ai-platform/specs/007-component-framework-refoundation/checklists/requirements.md
+  technical_decisions: .ai-platform/specs/007-component-framework-refoundation/plan.md
+  work_graph: .ai-platform/specs/007-component-framework-refoundation/tasks.md
+  analysis: .ai-platform/specs/007-component-framework-refoundation/analysis.md
+  approval: explicit owner approval on 2026-08-02
+work_unit:
+  title: Admin UI F0
+  goal: Prove the optional Admin Profile as a complete, quiet, accessible records work surface with reproducible prebuilt assets.
+  requirements: [FR-011, FR-013, FR-014, FR-015, FR-016, FR-017, NFR-001, NFR-004, NFR-005]
+  depends_on: [T031]
+execution_constraints:
+  branch_or_worktree: current
+  allowed_files: [starter/templates/admin/**, starter/**, transport/httpapi/spa*, httpkit/**, scripts/**, .gitignore, .ai-platform/specs/007-component-framework-refoundation/**, .ai-platform/evidence/T032/**, .ai-platform/docs/tasks.md]
+  ownership_notes: Frontend registry is explicit source composition; records vocabulary stays in the generated Admin Profile; unselected modules contribute no source, navigation, assets, or routes.
+tdd_plan:
+  required: true
+  red:
+    command: frontend registry/auth/records tests and generated Admin asset expectations
+    expected_failure: Admin generation has backend only and no web source or embedded production bundle
+  green:
+    command: frontend lint/type/unit/build plus focused Starter and copied-out Admin tests
+    expected_signal: login, session restore, records workflow, and no-Node production serving pass
+  refactor:
+    command: accessibility, keyboard, desktop/mobile visual, overflow, asset-drift, full docs, and strict validation
+    expected_signal: stable professional work surface with deterministic assets and no unselected UI
+validation_loop:
+  commands: [pnpm install --frozen-lockfile, pnpm lint, pnpm typecheck, pnpm test, pnpm build, pnpm assets:check, go test ./starter ./transport/httpapi -count=1, python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 007-component-framework-refoundation --task-id T032 --strict, git diff --check]
+  retry_budget: 3
+evidence_contract:
+  summary: .ai-platform/evidence/T032/summary.md
+  diff: .ai-platform/evidence/T032/diff.patch
+  test_results: .ai-platform/evidence/T032/test-results.md
+review_contract:
+  required_passes: [product_fit, module_registry, auth, records_workflow, accessibility, responsive_visual, asset_reproducibility, component_absence]
+stop_conditions: [frontend requires River or governed Actions, production Go binary requires Node.js, backend authorization is replaced by UI visibility]
+codebase_context:
+  current_gap: Admin Profile has an accepted backend but no frontend source, module registry, or prebuilt SPA assets
+  target_boundary: consumer-owned Vue source and explicit module registry backed by selected framework components and served as immutable Go-embedded assets
+handoff:
+  next_task: T033 after T032 validation and completion evidence

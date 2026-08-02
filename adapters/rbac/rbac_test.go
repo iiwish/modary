@@ -102,7 +102,7 @@ func TestRequestEnvelopeAndImpactLimitsFailClosed(t *testing.T) {
 		name   string
 		mutate func(*authz.Request)
 	}{
-		{name: "action id", mutate: func(request *authz.Request) { request.ActionID = "counter/write" }},
+		{name: "operation id", mutate: func(request *authz.Request) { request.OperationID = "counter/write" }},
 		{name: "phase", mutate: func(request *authz.Request) { request.Phase = "unknown" }},
 		{name: "negative rows", mutate: func(request *authz.Request) {
 			request.Phase = authz.PhaseImpact
@@ -151,7 +151,7 @@ func TestOpaqueActorIdentifiersFollowTheKernelContract(t *testing.T) {
 		}},
 	})
 	decision, err := authorizer.Authorize(context.Background(), authz.Request{
-		Actor: actor, ActionID: "counter.write", Permission: "counter.write", Scope: executionScope, Phase: authz.PhaseIntent,
+		Actor: actor, OperationID: "counter.write", Permission: "counter.write", Scope: executionScope, Phase: authz.PhaseIntent,
 	})
 	if err != nil || !decision.Allowed {
 		t.Fatalf("opaque actor decision = %#v, %v", decision, err)
@@ -486,8 +486,8 @@ func binding(roleID string) Binding {
 func policyRequest(permission string) authz.Request {
 	execution := testScope()
 	return authz.Request{
-		Actor:    identity.Actor{ID: "person-one", Type: "human", DisplayName: "Person One", Scope: execution},
-		ActionID: "counter.write", Permission: permission, Scope: execution, Phase: authz.PhaseIntent,
+		Actor:       identity.Actor{ID: "person-one", Type: "human", DisplayName: "Person One", Scope: execution},
+		OperationID: "counter.write", Permission: permission, Scope: execution, Phase: authz.PhaseIntent,
 	}
 }
 

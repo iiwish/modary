@@ -1,179 +1,103 @@
-# F0 Known Limitations
+# Modary v0.2 F0 Known Limitations
 
-1. Public Go APIs, generated formats, and Modary-specific HTTP/MCP schemas are
-   alpha. Exact-version pinning and deliberate upgrades are required before v1.
-2. The durable profile uses one PostgreSQL control database with separate
-   application and River schemas. It supports multiple API and worker processes,
-   but does not claim distributed transactions, cross-database atomicity,
-   automatic database failover, or arbitrary storage-adapter atomicity.
-   Privileged migration and transaction control remains internal to the Host and
-   official adapters.
-3. PostgreSQL 17 is the tested database line. The configured role must be able to
-   create and own both schemas. Database provisioning, TLS, credentials,
-   connection routing, backups, replication, failover, monitoring, and upgrades
-   remain operator responsibilities.
-4. Local Identity is suitable for bounded local or private deployments, not a
-   complete internet-facing IAM system. MFA, SSO, password recovery, breached-
-   password screening, IP/account rate limiting, and centralized revocation are
-   consumer or future-adapter responsibilities.
-5. RBAC provides explicit roles, actor/scope bindings, permissions, and row
-   limits. It is not a general policy language and does not model delegation,
-   hierarchy, attribute policy, or cross-service policy distribution.
-6. Preview plans use a configurable in-process cleanup path and a five-minute
-   default TTL. F0 provides no scheduler for retention, archival, or bulk purge.
-7. Audit provides bounded structured events and transactional success records.
-   Retention policy, export, signing, immutability outside PostgreSQL, external SIEM
-   delivery, and operator-facing audit UI are not framework features in F0.
-8. HTTP API sessions and CSRF are included, but TLS termination, trusted proxy
-   policy, security headers, origin policy, request-rate limiting, and deployment
-   monitoring remain application or infrastructure responsibilities.
-9. MCP implements the bounded initialization, discovery, and tool-call surface
-   required for governed Actions. Streaming, resources, prompts, resumability,
-   and broader protocol features are outside F0.
-10. Module composition is static Go code. Dynamic plugins, runtime package
-    discovery, marketplaces, hot reload, schedulers, and workflow engines are
-    intentionally outside the framework contract.
-11. Modary ships no application UI, scaffold generator, global CLI, container,
-    or release executable. Consumers own those surfaces and may use the public
-    AppKit, transport, appcmd, and projecttool packages to build them.
-12. The current checkout proves local independent consumption. A remote module
-    download is not part of F0 acceptance; it is a separate release gate for a
-    published version tag. Modary-owned source and documentation use
-    Apache-2.0, with applicable third-party licenses and notices preserved.
-13. Action handlers, Runtime dependencies, and installed actor-resolution,
-    session, and bearer-token implementations are trusted process code and are
-    expected to honor their contexts. Every Runtime and identity facade
-    invocation holds a lifecycle lease. `Shutdown` revokes new leases and cancels
-    active leased contexts, but Go cannot forcibly terminate a call that ignores
-    cancellation. A `Shutdown` caller context bounds only that caller's wait;
-    expiration returns without starting Host cleanup while a lease remains
-    active. The gate stays revoked, new calls through retained facades fail
-    closed, and the exactly-once shutdown coordinator starts Host cleanup
-    automatically when the non-cooperative call returns. Another `Shutdown`
-    call is not required.
-    Cleanup guarantees invocation-start order, not completion order: LIFO within
-    a Module and reverse dependency order across Modules.
-    A timed-out cleanup callback may overlap later callbacks and provider
-    cleanup. Trusted cleanup
-    callbacks must honor cancellation and stop using dependent services before
-    returning; a callback that ignores cancellation can retain its goroutine and
-    resources until it returns. Detached Audit and each `AuditFailure` callback
-    retain separate bounded waits.
-    `AuditFailure` receives an independent deadline context and cannot replace
-    the primary Runtime result.
-    The HandlerFactory Resolver is valid only during the factory call; retaining
-    it is a contract violation and later resolution fails with
-    `module.ErrInvalidResolver`.
-14. Generated files are each installed with one sibling rename, which is atomic
-    only where the host filesystem guarantees rename atomicity. A multi-file
-    generated set is not a filesystem-wide or crash-atomic transaction. Rollback
-    is best-effort within the running process. Same-root operations serialize
-    within one process by the filesystem identity captured when the Project is
-    loaded, not by pathname spelling. The lock remains process-local, so
-    consumer automation must prevent concurrent tool processes.
-    Unsupported-platform portability is cross-compiled only where covered;
-    native rename runtime behavior is not verified there.
-15. CLI `--token-file <path>` is supported only on Linux and Darwin. The token
-    must remain a regular file owned by the effective UID with exact mode `0400`
-    or `0600`; Darwin also queries the retained open file descriptor and rejects
-    any extended ACL. Every other operating system rejects a token path
-    before any filesystem access. Only `--token-file -`, reading
-    standard input, remains available there.
-16. Project filesystem validation and artifact mutation use a verified
-    `os.Root`. Compiler output first lands in an outside-project operating system
-    temporary directory and is validated before being copied through that Root.
-    Before Go runs, Modary canonicalizes `TMPDIR`, rejects it when it is inside
-    or resolves through a symlink into the project, and retains a file descriptor
-    and filesystem identity for that directory and every ancestor through `/`.
-    Every retained directory is revalidated, must be owned by the effective UID
-    or root, and may be group- or other-writable only when root-owned and sticky.
-    Darwin also rejects any extended ACL at every retained level. The child
-    staging directory must be effective-UID-owned with exact mode `0700`; Darwin
-    also rejects an extended ACL on that child. Build removes every inherited
-    case-variant `TMPDIR` and `GOTMPDIR` entry from the child environment, then
-    sets both exactly once to the same canonical staging parent whose descriptor
-    and ancestry are retained and revalidated. An ambient `GOTMPDIR` cannot
-    override that parent. Every other platform, including other Unix variants
-    and Windows, fails Build because F0 has no validated ACL policy there. Such
-    platforms are cross-compile-only where covered.
-    F0 claims no native Build, ACL, or rename runtime validation for them.
-17. With cooperative output writers, compiler cancellation and inherited output
-    pipes have a bounded wait. Caller-supplied `io.Writer.Write` must return; Go
-    cannot interrupt a blocked call, which can therefore keep Build waiting.
-18. Build sets `GO111MODULE=on`, `GOTOOLCHAIN=local`, `GOENV=off`, `GOWORK=off`,
-    and an empty `GOFLAGS`, and passes `-mod=readonly` and `-buildvcs=false`.
-    Other inherited environment, the selected Go executable and toolchain, and
-    consumer source remain trusted inputs. The verified project pathname used as
-    `command.Dir`, root or same-UID pathname and mount replacement, and hostile
-    build inputs are not a sandbox boundary.
-19. On Linux and Darwin, Build starts Go in an independent process group. After
-    `Start`, `waitid(WEXITED|WNOWAIT)` observes the leader without reaping it.
-    While the leader PID and PGID remain reserved, Build kills residual same-group
-    descendants after either a zero or non-zero leader exit, then calls
-    `Cmd.Wait`. When the leader exited successfully, pre-reap group cleanup
-    succeeded, and the context remains active, `exec.ErrWaitDelay` from
-    `Cmd.Wait` is only a residual inherited-pipe close backstop and does not fail
-    Build. Writer, process-exit, cancellation, and cleanup errors still fail.
-    Context cancellation also targets the same group. A trusted descendant that
-    daemonizes or enters another process group can escape cleanup, so this is not
-    a strong process sandbox. Build does not claim byte-reproducible binaries or
-    strong process isolation.
-20. All extension and dependency causes cross one opaque public error-chain
-    boundary. Standard `errors.Is` and `errors.As` perform bounded matching
-    without calling caller-defined `Error`, `Is`, `As`, or `Unwrap`. An external
-    consumer uses those public error chains without importing an internal helper.
-21. `appcmd.Options.Stdout` and `Stderr` are trusted, cooperative dependencies.
-    Their `Write` calls must return; context cancellation and shutdown timeouts
-    cannot interrupt a blocked writer.
-22. PostgreSQL nested transactions join the outer transaction and do not create
-    savepoints. Any inner error or panic makes the complete outer unit
-    rollback-only, even when outer code handles the returned error.
-23. One Module migration source supports at most 256 root entries, 1 MiB per SQL
-    file, and 16 MiB in aggregate; applied history is capped at 256 rows. Larger
-    schemas must be consolidated before release or require a future profile with
-    a separately reviewed resource policy.
-24. An Action schema, request input, or Handler plan payload is one separate
-    Action JSON document. A Preview summary or Result data is also one separate
-    Action JSON document. A persisted Action JSON value is likewise one separate
-    Action JSON document. Every Action JSON document has independent limits of
-    at most 1 MiB
-    (1,048,576) source bytes, 256 nested object or array containers including the
-    root container, 65,536 JSON value nodes including containers and scalar
-    values but excluding object member names, and 4,096 source bytes for any one
-    JSON number token. Every document is valid UTF-8 and contains
-    exactly one JSON value, with no duplicate object member names.
-    HTTP and MCP request envelopes have independent byte budgets.
-    Their 2 MiB defaults can carry one complete
-    maximum-size Action JSON document plus required envelope fields.
-    Every extracted Action document is revalidated against the
-    per-document Action limits. Larger Action values require decomposition or a
-    separately reviewed future profile;
-    increasing an envelope budget does not increase an Action document limit.
-25. Action schemas are JSON Schema Draft 7 with object or boolean roots. One
-    immutable executable SchemaGraph admits schema-syntax locations and the
-    unique closure of local JSON Pointer references. Empty or non-local
-    references, named anchors, schema `id`/`$id`, URI bases, external registries,
-    remote retrieval, and file access are outside F0. Actual schema roots are
-    validated offline against a pinned Draft 7 metaschema. Patterns use the Go RE2
-    grammar; ECMA-262-only constructs such as look-around and backreferences
-    are outside this profile.
-    Static admission permits at most 2,048 schema nodes, 512 entries in one
-    schema collection, 256 enum values, 16 KiB for one encoded `const` or
-    `enum`, 4 KiB for one pattern, 1,024 same-instance schema visits, and 64 Mi
-    cumulative numeric compilation work units. Each validation is flag-only,
-    has 64 Mi work units, 4,096 mismatch events, and 4,096 active evaluation frames,
-    and returns no dependency diagnostic tree. Schemas above the static
-    profile must be decomposed before descriptor construction; evaluation
-    exhaustion is `LIMIT_EXCEEDED`.
-    MCP retains every Action collection, enum, literal, pattern, same-instance,
-    and evaluation limit. Its fixed compilation profile adds 128 schema nodes,
-    a 1 Mi numeric wrapper allowance, and 4,096 compile-only JSON value nodes.
-    The pinned official Draft 7 mandatory corpus executes 223 cases and 856
-    instance tests; an exact manifest excludes 34 cases and 71 tests requiring
-    identifiers, URI bases, anchors, or non-local resources.
-26. A running Host releases its copies of Start callbacks, handler factories,
-    and migration filesystem references after the terminal Start attempt. The
-    original Definition and Registration remain consumer-owned values. Any
-    credentials captured by those original callbacks remain reachable for as
-    long as the consumer retains them; Modary cannot erase caller-owned Go
-    closures or their captured memory.
+These boundaries are part of the contract rather than an informal backlog.
+
+## Product And Compatibility
+
+1. Public Go APIs, generated source, frontend structure, and Modary HTTP/MCP
+   schemas are alpha. Pin an exact version and review every upgrade before v1.
+2. `modary new` is create-only. F0 has no patch, merge, eject, or generated
+   application upgrade command. Consumer source remains consumer-owned.
+3. Profiles are curated starting points, not every possible component
+   combination. F0 has no interactive configurator, runtime plugin discovery,
+   component marketplace, page builder, or low-code metadata engine.
+4. Module composition is static Go code. Hot loading and unloading are outside
+   the contract.
+5. Core retains small provider-neutral contract packages for typed optional
+   database, identity, authorization, Action, and task facades. Selecting API
+   does not install those services, but F0 does not claim a separate Go module
+   download or zero contract-package linkage for every component. Concrete
+   PostgreSQL, River, Identity, RBAC, Audit, and transport selections remain
+   independently absent.
+
+## Data And Tasks
+
+6. PostgreSQL 17 is the tested database line. F0 provides no official MySQL,
+   SQLite, or other Store adapter. Consumers may implement `database.Store`,
+   but adapter quality and migration behavior remain their responsibility.
+7. The Admin Profile uses ordinary PostgreSQL transactions. It contains no
+   transactional outbox or durable task service by default.
+8. The Governed Profile uses one physical PostgreSQL database with separate
+   application and River schemas. It does not provide distributed transactions,
+   cross-database atomicity, automatic failover, or cross-service rollback.
+9. River delivery is at least once. Task consumers and external side effects
+   must be idempotent. A dedicated River database is unsupported where atomic
+   governed write plus enqueue is required.
+10. Database provisioning, role management, TLS, connection routing, backups,
+   replication, failover, capacity, monitoring, and PostgreSQL upgrades are
+   operator responsibilities.
+11. Nested `postgresdb` transactions join the outer transaction and provide no
+    savepoint. An inner error or panic marks the whole outer unit rollback-only.
+12. Published migrations are forward-only. Recovery from an unsafe data change
+    uses a new migration or a verified database restore, not an edited applied
+    file.
+
+## Identity And Security
+
+13. Local Identity is for development and bounded private deployments. It is
+    not a complete internet-facing IAM system: OAuth/OIDC, SSO, MFA, recovery,
+    breached-password screening, centralized revocation, and abuse controls are
+    not included.
+14. RBAC supports explicit scoped roles, permissions, and row limits. It is not
+    a general policy language and does not model delegation, hierarchy, or
+    distributed attribute policy.
+15. TLS termination, trusted-proxy rules, security headers, WAF, rate limiting,
+    secrets delivery, and deployment monitoring remain application or
+    infrastructure responsibilities.
+16. Consumer callbacks, handlers, repositories, SQL, task consumers,
+    configuration providers, and output writers are trusted process code.
+    Modary is not a hostile plugin, source, or compiler sandbox.
+
+## Governed Runtime
+
+17. Preview plans have a five-minute default TTL and in-process cleanup. F0 has
+    no retention scheduler, archival service, or operator UI for plans.
+18. Audit provides bounded structured events and transactional success records.
+    Retention, export, signing, external immutability, SIEM delivery, and an
+    audit UI are product or future-component work.
+19. MCP implements bounded initialization, Action discovery, and tool calls.
+    Resources, prompts, streaming, resumability, and broader protocol surfaces
+    are outside F0.
+20. Action JSON, schema, envelope, collection, pattern, numeric-work, and
+    evaluation limits are enforced. Large documents or schemas must be split;
+    increasing an HTTP envelope budget does not increase Action document
+    limits. Draft 7 support excludes remote references, URI bases, anchors, and
+    external resource retrieval.
+21. Governed Access cannot begin a transaction. External databases or APIs are
+    outside the local atomic unit and require product-level idempotency and
+    integration design.
+
+## Lifecycle And Tooling
+
+22. Shutdown cancels active facade leases, but Go cannot forcibly terminate a
+    trusted callback that ignores cancellation. Cleanup order is guaranteed by
+    invocation, not by completion of non-cooperative callbacks.
+23. Generation installs each output with a sibling rename. A complete multi-file
+    set is not filesystem-wide or crash atomic. Cross-process serialization is
+    a consumer CI responsibility.
+24. The optional `projecttool build` has validated native filesystem and process
+    behavior only on Linux and Darwin. Other listed platforms are compile-only.
+    It executes trusted Go source and a trusted local toolchain; it is not a
+    strong sandbox or a byte-reproducible build service.
+25. CLI token-path hardening is supported on Linux and Darwin. Other operating
+    systems accept token input through standard input only.
+26. Node.js and pnpm are required to modify or rebuild Admin frontend source.
+    They are not required by the API or Governed Profiles, or to run the
+    prebuilt Admin Go binary.
+
+## Distribution
+
+27. The v0.2 F0 source is technically accepted but not yet released. Normal
+    remote module resolution remains a release gate. The immutable published
+    baseline is `v0.1.0-alpha.3` and has a different Governed-first onboarding
+    contract.

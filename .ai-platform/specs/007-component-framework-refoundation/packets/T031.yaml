@@ -1,0 +1,49 @@
+schema_version: 1
+packet_id: EP-007-T031
+task_id: T031
+feature_id: 007-component-framework-refoundation
+mode: execute_one_task
+adapter: codex-direct
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  feature_spec: .ai-platform/specs/007-component-framework-refoundation/spec.md
+  requirements_checklist: .ai-platform/specs/007-component-framework-refoundation/checklists/requirements.md
+  technical_decisions: .ai-platform/specs/007-component-framework-refoundation/plan.md
+  work_graph: .ai-platform/specs/007-component-framework-refoundation/tasks.md
+  analysis: .ai-platform/specs/007-component-framework-refoundation/analysis.md
+  approval: explicit owner approval on 2026-08-02
+work_unit:
+  title: Optional Admin Backend Profile
+  goal: Prove optional PostgreSQL, Identity, RBAC, sessions, and ordinary business CRUD without River or Governed Actions.
+  requirements: [FR-004, FR-005, FR-010, FR-020, FR-021, FR-022, NFR-002, NFR-003]
+  depends_on: [T029, T030]
+execution_constraints:
+  branch_or_worktree: current
+  allowed_files: [database/**, module/**, appkit/**, internal/databasecontrol/**, internal/moduleassembly/**, adapters/**, authz/**, internal/actionruntime/**, transport/**, starter/**, internal/quality/**, scripts/**, .ai-platform/specs/007-component-framework-refoundation/**, .ai-platform/evidence/T031/**, .ai-platform/docs/tasks.md]
+  ownership_notes: Records vocabulary and HTTP handlers exist only in copied-out Admin Profile templates and tests, never framework runtime packages.
+tdd_plan:
+  required: true
+  red:
+    command: focused Store, Session API, PostgreSQL Database, and Admin generation tests
+    expected_failure: only governed database access and Action-coupled session HTTP exist; Admin profile is unavailable
+  green:
+    command: focused affected-package and copied-out Admin tests
+    expected_signal: ordinary transactions, session middleware, real PostgreSQL CRUD, and absence tests pass
+  refactor:
+    command: focused race, vet, full repository, docs, and strict validation
+    expected_signal: optional facades and middleware are lifecycle-safe with no general API retaining Action-only naming
+validation_loop:
+  commands: [go test ./database ./internal/databasecontrol ./module ./appkit ./adapters/postgresdb ./adapters/postgres ./adapters/localidentity ./adapters/rbac ./transport/sessionhttp ./starter, go test -race ./database ./internal/databasecontrol ./module ./appkit ./adapters/postgresdb ./transport/sessionhttp ./starter, go vet ./database ./internal/databasecontrol ./module ./appkit ./adapters/postgresdb ./adapters/postgres ./adapters/localidentity ./adapters/rbac ./transport/sessionhttp ./starter, go test ./... -count=1, python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 007-component-framework-refoundation --task-id T031 --strict, git diff --check]
+  retry_budget: 3
+evidence_contract:
+  summary: .ai-platform/evidence/T031/summary.md
+  diff: .ai-platform/evidence/T031/diff.patch
+  test_results: .ai-platform/evidence/T031/test-results.md
+review_contract:
+  required_passes: [transaction_authority, optionality, session_security, rbac, copied_out_crud, lifecycle, engineering_quality]
+stop_conditions: [Admin CRUD requires Action Preview semantics, general PostgreSQL initializes River or task tables, session middleware trusts UI visibility instead of backend authorization]
+codebase_context:
+  current_gap: accepted implementation separates Store, postgresdb, and sessionhttp from the governed PostgreSQL and Action surfaces
+  target_boundary: database.Store owns ordinary callback transactions while database.Access retains governed context-only mutation
+handoff:
+  next_task: T032 after T031 validation and completion evidence

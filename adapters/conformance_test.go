@@ -281,7 +281,7 @@ func counterRegistration() module.Registration {
 					RequiresIdempotency: true,
 				},
 				NewHandler: func(_ context.Context, services module.Resolver) (action.Handler, error) {
-					db, err := module.Resolve(services, module.Database())
+					db, err := module.Resolve(services, module.ActionDatabase())
 					if err != nil {
 						return nil, err
 					}

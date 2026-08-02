@@ -1,0 +1,17 @@
+# T033 reviewed diff manifest
+
+Governed Starter availability and selection: `starter/create.go`,
+`starter/run.go`, `starter/templates.go`, `starter/run_test.go`,
+`starter/create_test.go`
+
+Generated application composition and commands:
+`starter/templates/governed/go.mod.tmpl`, `gitignore.tmpl`, `main.go.tmpl`,
+`worker.go.tmpl`, `config.go.tmpl`, `project.go.tmpl`, `README.md.tmpl`
+
+Generated consumer feature, migration, task decoder, and copied-out acceptance:
+`starter/templates/governed/limits.go.tmpl`, `worker_handler.go.tmpl`,
+`limits.sql.tmpl`, `application_test.go.tmpl`
+
+Governance: `scripts/check-docs.sh`, `scripts/check_docs_test.go`,
+`.ai-platform/specs/007-component-framework-refoundation/**`,
+`.ai-platform/docs/tasks.md`, `.ai-platform/evidence/T033/**`

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io/fs"
 	"strings"
 	"sync"
@@ -37,10 +38,8 @@ func TestHostAppliesDeclaredMigrationsInDependencyOrderBeforeStart(t *testing.T)
 		if _, exposed := any(access).(*sql.DB); exposed {
 			return errors.New("public database capability exposes raw sql.DB")
 		}
-		if _, exposed := any(access).(interface {
-			WithinTransaction(context.Context, func(context.Context) error) error
-		}); exposed {
-			return errors.New("public database capability exposes privileged control")
+		if err := access.WithinTransaction(ctx, func(context.Context) error { return nil }); err != nil {
+			return fmt.Errorf("ordinary transaction facade: %w", err)
 		}
 		var count int
 		if err := access.QueryRowContext(ctx, `SELECT COUNT(*) FROM migration_order`).Scan(&count); err != nil || count != 1 {

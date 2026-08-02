@@ -1,0 +1,78 @@
+// Package config owns explicit Governed Profile process configuration.
+package config
+
+import (
+	"fmt"
+	"os"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
+
+// Config contains the complete external configuration used by both the API
+// process and task worker.
+type Config struct {
+	DatabaseURL        string
+	ApplicationSchema string
+	QueueSchema       string
+	OperatorUsername  string
+	OperatorPassword  string
+	OperatorToken     string
+	InsecureCookie    bool
+}
+
+// Load reads and validates process environment without applying hidden
+// database or credential defaults.
+func Load() (Config, error) {
+	config := Config{
+		DatabaseURL:        os.Getenv("DATABASE_URL"),
+		ApplicationSchema: os.Getenv("MODARY_APPLICATION_SCHEMA"),
+		QueueSchema:       os.Getenv("MODARY_QUEUE_SCHEMA"),
+		OperatorUsername:  os.Getenv("MODARY_OPERATOR_USERNAME"),
+		OperatorPassword:  os.Getenv("MODARY_OPERATOR_PASSWORD"),
+		OperatorToken:     os.Getenv("MODARY_OPERATOR_TOKEN"),
+		InsecureCookie:    os.Getenv("MODARY_ALLOW_INSECURE_COOKIE") == "true",
+	}
+	if config.ApplicationSchema == "" {
+		config.ApplicationSchema = {{quote .SchemaID}}
+	}
+	if config.QueueSchema == "" {
+		config.QueueSchema = {{quote .QueueSchemaID}}
+	}
+	if err := config.Validate(); err != nil {
+		return Config{}, err
+	}
+	return config, nil
+}
+
+// Validate rejects incomplete or ambiguous process configuration before
+// framework composition.
+func (config Config) Validate() error {
+	if config.DatabaseURL == "" || !utf8.ValidString(config.DatabaseURL) || strings.TrimSpace(config.DatabaseURL) != config.DatabaseURL {
+		return fmt.Errorf("DATABASE_URL is required and must not contain surrounding whitespace")
+	}
+	if invalidCredential(config.OperatorUsername, 256) {
+		return fmt.Errorf("MODARY_OPERATOR_USERNAME is required and must be a bounded value")
+	}
+	if !utf8.ValidString(config.OperatorPassword) || len(config.OperatorPassword) > 4096 ||
+		utf8.RuneCountInString(config.OperatorPassword) < 12 {
+		return fmt.Errorf("MODARY_OPERATOR_PASSWORD must contain 12 to 4096 bytes of valid UTF-8")
+	}
+	if invalidToken(config.OperatorToken) {
+		return fmt.Errorf("MODARY_OPERATOR_TOKEN must contain 32 to 4096 bytes without whitespace or control characters")
+	}
+	if config.ApplicationSchema == config.QueueSchema {
+		return fmt.Errorf("application and queue schemas must be distinct")
+	}
+	return nil
+}
+
+func invalidCredential(value string, maximum int) bool {
+	return value == "" || !utf8.ValidString(value) || strings.TrimSpace(value) != value ||
+		strings.ContainsFunc(value, unicode.IsControl) || utf8.RuneCountInString(value) > maximum
+}
+
+func invalidToken(value string) bool {
+	return len(value) < 32 || len(value) > 4096 || !utf8.ValidString(value) ||
+		strings.ContainsFunc(value, func(character rune) bool { return unicode.IsSpace(character) || unicode.IsControl(character) })
+}

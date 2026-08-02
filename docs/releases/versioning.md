@@ -1,78 +1,81 @@
 # Versioning And Compatibility
 
-## Release Line
+## Release Lines
 
-Modary uses semantic version tags. `v0.1.0-alpha.3` is the PostgreSQL and
-durable-task release line. A prerelease tag means the framework is usable for
-evaluation and design-partner development, but public APIs and generated
-formats may still change before `v1.0.0`.
+Modary uses semantic version tags and the Go module path
+`github.com/iiwish/modary`.
 
-The Go module path remains `github.com/iiwish/modary` for every `v0` and `v1`
-release. A future incompatible `v2` would require the standard `/v2` module-path
-suffix and an explicit migration guide.
+| Line | State | Contract |
+|---|---|---|
+| `v0.1.0-alpha.3` | Published and immutable | Historical Governed-first PostgreSQL/River release |
+| `v0.2.0-alpha.1` | Current source target, not released | Componentized Core with API/Admin/Governed Profiles |
 
-## Compatibility Contract
+A prerelease is suitable for evaluation and design-partner development, but
+public APIs, generated structure, and component boundaries may change before
+v1. A future incompatible v2 requires the standard `/v2` module-path suffix.
 
-Within one published prerelease:
+## Immutability
 
-- the tag is immutable;
-- checked-in documentation describes that exact source;
-- the external-consumer gate defines the supported public composition path;
-- generated files are outputs, not handwritten compatibility surfaces;
-- database migrations are forward-only and are never silently rewritten after
-publication.
+Every published tag is immutable. A defect in a published prerelease is fixed
+in a new version, never by moving the tag or rewriting a migration. Documentation
+at a tag describes that exact source.
 
 The immutable `v0.1.0-alpha.1` tag failed its remote onboarding gate and has no
-supported GitHub release. Consumers must not select it.
+supported GitHub release. `v0.1.0-alpha.2` is the historical embedded-storage
+Alpha. `v0.1.0-alpha.3` is the supported published baseline until a later tag is
+actually released.
 
-`v0.1.0-alpha.2` is the historical embedded-storage Alpha and does not contain
-the PostgreSQL or River contracts. New development uses `v0.1.0-alpha.3`.
+## Pre-v1 Compatibility
 
-Across Alpha releases, maintainers prefer additive changes, but may change a
-public Go API, manifest field, generated format, migration contract, or default
-when framework correctness requires it. Every intentional consumer-visible
-change must appear in `CHANGELOG.md` and the release's upgrade notes.
+Maintainers prefer additive changes, but a prerelease may change public Go APIs,
+Starter structure, Profile selection, manifest fields, generated formats,
+migrations, or defaults when correctness or product focus requires it.
+
+Every intentional consumer-visible change requires:
+
+1. a `CHANGELOG.md` entry;
+2. upgrade instructions identifying source and data work;
+3. copied-out consumer acceptance for affected Profiles;
+4. explicit release notes and known limitations.
+
+Exact-version pinning is required. Generated application source is not a hidden
+compatibility surface: consumers own it after creation and upgrade it
+deliberately.
 
 ## Deprecation
 
 Before v1, a deprecation period is preferred but not guaranteed. When a safe
-transition is possible, maintainers should:
-
-1. add the replacement before removing the old surface;
-2. mark the Go symbol or document field as deprecated;
-3. keep external-consumer coverage for both paths during the transition;
-4. document the first deprecated and planned removal versions;
-5. remove it only in a release with explicit upgrade instructions.
-
-Security or correctness defects may require immediate removal. Release notes
-must explain the affected boundary and migration.
+transition exists, add the replacement, mark the old API deprecated, cover both
+paths externally, document removal timing, and remove only with explicit upgrade
+instructions. Security or correctness defects may require immediate removal.
 
 ## Go Toolchain
 
-`go.mod` is authoritative for the minimum Go language and toolchain baseline.
-A release may raise that baseline before v1. Such a change is consumer-visible
-and requires changelog and upgrade entries. Project builds use
+`go.mod` defines the minimum Go language and toolchain baseline. Builds use
 `GOTOOLCHAIN=local`; maintainers and consumers install a compatible toolchain
-rather than relying on ambient automatic download.
+rather than relying on ambient automatic download. Raising the baseline is a
+consumer-visible release change.
 
 ## Generated Artifacts
 
-Module graphs, Action catalogs, and TypeScript contracts are deterministic
-consumer-owned outputs. Consumers regenerate them with the project tool pinned
-to the same Modary version as the application. A release that changes an output
-format must document whether regeneration alone is sufficient or source changes
-are required. Cross-version merge of generated sets is unsupported.
+Starter source is created once. Admin frontend assets are deterministic outputs
+of consumer-owned React source and must pass the pinned asset parity check.
+
+Optional `projecttool` graph, Action catalog, and TypeScript files are
+deterministic consumer-owned outputs. Regenerate them with the same pinned
+Modary version and review all diffs. Cross-version merging of generated sets is
+unsupported.
 
 ## Database Migrations
 
-Published framework and consumer migrations are forward-only. Never edit an
-already distributed migration in place. A correction is a new migration. Back
-back up the PostgreSQL control database and verify restore before upgrading. Downgrade
-is application-level restore from a pre-upgrade backup, not reverse migration.
+Published migrations are forward-only. A correction is a new migration.
+Downgrade is an application-level restore from a verified pre-upgrade backup,
+not a reverse migration. Profile changes that add or remove infrastructure need
+an explicit data and deployment plan.
 
 ## Support
 
-No release line is supported until its tag and release notes say so. Alpha
-support is best-effort and optimized for current design partners. Stable v1
-requires an explicit compatibility window, maintained security contact, tested
-upgrade path, and evidence from more than one independent consumer.
+No source line is released until its immutable tag and release notes exist.
+Alpha support is best-effort and optimized for current design partners. Stable
+v1 requires an explicit compatibility window, maintained security contact,
+tested upgrades, and evidence from multiple independent consumers.

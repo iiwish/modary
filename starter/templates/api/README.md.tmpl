@@ -1,0 +1,27 @@
+# {{.Name}}
+
+This project uses Modary's database-free API Profile. Its selected components
+and routes are visible in `internal/app/application.go`.
+
+Run the application:
+
+```sh
+go run -mod=mod ./cmd/{{.ID}}
+```
+
+The server listens on `127.0.0.1:8080` by default. Set `MODARY_HTTP_ADDR` to
+select another address.
+
+Check the two initial endpoints:
+
+```sh
+curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8080/api/ping
+```
+
+Run its tests:
+
+```sh
+go mod tidy
+go test ./...
+```

@@ -159,7 +159,8 @@ func isNilValue(value any) bool {
 }
 
 var (
-	databaseKey             = MustKey[database.Access]("database.access", CapabilityDatabase)
+	databaseStoreKey        = MustKey[database.Store]("database.store", CapabilityDatabase)
+	actionDatabaseKey       = MustKey[database.Access]("database.governed-access", CapabilityDatabase)
 	identityResolverKey     = MustKey[identity.Resolver]("identity.resolver", CapabilityIdentity)
 	sessionAuthenticatorKey = MustKey[identity.Authenticator]("identity.session-authenticator", CapabilityIdentity)
 	tokenAuthKey            = MustKey[identity.TokenAuthenticator]("identity.token-authenticator", CapabilityIdentity)
@@ -170,8 +171,10 @@ var (
 
 func canonicalServiceIdentity(name string) *keyIdentity {
 	switch name {
-	case databaseKey.Name():
-		return databaseKey.spec.identity
+	case databaseStoreKey.Name():
+		return databaseStoreKey.spec.identity
+	case actionDatabaseKey.Name():
+		return actionDatabaseKey.spec.identity
 	case identityResolverKey.Name():
 		return identityResolverKey.spec.identity
 	case sessionAuthenticatorKey.Name():
@@ -193,7 +196,12 @@ func canonicalServiceIdentity(name string) *keyIdentity {
 // package-owned identity. Consumers can pass public keys between Modules but
 // cannot replace the canonical key for the process. Privileged Action
 // persistence has no public key.
-func Database() Key[database.Access] { return databaseKey }
+func Database() Key[database.Store] { return databaseStoreKey }
+
+// ActionDatabase returns the governed-operation database Access key. It can
+// mutate only through a transaction-bound context supplied by the Action
+// Runtime and cannot begin a transaction.
+func ActionDatabase() Key[database.Access] { return actionDatabaseKey }
 
 // IdentityResolver returns the canonical identity-resolver service key.
 func IdentityResolver() Key[identity.Resolver] { return identityResolverKey }

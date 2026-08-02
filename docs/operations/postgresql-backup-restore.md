@@ -1,52 +1,45 @@
 # PostgreSQL Backup And Restore
 
-The official durable profile stores framework state, product control data,
-idempotency results, required audit events, and River jobs in one PostgreSQL
-database. Backup and restore remain application operations responsibilities.
+Backup scope follows selected components. Define RPO, RTO, retention,
+encryption, off-site storage, checksum, and restore authority before deployment.
+A backup is verified only after a representative restore.
 
-## Recovery Objectives
+## Admin
 
-Define recovery point and recovery time objectives, retention, encryption,
-off-site storage, and restore authority before deployment. A backup is verified
-only after a representative restore test.
+Back up the configured application schema containing product tables, local
+Identity when selected, RBAC, Module migration history, and other consumer
+state. No River queue schema exists by default.
 
-## Backup Boundary
+## Governed
 
-A consistent backup includes both configured schemas:
+Take a consistent backup of both schemas in the same database:
 
-- the application schema containing Modary and consumer control tables;
-- the River queue schema containing job, leader, queue, and migration state.
+- application: product control state, plans, idempotency, Identity, RBAC, audit,
+  and Module history;
+- queue: River jobs, leaders, queues, schedules, migrations, and profile binding.
 
-Use PostgreSQL physical backup or `pg_dump`/`pg_restore` according to the
-operator's recovery design. Do not back up the schemas at unrelated snapshots.
-Record the application version, exact Modary version, PostgreSQL version,
-schema names, backup time, and checksum.
+Do not capture the two schemas at unrelated points. Record application, Modary,
+PostgreSQL, and River versions, schema names, backup time, and integrity hash.
 
 ## Before Upgrade
 
-Take and verify a backup before starting a binary with new migrations. Migrations
-are forward-only and a completed Module migration is not undone when a later
-Module fails startup. Keep the prior binary, configuration, and backup as one
-rollback set.
+Verify a backup before starting a binary with new migrations. Migrations are
+forward-only and not reversed when a later Module fails startup. Keep the prior
+binary, configuration, and backup as one recovery set.
 
 ## Restore Test
 
-1. Restore both schemas into an isolated PostgreSQL database.
-2. Assign schema ownership to the configured application role.
-3. Start the exact compatible application version.
-4. Verify readiness, migration history, representative product state, audit
-   history, queued and retryable jobs, and one governed write workflow.
-5. Confirm workers do not duplicate external effects when restored jobs retry.
-
-## Incident Restore
-
-Preserve the damaged database and logs, select a verified backup, restore into a
-new database, validate integrity, then switch application configuration. Do not
-overwrite the only damaged copy. Reopen traffic only after application and
-operations approval.
+1. restore selected schemas into an isolated database;
+2. assign ownership to the intended role;
+3. start the exact compatible application version;
+4. verify Module history, representative product state, Identity/RBAC, and
+   application behavior;
+5. for Governed, verify audit, plans/idempotency, queued/retryable work, and one
+   Preview/Execute/worker flow;
+6. confirm restored tasks do not repeat external effects incorrectly.
 
 ## Downgrade
 
-F0 has no reverse migration mechanism. Downgrade means restoring the pre-upgrade
-database and running its matching older binary. Do not run older code against a
-newer schema without an explicit, tested forward-schema compatibility contract.
+F0 has no reverse migration mechanism. Downgrade means restoring the matching
+pre-upgrade backup and binary. Do not run older code against a newer schema
+without an explicit tested forward-schema compatibility contract.

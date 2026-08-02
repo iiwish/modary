@@ -1,6 +1,6 @@
 module example.com/modary-counter-consumer
 
-go 1.26
+go 1.26.5
 
 require (
 	github.com/iiwish/modary v0.1.0-alpha.3

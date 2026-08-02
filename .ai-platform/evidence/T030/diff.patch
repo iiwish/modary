@@ -1,0 +1,12 @@
+# T030 reviewed diff manifest
+
+Starter API and command parser: starter/*.go
+Create-only API templates: starter/templates/api/**
+Global command: cmd/modary/**
+Bounded HTTP route composition: httpkit/**
+Architecture and repeat inventory: internal/quality/import_direction_test.go,
+Makefile, scripts/makefile_test.go
+Canonical task and checker state: .ai-platform/docs/tasks.md,
+.ai-platform/specs/007-component-framework-refoundation/**,
+scripts/check-docs.sh, scripts/check_docs_test.go
+Evidence: .ai-platform/evidence/T030/**

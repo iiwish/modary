@@ -1,81 +1,94 @@
 # Add A Consumer Module
 
-This guide adds one consumer-owned feature module. Use the
-[external Counter module](../../examples/counter/modules/counter/module.go)
-as the complete executable reference.
+A consumer Module owns one coherent product capability. Start with the smallest
+manifest and add database or governed dependencies only when the feature uses
+them.
 
-## 1. Choose Stable Identities
+## 1. Choose Stable Identity
 
-Define one stable module ID, semantic module version, Action IDs, permissions,
-and public error codes. Treat published IDs as persisted contracts. Do not derive
-them from filenames, UI labels, or translated text.
+Use a stable lowercase Module ID and semantic version. Persisted migration and
+Action ownership refers to this ID; do not derive it from a UI label or package
+directory that is likely to move.
 
 ## 2. Define The Manifest
 
-Create a `module.Manifest` with `module.SchemaVersion`, the module ID and
-version, a module type, dependencies, and capability requirements. A feature
-that reads or writes consumer state through the official durable profile
-requires `module.CapabilityDatabase`.
-
-Declare only capabilities the module actually resolves. Missing, undeclared,
-duplicated, cyclic, or ambiguously provided dependencies fail during graph
-validation before startup.
-
-## 3. Add Forward-Only Migrations
-
-Embed PostgreSQL migrations in the consumer package and expose the migration
-directory as an `fs.FS`. Register it as a `module.MigrationSource` for driver
-`postgres`. Migration names and contents are bounded and validated before database
-effects.
-
-Never rewrite a migration that reached a released consumer. Add a new migration
-for each correction. Migration SQL must remain inside the supported policy and
-must not contain transaction control or temporary-schema access.
-
-## 4. Define Actions
-
-Add `module.ActionBinding` values containing a complete `action.Descriptor` and
-a Handler factory. Construct schemas with the `action` schema helpers or supply
-valid bounded Draft 7 JSON. Declare Preview, channels, permission, audit,
-idempotency, and every consumer public error.
-
-In the factory, resolve typed services and retain their values:
+A database-free feature:
 
 ```go
-NewHandler: func(_ context.Context, services module.Resolver) (action.Handler, error) {
-    db, err := module.Resolve(services, module.Database())
-    if err != nil {
-        return nil, fmt.Errorf("resolve database: %w", err)
+func Registration() module.Registration {
+    return module.Registration{
+        Definition: module.Definition{
+            Manifest: module.Manifest{
+                SchemaVersion: module.SchemaVersion,
+                ID: "invoices",
+                Version: "0.1.0",
+                Type: module.ModuleTypeFeature,
+            },
+        },
     }
-    return &handler{db: db}, nil
 }
 ```
 
-The HandlerFactory Resolver is valid only during the factory call. Do not save
-it in the Handler or pass it to another goroutine.
+Declare only capabilities actually resolved. Missing providers, duplicate
+providers, undeclared access, dependency cycles, and ambiguous graphs fail
+before startup side effects.
 
-## 5. Add Runtime Resources Only When Needed
+## 3. Add A Typed Service When Modules Share Behavior
 
-If the module provides a capability or owns a process resource, add a `Start`
-callback. Publish services through the startup Scope and register cleanup with
-`module.OnStop`. Join every goroutine using the Scope before `Start` returns.
-Callbacks and cleanup must be concurrency-safe and cancellation-cooperative.
+Put a namespaced capability and one package-level `module.Key[T]` in a small
+consumer contract package. A provider publishes it during Start and consumers
+resolve the exact same key. Do not use a global variable or string service
+locator.
 
-A module that only declares migrations and Actions can omit `Start`.
+## 4. Add Ordinary Persistence
 
-## 6. Register In The Composition Root
+When an Admin/business feature needs PostgreSQL:
 
-Return the Registration from a pure constructor and append it explicitly to the
-consumer's `appkit.Definition.Modules`. Do not introduce source scanning,
-`init` registration, a database module catalog, or generated Go composition.
+1. require `module.CapabilityDatabase`;
+2. declare forward-only PostgreSQL migrations;
+3. resolve `module.Database()` in the Module's Start callback or route factory;
+4. use `database.Store.WithinTransaction` for mutations.
 
-## 7. Verify
+The Store is for normal repository work. It does not require an Action or River.
 
-```bash
-GOWORK=off go run ./tools/modary verify
-GOWORK=off go run ./tools/modary generate
-GOWORK=off go test ./...
+## 5. Add A Governed Action Only When Needed
+
+A high-impact feature declares an `action.Descriptor` and factory. Resolve
+governed Access and Tasks during the factory call:
+
+```go
+NewHandler: func(_ context.Context, resolver module.Resolver) (action.Handler, error) {
+    access, err := module.Resolve(resolver, module.ActionDatabase())
+    if err != nil {
+        return nil, fmt.Errorf("resolve governed database: %w", err)
+    }
+    tasks, err := module.Resolve(resolver, module.Tasks())
+    if err != nil {
+        return nil, fmt.Errorf("resolve tasks: %w", err)
+    }
+    return &handler{database: access, tasks: tasks}, nil
+}
 ```
 
-Review the generated module graph and Action catalog. Then add module-specific
-tests described by the [consumer testing guide](test-application.md).
+The Resolver expires after the factory. Retain resolved values, not the
+Resolver. The Handler never opens or controls the transaction.
+
+## 6. Own Routes And Frontend Registration
+
+Return `[]httpkit.Route` or another consumer router composition from the feature
+package. For Admin, add a frontend module entry to
+`web/src/modules/index.ts`. Backend authorization remains mandatory even when a
+route or command is not visible in the UI.
+
+## 7. Register Explicitly
+
+Append the Registration in the application's `appkit.Definition.Modules`.
+Static Go composition is the only Module list. Do not add `init` registration,
+source scanning, a database plugin catalog, or runtime imports.
+
+## 8. Test
+
+Cover pure construction, graph failure, lifecycle cancellation, migrations,
+scope isolation, authorization, and copied-out `GOWORK=off` operation as
+appropriate. For governed features also cover Preview, stale plans,
+idempotency, rollback, audit, restart, and task consumption.

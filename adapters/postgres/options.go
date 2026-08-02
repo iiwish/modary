@@ -39,8 +39,6 @@ func normalizeOptions(options Options) (Options, *pgx.ConnConfig, error) {
 	}
 	config, err := pgx.ParseConfig(options.URL)
 	if err != nil {
-		// Connection strings may contain credentials. Do not retain the parser's
-		// diagnostic in the public error chain.
 		return Options{}, nil, fmt.Errorf("PostgreSQL URL is invalid")
 	}
 	if config.Database == "" {

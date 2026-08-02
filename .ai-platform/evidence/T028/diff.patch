@@ -1,0 +1,17 @@
+# T028 diff manifest
+
+Canonical product boundary: `.ai-platform/memory/constitution.md`,
+`.ai-platform/docs/product-design.md`
+
+Canonical technical and work state:
+`.ai-platform/docs/technology-decision-record.md`, `.ai-platform/docs/tasks.md`
+
+Feature governance and research:
+`.ai-platform/specs/007-component-framework-refoundation/**`
+
+Validation contract: `scripts/check-docs.sh`
+
+Task evidence: `.ai-platform/evidence/T028/**`
+
+No Go runtime, frontend, published tag, migration, or Alpha 3 release evidence
+is changed by T028.

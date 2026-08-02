@@ -53,6 +53,14 @@ if test "$module_path" != github.com/iiwish/modary; then
 	printf 'release module path is %s, want github.com/iiwish/modary\n' "$module_path" >&2
 	exit 1
 fi
+go_version=$(awk '$1 == "go" { count++; version=$2 } END { if (count != 1) exit 1; print version }' go.mod) || {
+	printf '%s\n' 'release go.mod must contain exactly one Go version directive' >&2
+	exit 1
+}
+if test "$go_version" != 1.26.5; then
+	printf 'release Go baseline is %s, want security-patched 1.26.5\n' "$go_version" >&2
+	exit 1
+fi
 
 license=
 for candidate in LICENSE LICENSE.txt; do

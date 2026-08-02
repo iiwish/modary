@@ -1,0 +1,19 @@
+# T032 reviewed diff manifest
+
+Admin frontend source and quality gates:
+`starter/templates/admin/web/**`
+
+Embedded production assets and generated Go ownership:
+`starter/templates/admin/internal/web/dist/**`,
+`starter/templates/admin/web.go.tmpl`,
+`starter/templates/admin/application.go.tmpl`,
+`starter/templates/admin/application_test.go.tmpl`,
+`starter/templates/admin/README.md.tmpl`
+
+Starter embedding, deterministic copying, and copied-out acceptance:
+`starter/templates.go`, `starter/create_test.go`
+
+Architecture and governance: `.gitignore`, `scripts/check-docs.sh`,
+`scripts/check_docs_test.go`,
+`.ai-platform/specs/007-component-framework-refoundation/**`,
+`.ai-platform/docs/tasks.md`, `.ai-platform/evidence/T032/**`

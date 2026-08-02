@@ -1,0 +1,31 @@
+# T037 Reviewed Diff Manifest
+
+React-only release gate and its tests:
+`scripts/check-react-admin.sh`, `scripts/check_react_admin_test.go`, and
+`Makefile`
+
+Security-patched release toolchain and automation:
+`go.mod`, `go.sum`, `examples/counter/go.mod`,
+`.github/workflows/ci.yml`, `scripts/release-preflight.sh`, and
+`scripts/release_scripts_test.go`
+
+Final React dependencies, lockfile, tests, and deterministic bundle:
+`starter/templates/admin/web/**` and
+`starter/templates/admin/internal/web/dist/**`
+
+Generated Profile contract and onboarding:
+`starter/**`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`,
+`docs/getting-started/**`, `docs/zh-CN/getting-started/**`,
+`docs/reference/support-matrix.md`, `docs/releases/**`, and current
+architecture/operations documentation under `docs/**`
+
+Canonical product and delivery state:
+`.ai-platform/docs/product-design.md`,
+`.ai-platform/docs/technology-decision-record.md`,
+`.ai-platform/docs/tasks.md`,
+`.ai-platform/specs/008-react-admin-starter/**`, and
+`.ai-platform/evidence/T037/**`
+
+T035 and T036 manifests enumerate the React implementation and experience work
+accepted before this final copied-out and release-readiness pass. Historical
+Alpha 3 evidence and tags were not modified.

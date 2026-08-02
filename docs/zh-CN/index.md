@@ -1,25 +1,28 @@
 # Modary 中文文档
 
-这里提供 Modary 当前最重要的中文上手路径。先运行官方 Counter 示例，
-再把它复制成一个独立应用，即可验证从源码体验到公开 Go Module 依赖的完整流程。
+Modary 是面向业务系统和中后台的轻量、组件化 Go 后端框架。Core 只负责
+Module 组合、Capability、生命周期和显式 HTTP 组合，不强制数据库、任务队列、
+权限体系或前端。需要时再通过组件和 Profile 选择 PostgreSQL、登录、RBAC、React
+后台、受治理 Action、审计与 River。
 
-## 开始使用
+## 推荐上手路径
 
-- [快速上手](getting-started/quickstart.md)
-- [创建第一个独立应用](getting-started/first-application.md)
-- [理解持久化与耐久任务](concepts/persistence-and-tasks.md)
+1. 先阅读[如何选择 Profile](getting-started/choose-profile.md)。
+2. 用[快速上手](getting-started/quickstart.md)创建一个无数据库 API。
+3. 根据产品需要完成 [Admin Profile 教程](getting-started/admin-profile.md)或
+   [Governed Profile 教程](getting-started/governed-profile.md)。
+4. 阅读[创建第一个应用](getting-started/first-application.md)，理解框架与产品边界。
+
+## 核心主题
+
+- [持久化与耐久任务](concepts/persistence-and-tasks.md)
 - [运行耐久后台任务](how-to/run-background-tasks.md)
-- [English documentation](../index.md)
-
-## 当前范围
-
-中文文档覆盖首次使用、创建应用和后台任务主路径。公共 API 的完整细节、部署、
-安全边界和已知限制仍以英文契约文档为准：
-
 - [完整 F0 框架契约](../framework-f0.md)
 - [支持矩阵](../reference/support-matrix.md)
 - [已知限制](../f0-known-limitations.md)
-- [安全与密钥处理](../operations/security.md)
-- [故障排查](../how-to/troubleshooting.md)
+- [Rulary 基于 Modary 开发指南](../guides/rulary-bootstrap.md)
 
-当中文教程与英文契约存在差异时，以当前版本对应的英文契约为准。
+中文教程覆盖主要选择和实践路径。公共 API、部署与安全边界的完整规范以当前英文
+契约为准。技术标识、包名、环境变量、命令和协议名保持原文。
+
+- [English documentation](../index.md)

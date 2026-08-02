@@ -1,0 +1,16 @@
+# T035 reviewed diff manifest
+
+React toolchain, source, tests, lockfile, and asset build:
+`starter/templates/admin/web/**`
+
+React production assets and generated server expectation:
+`starter/templates/admin/internal/web/dist/**`,
+`starter/templates/admin/application_test.go.tmpl`
+
+Generated React-only contract:
+`starter/create_test.go`
+
+Governance and evidence:
+`.ai-platform/specs/008-react-admin-starter/**`,
+`.ai-platform/docs/tasks.md`,
+`.ai-platform/evidence/T035/**`

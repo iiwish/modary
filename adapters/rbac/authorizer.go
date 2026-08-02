@@ -35,7 +35,7 @@ func (authorizer *authorizer) Authorize(ctx context.Context, request authz.Reque
 	if authorizer == nil || authorizer.control == nil {
 		return authz.Decision{}, fmt.Errorf("RBAC Authorizer is unavailable")
 	}
-	if !action.ValidIdentifier(request.ActionID) ||
+	if !action.ValidIdentifier(request.OperationID) ||
 		(request.Phase != authz.PhaseIntent && request.Phase != authz.PhaseImpact) ||
 		request.Impact.Rows < 0 ||
 		(request.Phase == authz.PhaseIntent && (request.Impact.Rows != 0 || len(request.Impact.Resources) != 0)) ||

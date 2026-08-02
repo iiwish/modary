@@ -1,0 +1,49 @@
+schema_version: 1
+packet_id: EP-007-T030
+task_id: T030
+feature_id: 007-component-framework-refoundation
+mode: execute_one_task
+adapter: codex-direct
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  feature_spec: .ai-platform/specs/007-component-framework-refoundation/spec.md
+  requirements_checklist: .ai-platform/specs/007-component-framework-refoundation/checklists/requirements.md
+  technical_decisions: .ai-platform/specs/007-component-framework-refoundation/plan.md
+  work_graph: .ai-platform/specs/007-component-framework-refoundation/tasks.md
+  analysis: .ai-platform/specs/007-component-framework-refoundation/analysis.md
+  approval: explicit owner approval on 2026-08-02
+work_unit:
+  title: Create-Only CLI And API Profile
+  goal: Generate a safe, explicit, database-free API application from one first-party command.
+  requirements: [FR-007, FR-008, FR-009, FR-012, FR-018, FR-019, NFR-001, NFR-004, NFR-005]
+  depends_on: [T029]
+execution_constraints:
+  branch_or_worktree: current
+  allowed_files: [starter/**, cmd/modary/**, httpkit/**, internal/quality/**, scripts/**, .ai-platform/specs/007-component-framework-refoundation/**, .ai-platform/evidence/T030/**, .ai-platform/docs/tasks.md]
+  ownership_notes: Generated business source is written only during initial creation and is never a regeneration target.
+tdd_plan:
+  required: true
+  red:
+    command: go test ./starter ./httpkit ./cmd/modary
+    expected_failure: Starter API, command, route composer, and API Profile do not exist
+  green:
+    command: go test ./starter ./httpkit ./cmd/modary
+    expected_signal: creation, safety, route, CLI, and copied-out API tests pass
+  refactor:
+    command: go test -race ./starter ./httpkit
+    expected_signal: generator cancellation and route composition paths are race free
+validation_loop:
+  commands: [go test ./starter ./httpkit ./cmd/modary, go test -race ./starter ./httpkit, go vet ./starter ./httpkit ./cmd/modary, go test ./... -count=1, python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 007-component-framework-refoundation --task-id T030 --strict, git diff --check]
+  retry_budget: 3
+evidence_contract:
+  summary: .ai-platform/evidence/T030/summary.md
+  diff: .ai-platform/evidence/T030/diff.patch
+  test_results: .ai-platform/evidence/T030/test-results.md
+review_contract:
+  required_passes: [spec_compliance, filesystem_safety, generated_ownership, copied_out_runtime, architecture, engineering_quality]
+stop_conditions: [creation needs to overwrite or patch handwritten source, API startup requires an external service, generated composition hides selected components behind runtime flags]
+codebase_context:
+  current_capability: database-free AppKit and explicit standard health handler
+  missing_capability: first-party project creation, API Profile, and bounded route composition
+handoff:
+  next_task: T031 after T030 validation and completion evidence

@@ -1,0 +1,8 @@
+CREATE TABLE governed_limits (
+    scope_kind TEXT NOT NULL,
+    scope_id TEXT NOT NULL,
+    value BIGINT NOT NULL CHECK (value BETWEEN 0 AND 1000000),
+    version BIGINT NOT NULL CHECK (version > 0),
+    updated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (scope_kind, scope_id)
+);
