@@ -2,13 +2,13 @@
 
 > [English](../../getting-started/first-application.md)
 
-本教程把已发布源码中的 Counter 示例变成一个普通应用目录。新应用通过公开的
-Go Module 标签解析 Modary，不依赖 Modary 源码目录。开始前请先完成
+本教程把 Counter 示例变成一个普通应用目录，并绑定当前 Modary 源码检出。
+开始前请先完成
 [快速上手](quickstart.md)。
 
 ## 1. 复制示例
 
-在已发布 Modary 源码目录的上一级执行：
+在 Modary 源码目录的上一级执行：
 
 ```bash
 cp -R modary/examples/counter my-counter
@@ -18,29 +18,22 @@ cd my-counter
 复制后的目录已经是独立 Go Module，包含自己的组合入口、项目命令、应用命令、
 业务 Module、迁移、生成契约、测试和静态 UI。
 
-## 2. 选择公开框架版本
+## 2. 绑定框架源码
 
-删除源码检出态使用的本地绑定，并固定到准确的 Alpha 版本：
+把复制后的 Module 指向相邻 Modary 目录的绝对路径：
 
 ```bash
-GOWORK=off go mod edit -dropreplace=github.com/iiwish/modary
-GOWORK=off go mod edit -require=github.com/iiwish/modary@v0.1.0-alpha.2
+GOWORK=off go mod edit -replace=github.com/iiwish/modary="$(cd ../modary && pwd -P)"
 GOWORK=off go mod tidy
 ```
 
-确认 Go 解析到了公开版本，并且没有使用 `replace`：
+确认绑定结果：
 
 ```bash
-GOWORK=off go list -m -f '{{.Path}} {{.Version}} {{if .Replace}}replaced{{end}}' github.com/iiwish/modary
+GOWORK=off go list -m -f '{{.Path}} {{if .Replace}}{{.Replace.Dir}}{{end}}' github.com/iiwish/modary
 ```
 
-预期输出：
-
-```text
-github.com/iiwish/modary v0.1.0-alpha.2
-```
-
-在修改示例之前，记录这个已经能够远程解析的起点：
+在修改示例之前记录起点：
 
 ```bash
 git init
@@ -58,8 +51,8 @@ GOWORK=off go run ./tools/modary build
 GOWORK=off ./dist/counter-console version
 ```
 
-最后一个命令输出 `counter-console 0.1.0`。这些命令都不需要 Node.js，也不需要
-Modary 源码目录。
+最后一个命令输出 `counter-console 0.1.0`。应用需要 PostgreSQL，但不需要
+Node.js。执行时继续使用快速上手中导出的数据库环境变量。
 
 ## 4. 使用真实 Module 路径
 
@@ -95,6 +88,7 @@ GOWORK=off go test ./...
 [添加 Module](../../how-to/add-module.md)创建应用自己的 Module。只有当新 Module、
 迁移、Action、组合注册、生成产物和测试一起通过后，才删除 Counter 代码。
 
-开发期 `replace` 只适合 Modary 和应用同时在本地检出时使用，不得提交到应用的
-发布分支。Module 解析、生成、Capability、迁移或平台检查失败时，请查看英文
+开发期 `replace` 只适合 Modary 和应用同时在本地检出时使用。发布应用前应删除
+它，并固定到包含 PostgreSQL 任务 Profile 的准确 Modary 版本，不得把本地路径
+提交到应用发布分支。Module 解析、生成、Capability、迁移或平台检查失败时，请查看英文
 [故障排查](../../how-to/troubleshooting.md)。

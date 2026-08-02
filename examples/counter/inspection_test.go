@@ -41,7 +41,7 @@ func TestProjectToolingIsPureDeterministicAndDetectsDrift(t *testing.T) {
 	var handlers atomic.Int64
 	var opens atomic.Int64
 	definition := failOnRuntimeUse(mustDefinition(t, project.Config{
-		DatabasePath: filepath.Join(root, "must-not-exist.db"),
+		DatabaseURL: "postgres://inspection:inspection@127.0.0.1:5432/inspection?sslmode=disable",
 	}), &starts, &handlers, &opens)
 
 	loaded, err := projecttool.Load(root)
@@ -101,9 +101,6 @@ func TestProjectToolingIsPureDeterministicAndDetectsDrift(t *testing.T) {
 	if starts.Load() != 0 || handlers.Load() != 0 || opens.Load() != 0 {
 		t.Fatalf("inspection side effects: starts=%d handlers=%d opens=%d",
 			starts.Load(), handlers.Load(), opens.Load())
-	}
-	if _, err := os.Stat(filepath.Join(root, "must-not-exist.db")); !os.IsNotExist(err) {
-		t.Fatalf("inspection created database path: %v", err)
 	}
 }
 

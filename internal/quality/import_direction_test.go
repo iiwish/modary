@@ -44,20 +44,21 @@ var publicProductionPackages = map[string]architectureLayer{
 	modaryImportPath + "/identity":               layerKernel,
 	modaryImportPath + "/module":                 layerKernel,
 	modaryImportPath + "/scope":                  layerKernel,
+	modaryImportPath + "/task":                   layerKernel,
 	modaryImportPath + "/appkit":                 layerAppKit,
 	modaryImportPath + "/transport/httpapi":      layerTransport,
 	modaryImportPath + "/adapters":               layerAdapter,
 	modaryImportPath + "/adapters/localidentity": layerAdapter,
 	modaryImportPath + "/adapters/rbac":          layerAdapter,
 	modaryImportPath + "/adapters/sqlaudit":      layerAdapter,
-	modaryImportPath + "/adapters/sqlite":        layerAdapter,
+	modaryImportPath + "/adapters/postgres":      layerAdapter,
 	modaryImportPath + "/projecttool":            layerProjectTool,
 	modaryImportPath + "/appcmd":                 layerCommand,
 }
 
 var privilegedInternalImporters = map[string]map[string]bool{
 	modaryImportPath + "/internal/actionpersistence": {
-		modaryImportPath + "/adapters/sqlite": true,
+		modaryImportPath + "/adapters/postgres": true,
 	},
 	modaryImportPath + "/internal/actionruntime": {
 		modaryImportPath + "/module": true,
@@ -67,12 +68,11 @@ var privilegedInternalImporters = map[string]map[string]bool{
 		modaryImportPath + "/adapters/localidentity": true,
 		modaryImportPath + "/adapters/rbac":          true,
 		modaryImportPath + "/adapters/sqlaudit":      true,
-		modaryImportPath + "/adapters/sqlite":        true,
+		modaryImportPath + "/adapters/postgres":      true,
 	},
 	modaryImportPath + "/internal/filepolicy": {
-		modaryImportPath + "/appcmd":          true,
-		modaryImportPath + "/projecttool":     true,
-		modaryImportPath + "/adapters/sqlite": true,
+		modaryImportPath + "/appcmd":      true,
+		modaryImportPath + "/projecttool": true,
 	},
 	modaryImportPath + "/internal/jsonschema": {
 		modaryImportPath + "/action":            true,
@@ -86,7 +86,7 @@ var privilegedInternalImporters = map[string]map[string]bool{
 		modaryImportPath + "/adapters/localidentity": true,
 		modaryImportPath + "/adapters/rbac":          true,
 		modaryImportPath + "/adapters/sqlaudit":      true,
-		modaryImportPath + "/adapters/sqlite":        true,
+		modaryImportPath + "/adapters/postgres":      true,
 	},
 	modaryImportPath + "/internal/runtimecontrol": {
 		modaryImportPath + "/module": true,
@@ -98,13 +98,12 @@ var privilegedInternalImporters = map[string]map[string]bool{
 		modaryImportPath + "/appcmd":            true,
 		modaryImportPath + "/projecttool":       true,
 		modaryImportPath + "/transport/httpapi": true,
-		modaryImportPath + "/adapters/sqlite":   true,
 	},
 	modaryImportPath + "/internal/sqlpolicy": {
-		modaryImportPath + "/adapters/sqlite": true,
+		modaryImportPath + "/adapters/postgres": true,
 	},
 	modaryImportPath + "/internal/transactionoutcome": {
-		modaryImportPath + "/adapters/sqlite": true,
+		modaryImportPath + "/adapters/postgres": true,
 	},
 }
 
@@ -185,7 +184,7 @@ func TestDirectImportPolicyFixturesDetectLayerAndPrivilegeViolations(t *testing.
 		},
 		{
 			name:     "adapter cannot import project tooling",
-			importer: modaryImportPath + "/adapters/sqlite",
+			importer: modaryImportPath + "/adapters/postgres",
 			imported: modaryImportPath + "/projecttool",
 			rejected: true,
 		},
@@ -220,7 +219,7 @@ func TestDirectImportPolicyFixturesDetectLayerAndPrivilegeViolations(t *testing.
 		{
 			name:     "adapter cannot import sibling adapter",
 			importer: modaryImportPath + "/adapters/rbac",
-			imported: modaryImportPath + "/adapters/sqlite",
+			imported: modaryImportPath + "/adapters/postgres",
 			rejected: true,
 		},
 		{

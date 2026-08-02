@@ -1,0 +1,11 @@
+# T027 release diff manifest
+
+Accepted implementation: T024 through T026 source and evidence
+Release identity and compatibility: CHANGELOG.md, README.md, SECURITY.md,
+docs/releases/**, docs/getting-started/**, examples/counter/go.mod
+Candidate and final reports: docs/f0-acceptance-report.md,
+.ai-platform/docs/**
+Release governance: .ai-platform/specs/006-postgres-alpha-release/**
+Release evidence: .ai-platform/evidence/T027/**
+External objects: candidate commit, annotated v0.1.0-alpha.3 tag, hosted CI,
+normal module resolution, copied-out remote consumer, GitHub prerelease

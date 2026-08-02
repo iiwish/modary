@@ -16,8 +16,9 @@ path is framework-private and unsupported.
 | `authz` | Use permissions, bounded impact, decisions, and policy fingerprints. |
 | `audit` | Return bounded business references and implement audit contracts when extending the framework. |
 | `database` | Use the narrow governed read/write surface inside consumer modules. |
-| `adapters/sqlite` | Install the official single-store SQLite durability profile. |
-| `adapters/localidentity` | Explicitly provision local users, passwords, sessions, and bearer tokens. |
+| `task` | Enqueue durable work transactionally and construct immutable worker runners. |
+| `adapters/postgres` | Install the PostgreSQL control store and River-backed task runtime. |
+| `adapters/localidentity` | Explicitly provision principals independently from optional password and bearer credentials, plus local sessions. |
 | `adapters/rbac` | Explicitly provision roles, permissions, row limits, and scoped bindings. |
 | `adapters/sqlaudit` | Install SQL-backed required audit behavior. |
 
@@ -29,8 +30,8 @@ import `action`, `module`, `database`, `scope`, and narrow domain-independent
 contracts required by their behavior.
 
 Consumers should not implement an alternative privileged database, transaction,
-idempotency, or plan store through hidden framework contracts. The official F0
-durable extension boundary is SQLite. A new privileged adapter is a framework
+idempotency, task queue, or plan store through hidden framework contracts. The
+official F0 durable boundary is PostgreSQL. A new privileged adapter is a framework
 contribution with conformance and security review, not an ordinary consumer
 plugin.
 
@@ -43,6 +44,7 @@ contract. Use `go doc` against the pinned consumer version:
 go doc github.com/iiwish/modary/action
 go doc github.com/iiwish/modary/module
 go doc github.com/iiwish/modary/appkit
+go doc github.com/iiwish/modary/task
 ```
 
 The [F0 contract](../framework-f0.md) defines cross-package invariants that API

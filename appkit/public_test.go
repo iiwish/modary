@@ -3,18 +3,21 @@ package appkit_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/iiwish/modary/action"
-	"github.com/iiwish/modary/adapters/sqlite"
+	"github.com/iiwish/modary/adapters/postgres"
 	"github.com/iiwish/modary/appkit"
 	"github.com/iiwish/modary/audit"
 	"github.com/iiwish/modary/authz"
 	"github.com/iiwish/modary/identity"
+	"github.com/iiwish/modary/internal/testpostgres"
 	"github.com/iiwish/modary/module"
 	"github.com/iiwish/modary/scope"
+	"github.com/iiwish/modary/task"
 )
 
 var _ appkit.Runtime = action.Runtime(nil)
@@ -68,7 +71,10 @@ func TestExternalConsumerCanStartExecuteAndShutdown(t *testing.T) {
 			return externalProbeHandler{}, nil
 		},
 	})
-	databaseModule, err := sqlite.Module(sqlite.Options{Path: ":memory:"})
+	databaseConfig := testpostgres.New(t)
+	databaseModule, err := postgres.Module(postgres.Options{
+		URL: databaseConfig.URL, ApplicationSchema: databaseConfig.ApplicationSchema, QueueSchema: databaseConfig.QueueSchema,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,8 +95,27 @@ func TestExternalConsumerCanStartExecuteAndShutdown(t *testing.T) {
 	if err != nil || string(result.Data) != `{"value":1}` {
 		t.Fatalf("Execute() = %s, %v", result.Data, err)
 	}
+	tasks := application.Tasks()
+	if tasks == nil {
+		t.Fatal("Tasks() is nil")
+	}
+	runner, err := tasks.NewRunner(task.HandlerFunc(func(context.Context, task.Job) error { return nil }), task.RunnerOptions{})
+	if err != nil {
+		t.Fatalf("NewRunner() error = %v", err)
+	}
 	if err := application.Shutdown(context.Background()); err != nil {
 		t.Fatalf("Shutdown() error = %v", err)
+	}
+	select {
+	case <-runner.Stopped():
+	default:
+		t.Fatal("application shutdown did not stop the registered task runner")
+	}
+	if _, err := tasks.NewRunner(task.HandlerFunc(func(context.Context, task.Job) error { return nil }), task.RunnerOptions{}); !errors.Is(err, task.ErrUnavailable) {
+		t.Fatalf("NewRunner() after shutdown error = %v", err)
+	}
+	if _, err := tasks.Enqueue(context.Background(), task.Request{Kind: "probe.run"}); !errors.Is(err, task.ErrUnavailable) {
+		t.Fatalf("Enqueue() after shutdown error = %v", err)
 	}
 }
 

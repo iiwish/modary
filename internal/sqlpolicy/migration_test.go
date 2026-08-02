@@ -44,7 +44,7 @@ func TestValidateMigrationScriptRejectsTransactionAndEphemeralSQL(t *testing.T) 
 		`ALTER TABLE "temp".ephemeral ADD COLUMN value INTEGER`,
 		`DROP TABLE [temp].ephemeral`,
 		`INSERT INTO temp.ephemeral(id) VALUES (1)`,
-		`PRAGMA foreign_keys = OFF`,
+		`SET search_path = public`,
 		`ATTACH DATABASE 'other.db' AS other`,
 		`VACUUM`,
 		`WITH value AS (SELECT 1) INSERT INTO item SELECT * FROM value`,

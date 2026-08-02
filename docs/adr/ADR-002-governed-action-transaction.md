@@ -45,7 +45,7 @@ framework-private persistence bundle; application Modules cannot replace or
 mix those services. A business error is
 preserved only when rollback is proven complete; pending or failed rollback,
 commit failure, forged or wrapped outcomes, and ambiguous callback results are
-internal atomicity failures. Nested SQLite calls join the outer transaction and
+internal atomicity failures. Nested PostgreSQL calls join the outer transaction and
 mark it rollback-only after any inner failure or panic. The transaction manager
 owns commit and rollback; consumers receive only an opaque context and sealed
 transaction-aware `database.Access`.
@@ -68,13 +68,14 @@ all descriptive data and removes detail from metadata-only events.
   behavior rather than reimplementing it.
 - A lost response can be retried without repeating a committed business effect.
 - Revocation before a transaction or replay prevents the write or disclosure.
-- The official atomicity claim requires stores and handlers to use one SQLite
-  database and `database.Access` with the provided context.
+- The official atomicity claim requires stores, task insertion, and handlers to
+  use one PostgreSQL control database and `database.Access` with the provided
+  context.
 - F0 custom applications can extend Actions and safe data access, but a new
   privileged persistence adapter is a framework contribution rather than an
   application plug-in.
-- Long-running handlers hold a serialized SQLite write transaction and must stay
-  bounded.
+- Long-running handlers retain a database transaction and connection and must
+  stay bounded. External work belongs in an idempotent durable task.
 
 ## Rejected Alternatives
 

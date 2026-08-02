@@ -18,20 +18,25 @@ extend it, but absence from this table is not implied support.
 
 | Capability | F0 status |
 | --- | --- |
-| Single process | Supported |
-| One official SQLite durability domain | Supported |
-| In-memory SQLite for tests | Supported by explicit configuration |
-| Multiple concurrent application writers | Not claimed |
-| High availability or leader election | Not provided |
+| PostgreSQL 17 | Supported and used by integration acceptance |
+| One official PostgreSQL control database | Supported |
+| Owned application and River schemas | Required; schemas must be distinct |
+| Isolated PostgreSQL schemas for tests | Supported by explicit configuration |
+| Multiple concurrent application writers | Supported by PostgreSQL transactions |
+| Multiple River worker processes | Supported; handlers remain at-least-once and idempotent |
+| Transactional Action write plus task enqueue | Supported in the same control database |
+| High availability | PostgreSQL and deployment responsibility; no framework failover controller |
 | Distributed transaction | Not provided |
 | Arbitrary privileged storage adapter | Not a public consumer extension |
-| Scheduler or durable background queue | Consumer-owned or deferred |
+| Durable background queue | Supported through the public `task` contract and internal River adapter |
+| MySQL or another official durable profile | Not provided |
+| Business data in another database or API | Consumer-owned Connector; outside the local Action transaction |
 
 ## Identity And Exposure
 
 | Capability | F0 status |
 | --- | --- |
-| Explicit local users and passwords | Supported for local/private deployment profiles |
+| Explicit local principals, optional password logins, sessions, and bearer tokens | Supported for local/private deployment profiles; credentialless service principals are first-class |
 | Explicit bearer tokens | Supported with documented file/stdin boundaries |
 | Scoped RBAC | Supported |
 | HTTP session and CSRF projection | Supported through explicit HTTP mounting |

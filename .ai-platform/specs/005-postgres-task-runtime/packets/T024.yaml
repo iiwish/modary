@@ -1,0 +1,44 @@
+schema_version: 1
+packet_id: EP-005-T024
+task_id: T024
+feature_id: 005-postgres-task-runtime
+mode: execute_one_task
+adapter: codex-direct
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  feature_spec: .ai-platform/specs/005-postgres-task-runtime/spec.md
+  requirements_checklist: .ai-platform/specs/005-postgres-task-runtime/checklists/requirements.md
+  technical_decisions: .ai-platform/specs/005-postgres-task-runtime/plan.md
+  work_graph: .ai-platform/specs/005-postgres-task-runtime/tasks.md
+  analysis: .ai-platform/specs/005-postgres-task-runtime/analysis.md
+  approval: explicit owner approval on 2026-08-01
+work_unit:
+  title: PostgreSQL And Task Contracts
+  goal: Implement canonical PostgreSQL control and transactional task contracts.
+  requirements: [FR-001, FR-002, FR-003, FR-004, FR-005, FR-006, FR-007, NFR-002, NFR-003, NFR-004, NFR-005, NFR-006]
+  depends_on: [T023]
+execution_constraints:
+  branch_or_worktree: current
+  allowed_files: [task/**, module/**, appkit/**, internal/databasecontrol/**, internal/moduleassembly/**, adapters/postgres/**, go.mod, go.sum, .ai-platform/specs/005-postgres-task-runtime/**, .ai-platform/evidence/T024/**]
+  ownership_notes: Direct execution is required because current host policy prohibits unrequested delegation.
+tdd_plan:
+  required: true
+  red:
+    command: go test ./task ./adapters/postgres
+    expected_failure: PostgreSQL and task packages do not exist
+  green:
+    command: go test ./task ./module ./appkit ./internal/databasecontrol ./adapters/postgres
+    expected_signal: focused contracts pass against PostgreSQL
+  refactor:
+    command: go test -race ./task ./adapters/postgres
+    expected_signal: lifecycle and runner tests are race free
+validation_loop:
+  commands: [go test ./task ./module ./appkit ./internal/databasecontrol ./adapters/postgres, go test -race ./task ./adapters/postgres, git diff --check]
+  retry_budget: 3
+evidence_contract:
+  summary: .ai-platform/evidence/T024/summary.md
+  diff: .ai-platform/evidence/T024/diff.patch
+  test_results: .ai-platform/evidence/T024/test-results.md
+review_contract:
+  required_passes: [spec_compliance, transaction_authority, queue_atomicity, concurrency_recovery, engineering_quality]
+stop_conditions: [PostgreSQL cannot share the exact Action transaction with River, River migrations cannot be isolated by schema, a public contract requires exposing River or raw transaction types]

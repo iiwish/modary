@@ -24,10 +24,10 @@ const ModuleID = "rbac"
 
 var policyIdentifierPattern = regexp.MustCompile(`^[a-z][a-z0-9._/-]{0,126}$`)
 
-//go:embed migrations/sqlite/*.sql
+//go:embed migrations/postgres/*.sql
 var migrationFiles embed.FS
 
-var sqliteMigrations = mustMigrationFS()
+var postgresMigrations = mustMigrationFS()
 
 // Role grants a set of exact permissions. MaxRows zero is unbounded. When
 // several roles grant the same permission, the least restrictive bound wins;
@@ -72,7 +72,7 @@ func Module(options Options) (module.Registration, error) {
 				Requires:      []module.Capability{module.CapabilityDatabase},
 				Provides:      []module.Capability{module.CapabilityAuthorization},
 			},
-			Migrations: []module.MigrationSource{{Driver: "sqlite", Files: sqliteMigrations}},
+			Migrations: []module.MigrationSource{{Driver: "postgres", Files: postgresMigrations}},
 		},
 		Start: func(ctx context.Context, installation module.Scope) error {
 			return start(ctx, installation, normalized)
@@ -206,7 +206,7 @@ func validatePermission(value string) error {
 }
 
 func mustMigrationFS() fs.FS {
-	files, err := fs.Sub(migrationFiles, "migrations/sqlite")
+	files, err := fs.Sub(migrationFiles, "migrations/postgres")
 	if err != nil {
 		panic(err)
 	}

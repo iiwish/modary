@@ -17,6 +17,22 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: modary_test
+          POSTGRES_USER: modary
+          POSTGRES_PASSWORD: modary-test-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U modary -d modary_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      MODARY_TEST_DATABASE_URL: postgres://modary:modary-test-password@127.0.0.1:5432/modary_test?sslmode=disable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -55,6 +71,20 @@ jobs:
           test "$(go env GOOS)/$(go env GOARCH)" = darwin/arm64
       - name: Install repository scanner
         run: brew list ripgrep >/dev/null 2>&1 || brew install ripgrep
+      - name: Start PostgreSQL 17
+        run: |
+          brew list postgresql@17 >/dev/null 2>&1 || brew install postgresql@17
+          prefix="$(brew --prefix postgresql@17)"
+          echo "$prefix/bin" >> "$GITHUB_PATH"
+          brew services start postgresql@17
+          for attempt in {1..30}; do
+            "$prefix/bin/pg_isready" && break
+            sleep 1
+          done
+          "$prefix/bin/pg_isready"
+          "$prefix/bin/dropdb" --if-exists modary_test
+          "$prefix/bin/createdb" modary_test
+          printf 'MODARY_TEST_DATABASE_URL=postgres://%s@127.0.0.1:5432/modary_test?sslmode=disable\n' "$(id -un)" >> "$GITHUB_ENV"
       - run: make bootstrap
       - run: make native-platform
       - name: Verify the gate leaves source unchanged
@@ -67,6 +97,22 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: modary_test
+          POSTGRES_USER: modary
+          POSTGRES_PASSWORD: modary-test-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U modary -d modary_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      MODARY_TEST_DATABASE_URL: postgres://modary:modary-test-password@127.0.0.1:5432/modary_test?sslmode=disable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

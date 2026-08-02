@@ -17,12 +17,13 @@ import (
 	"time"
 
 	"github.com/iiwish/modary/action"
-	"github.com/iiwish/modary/adapters/sqlite"
+	"github.com/iiwish/modary/adapters/postgres"
 	"github.com/iiwish/modary/appcmd"
 	"github.com/iiwish/modary/appkit"
 	"github.com/iiwish/modary/audit"
 	"github.com/iiwish/modary/authz"
 	"github.com/iiwish/modary/identity"
+	"github.com/iiwish/modary/internal/testpostgres"
 	"github.com/iiwish/modary/module"
 	"github.com/iiwish/modary/scope"
 	"github.com/iiwish/modary/transport/httpapi"
@@ -64,7 +65,7 @@ func TestPublicCommandConfigurationDoesNotExposeKernelExecutionInternals(t *test
 }
 
 func TestExternalConsumerCanRunActionAndServeExplicitMount(t *testing.T) {
-	definition := externalDefinition()
+	definition := externalDefinition(t)
 	tokenFile := filepath.Join(t.TempDir(), "token")
 	if err := os.WriteFile(tokenFile, []byte(externalCommandToken), 0o600); err != nil {
 		t.Fatal(err)
@@ -153,7 +154,7 @@ func TestExternalDependencyErrorsRemainOpaqueAtCommandBoundaries(t *testing.T) {
 		assertOpaqueExternalError(t, "write Action output failed", func(cause error) error {
 			return appcmd.RunAction(context.Background(), []string{
 				"run", "probe.read", "--token-file", tokenFile, "--input", "-",
-			}, externalDefinition(), appcmd.Options{
+			}, externalDefinition(t), appcmd.Options{
 				Stdin:  io.NopCloser(strings.NewReader(`{}`)),
 				Stdout: externalFullErrorWriter{err: cause},
 			})
@@ -162,7 +163,7 @@ func TestExternalDependencyErrorsRemainOpaqueAtCommandBoundaries(t *testing.T) {
 
 	t.Run("Handler factory", func(t *testing.T) {
 		assertOpaqueExternalError(t, "HTTP Handler factory failed", func(cause error) error {
-			return appcmd.Serve(context.Background(), externalDefinition(), externalServeOptions(
+			return appcmd.Serve(context.Background(), externalDefinition(t), externalServeOptions(
 				func(context.Context, *appkit.Application) (http.Handler, error) { return nil, cause }, nil,
 			))
 		})
@@ -191,7 +192,7 @@ func TestExternalDependencyErrorsRemainOpaqueAtCommandBoundaries(t *testing.T) {
 				},
 			)
 			options.Stderr = &diagnostics
-			go func() { serveResult <- appcmd.Serve(ctx, externalDefinition(), options) }()
+			go func() { serveResult <- appcmd.Serve(ctx, externalDefinition(t), options) }()
 			var listenAddress string
 			select {
 			case listenAddress = <-address:
@@ -224,7 +225,7 @@ func TestExternalDependencyErrorsRemainOpaqueAtCommandBoundaries(t *testing.T) {
 
 	t.Run("Listener factory", func(t *testing.T) {
 		assertOpaqueExternalError(t, "Listener factory failed", func(cause error) error {
-			return appcmd.Serve(context.Background(), externalDefinition(), externalServeOptions(
+			return appcmd.Serve(context.Background(), externalDefinition(t), externalServeOptions(
 				externalHandlerFactory,
 				func(context.Context, string, string) (net.Listener, error) { return nil, cause },
 			))
@@ -234,7 +235,7 @@ func TestExternalDependencyErrorsRemainOpaqueAtCommandBoundaries(t *testing.T) {
 	t.Run("Listener accept", func(t *testing.T) {
 		assertOpaqueExternalError(t, "serve HTTP failed", func(cause error) error {
 			listener := &externalFailingListener{acceptErr: cause}
-			return appcmd.Serve(context.Background(), externalDefinition(), externalServeOptions(
+			return appcmd.Serve(context.Background(), externalDefinition(t), externalServeOptions(
 				externalHandlerFactory,
 				func(context.Context, string, string) (net.Listener, error) { return listener, nil },
 			))
@@ -253,7 +254,7 @@ func TestExternalDependencyErrorsRemainOpaqueAtCommandBoundaries(t *testing.T) {
 			defer cancel()
 			result := make(chan error, 1)
 			go func() {
-				result <- appcmd.Serve(ctx, externalDefinition(), externalServeOptions(
+				result <- appcmd.Serve(ctx, externalDefinition(t), externalServeOptions(
 					externalHandlerFactory,
 					func(context.Context, string, string) (net.Listener, error) { return wrapped, nil },
 				))
@@ -289,7 +290,7 @@ func TestExternalDependencyErrorsRemainOpaqueAtCommandBoundaries(t *testing.T) {
 				},
 			)
 			options.Stderr = externalFullErrorWriter{err: cause}
-			go func() { result <- appcmd.Serve(ctx, externalDefinition(), options) }()
+			go func() { result <- appcmd.Serve(ctx, externalDefinition(t), options) }()
 			var listenAddress string
 			select {
 			case listenAddress = <-address:
@@ -318,7 +319,7 @@ func TestExternalDependencyErrorsRemainOpaqueAtCommandBoundaries(t *testing.T) {
 			defer cancel()
 			result := make(chan error, 1)
 			go func() {
-				result <- appcmd.Serve(ctx, externalDefinition(), externalServeOptions(
+				result <- appcmd.Serve(ctx, externalDefinition(t), externalServeOptions(
 					func(context.Context, *appkit.Application) (http.Handler, error) {
 						return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 							_, _ = io.WriteString(writer, "ok")
@@ -533,7 +534,8 @@ type externalAddress string
 func (externalAddress) Network() string        { return "tcp" }
 func (address externalAddress) String() string { return string(address) }
 
-func externalDefinition() appkit.Definition {
+func externalDefinition(t *testing.T) appkit.Definition {
+	t.Helper()
 	executionScope := scope.Must("tenant", "external-appcmd")
 	actor := identity.Actor{ID: "external-user", Type: "user", DisplayName: "External User", Scope: executionScope}
 	descriptor := action.Descriptor{
@@ -572,7 +574,10 @@ func externalDefinition() appkit.Definition {
 			return commandProbeHandler{}, nil
 		},
 	})
-	databaseRegistration, err := sqlite.Module(sqlite.Options{Path: ":memory:"})
+	databaseConfig := testpostgres.New(t)
+	databaseRegistration, err := postgres.Module(postgres.Options{
+		URL: databaseConfig.URL, ApplicationSchema: databaseConfig.ApplicationSchema, QueueSchema: databaseConfig.QueueSchema,
+	})
 	if err != nil {
 		panic(err)
 	}

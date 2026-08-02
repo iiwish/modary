@@ -125,7 +125,7 @@ func TestRunReturnsDeterministicDriftAndContainsCallbacks(t *testing.T) {
 		}
 	}
 
-	providerCause := errors.New("configure SQLite: database path is required")
+	providerCause := errors.New("configure PostgreSQL: database URL is required")
 	var providerCalls atomic.Int64
 	err = Run(context.Background(), []string{"verify"}, func() (appkit.Definition, error) {
 		providerCalls.Add(1)

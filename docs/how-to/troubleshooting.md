@@ -52,7 +52,7 @@ startup, and resolve it only inside the Handler factory.
 
 ## A Migration Is Rejected
 
-Use ordered forward-only SQLite files. The supported policy rejects transaction
+Use ordered forward-only PostgreSQL connections. The supported policy rejects transaction
 control, temporary schemas, unsupported statement kinds, excessive source
 counts or sizes, and changed content for an applied migration. Add a new
 migration rather than rewriting released history.
@@ -76,7 +76,7 @@ supported host, verify ownership and permissions for the project, output path,
 and temporary directory; on Darwin, remove unexpected extended ACLs instead of
 disabling the policy.
 
-## SQLite Files Are Rejected
+## PostgreSQL Connections Are Rejected
 
 Use a regular database path whose final directory is owned by the effective
 user and is not writable by group or others. Writable ancestors are accepted

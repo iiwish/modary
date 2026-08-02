@@ -1,0 +1,6 @@
+# T024 reviewed diff manifest
+
+Public contract: task/**, module/**, appkit/**
+Official adapter: adapters/postgres/**
+Private transaction control: internal/databasecontrol/**
+Module graph and dependency state: go.mod, go.sum

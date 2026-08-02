@@ -220,7 +220,7 @@ func TestRunDefinitionProviderErrorsPanicsAndMetadataDrift(t *testing.T) {
 	}
 
 	t.Run("ordinary error", func(t *testing.T) {
-		cause := errors.New("configure SQLite: database path is required")
+		cause := errors.New("configure PostgreSQL: database URL is required")
 		var calls atomic.Int64
 		err := Run(context.Background(), []string{"serve"}, func() (appkit.Definition, error) {
 			calls.Add(1)

@@ -7,20 +7,26 @@ authoritative minimum. Install a local toolchain that satisfies it; Modary
 project builds set `GOTOOLCHAIN=local` and do not rely on automatic toolchain
 download.
 
+Running applications and integration tests also need PostgreSQL 17. The
+configured role must be able to create and own the application and River
+schemas. Docker is optional; the quickstart uses it only to provide a repeatable
+local database.
+
 Framework contributors also need Git, Make, a POSIX shell, `find`, `xargs`, and
 `rg`. Node.js, npm, and pnpm are not part of the headless framework workflow.
 
-## Published Version
+## Release Consumption
 
-Add the exact prerelease to the consumer:
+Add an exact release to the consumer:
 
 ```bash
-go get github.com/iiwish/modary@v0.1.0-alpha.2
+go get github.com/iiwish/modary@v0.1.0-alpha.3
 go mod tidy
 ```
 
-Commit the resulting `go.mod` and `go.sum`. Applications should pin one exact
-Modary version rather than `latest`, a branch, or a moving pseudo-version.
+Commit the resulting `go.mod` and `go.sum`. Applications should pin
+`v0.1.0-alpha.3` exactly rather than `latest`, a branch, or a moving
+pseudo-version.
 
 ## Current Source Checkout
 

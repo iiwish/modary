@@ -1,75 +1,58 @@
-# Modary Alpha Release Readiness Report
+# Modary PostgreSQL Alpha Readiness Report
 
-- Report version: 1.0
-- Status: Accepted
+- Report version: 2.1
+- Status: Distribution_ready
 - Technical F0 acceptance: Accepted
 - Engineering readiness: Accepted
-- Onboarding readiness: Accepted
-- Target version: v0.1.0-alpha.2
-- Distribution status: Released
-- Version tag: v0.1.0-alpha.2
-- Rejected version: v0.1.0-alpha.1 at f57e3adda9a5f0e7335e821ef0b69eaf75c3548b
+- Onboarding readiness: Accepted for source-checkout consumption
+- Current source version: v0.1.0-alpha.3 release candidate
+- Target version: v0.1.0-alpha.3
+- Distribution status: Not_released
+- Version tag: None
+- Remote consumer verification: Not_run
+- Latest published historical version: v0.1.0-alpha.2
 - Canonical remote: https://github.com/iiwish/modary
 - Owner-selected redistribution license: Apache-2.0
 - Private security reporting channel: https://github.com/iiwish/modary/security/advisories/new
-- Remote consumer verification: Passed
-- Release URL: https://github.com/iiwish/modary/releases/tag/v0.1.0-alpha.2
-- Rejected release URL: https://github.com/iiwish/modary/releases/tag/v0.1.0-alpha.1
-- Last updated: 2026-08-01
+- Last updated: 2026-08-02
 
 ## Scope
 
-The release object is the independent Modary Go framework: public Kernel,
+The acceptance object is the independent Modary Go framework: public Kernel,
 AppKit, application-command and HTTP/MCP integrations, pure project tooling,
-neutral official Adapters, and a public independent Counter example that also
-serves as the remote consumer conformance module.
+neutral official adapters, PostgreSQL control storage, the River-backed public
+task contract, and the independent Counter consumer.
 
-The framework repository contains no consumer application executable, domain
-schema, frontend toolchain, default identity or policy, container image, or
-consumer release path.
+PostgreSQL is the only official durable profile. One control database uses a
+consumer-selected application schema and a distinct River queue schema.
+The schemas are durably paired one-to-one and concurrent process bootstrap is
+serialized. Consumers own business data and external Connector behavior.
 
 ## Current Result
 
-The public Kernel, lifecycle, AppKit, transports, project tooling, official
-Adapters, and copied-out consumer implementation are present. The integrated
-application tree is preserved outside the framework with independently verified
-source and governance manifests and is absent from active framework paths.
+T024 through T026 implement the PostgreSQL and task contract, port all standard
+durable services and Counter, and remove the active embedded-database profile
+without a compatibility layer. Real PostgreSQL tests cover migration integrity,
+rollback-only nesting, Action-write/task-insert atomicity, task retry, restart,
+simultaneous startup, exclusive schema pairing, duplicate suppression,
+multi-runner claiming, credentialless service principals, cancellation, and
+shutdown. Framework and independent
+consumer acceptance, race, repetition, fuzz, build, neutrality, documentation,
+and source-stability gates pass for the reviewed source state.
 
-T010 through T016 are complete. The frozen source state passes the Node-free Go
-framework acceptance and CI gates, copied-out consumer conformance, race,
-count-20, fuzz, cross-build, generated-drift, neutrality, documentation, source,
-and strict governance checks. Two fresh independent T016 reviews inspect the
-same frozen digest and report zero P0, P1, and P2 findings.
+The copied-out Counter consumer proves that a governed Action can transactionally
+enqueue durable work, stop its producer application, and consume the job after a
+restart through public contracts alone. This self-contained conformance boundary
+does not depend on a downstream product repository.
 
-The canonical acceptance matrix and residual risks are recorded in
-`docs/f0-acceptance-report.md` and `docs/f0-known-limitations.md`. Reproducible
-command and review records are in `.ai-platform/evidence/T016/`.
+The current source is suitable for coordinated source-checkout development by
+independent consumers and is the accepted `v0.1.0-alpha.3` candidate. It must
+not be advertised as remotely consumable until the immutable tag, tag CI,
+normal Go module resolution, and copied-out remote consumer gate all pass.
 
-Release Readiness adds a navigable consumer documentation system, installation
-and quickstart, concepts, how-to guides, public package and project reference,
-deployment and security guidance, SQLite recovery, versioning and upgrades,
-contribution and vulnerability policy, candidate/tag preflight, a copied-out
-normal Go Module remote consumer, and read-only tag CI. T017 through T020 record
-the implementation, tests, review, and full-gate evidence.
+## Release Boundary
 
-Onboarding Readiness uses the independently tested Counter consumer as the
-public example under `examples/counter`, adds a short run-and-change journey,
-and validates Apache-2.0 licensing and aggregated third-party attribution. T021
-records accepted local onboarding evidence before publication begins.
-
-The immutable `v0.1.0-alpha.1` tag resolved normally, but the copied-out remote
-consumer rejected two checkout-only example assertions. No GitHub release was
-created for that tag. The release policy requires the repaired candidate to use
-the subsequent `v0.1.0-alpha.2` version rather than moving a cached tag.
-
-## Release Claim
-
-The supported release is `v0.1.0-alpha.2` at
-`a4700f1c7ef53fe058a50fd43d65b906c3be89c4`. Its annotated tag, Linux quality,
-Darwin arm64 native checks, tag preflight, source stability, public Go proxy
-resolution, and copied-out remote consumer all passed. The GitHub prerelease,
-source tag, changelog, Apache-2.0 license, security channel, and current public
-documentation identify that version.
-
-The report therefore claims `Released` and `Remote_Verified` for Alpha 2. Alpha
-1 remains an immutable rejected prerelease record and is not supported.
+Publication freezes and commits the accepted source, runs release preflight and
+full CI against PostgreSQL 17, creates the immutable `v0.1.0-alpha.3` annotated
+tag, verifies normal Go proxy consumption, and publishes matching release
+notes. Until those external checks pass, distribution remains unclaimed.

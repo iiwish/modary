@@ -94,21 +94,17 @@ func (authorizer *authorizer) loadPolicy(ctx context.Context, request authz.Requ
 	}
 	rows, err := executor.QueryContext(ctx, `
 		SELECT
-			CASE WHEN typeof(r.role_id) = 'text' AND length(CAST(r.role_id AS BLOB)) <= ? THEN r.role_id END,
-			CASE WHEN typeof(r.max_rows) = 'integer' THEN r.max_rows END,
-			p.permission IS NULL,
-			CASE
-				WHEN p.permission IS NULL THEN NULL
-				WHEN typeof(p.permission) = 'text' AND length(CAST(p.permission AS BLOB)) <= ? THEN p.permission
-			END
+				r.role_id,
+				r.max_rows,
+				p.permission IS NULL,
+				p.permission
 		FROM modary_rbac_binding b
 		JOIN modary_rbac_role r ON r.role_id = b.role_id
 		LEFT JOIN modary_rbac_role_permission p ON p.role_id = r.role_id
-		WHERE b.actor_id = ? AND b.actor_type = ? AND b.scope_kind = ? AND b.scope_id = ?
-		  AND b.active = 1 AND r.active = 1
-		ORDER BY 1, 4
-		LIMIT ?`, maxStoredPolicyTokenBytes, maxStoredPolicyTokenBytes,
-		request.Actor.ID, request.Actor.Type, request.Scope.Kind, request.Scope.ID, maxEffectivePolicyRows+1)
+			WHERE b.actor_id = $1 AND b.actor_type = $2 AND b.scope_kind = $3 AND b.scope_id = $4
+			  AND b.active = TRUE AND r.active = TRUE
+			ORDER BY 1, 4
+			LIMIT $5`, request.Actor.ID, request.Actor.Type, request.Scope.Kind, request.Scope.ID, maxEffectivePolicyRows+1)
 	if err != nil {
 		return effectivePolicy{}, err
 	}
@@ -122,13 +118,13 @@ func (authorizer *authorizer) loadPolicy(ctx context.Context, request authz.Requ
 		rowCount++
 		var roleID sql.NullString
 		var maxRows sql.NullInt64
-		var permissionMissing int
+		var permissionMissing bool
 		var permission sql.NullString
 		if err := rows.Scan(&roleID, &maxRows, &permissionMissing, &permission); err != nil {
 			return effectivePolicy{}, err
 		}
 		boundedMaxRows := int(maxRows.Int64)
-		if !roleID.Valid || !maxRows.Valid || (permissionMissing != 0 && permissionMissing != 1) ||
+		if !roleID.Valid || !maxRows.Valid ||
 			maxRows.Int64 < 0 || int64(boundedMaxRows) != maxRows.Int64 ||
 			validatePolicyIdentifier("stored role id", roleID.String) != nil {
 			return effectivePolicy{}, fmt.Errorf("stored RBAC role is invalid")
@@ -138,7 +134,7 @@ func (authorizer *authorizer) loadPolicy(ctx context.Context, request authz.Requ
 		} else if roles[len(roles)-1].maxRows != boundedMaxRows {
 			return effectivePolicy{}, fmt.Errorf("stored RBAC role %s has inconsistent constraints", roleID.String)
 		}
-		if permissionMissing == 0 {
+		if !permissionMissing {
 			if !permission.Valid {
 				return effectivePolicy{}, fmt.Errorf("stored RBAC permission is oversized or not text")
 			}
@@ -219,16 +215,16 @@ func (authorizer *authorizer) provision(ctx context.Context, options Options) er
 		for _, role := range options.Roles {
 			if _, err := executor.ExecContext(txCtx, `
 				INSERT INTO modary_rbac_role (role_id, max_rows, active, created_at, updated_at)
-				VALUES (?, ?, 1, ?, ?)
+					VALUES ($1, $2, TRUE, $3, $4)
 				ON CONFLICT(role_id) DO UPDATE SET max_rows = excluded.max_rows,
-					active = 1, updated_at = excluded.updated_at`, role.ID, role.MaxRows, now, now); err != nil {
+						active = TRUE, updated_at = excluded.updated_at`, role.ID, role.MaxRows, now, now); err != nil {
 				return err
 			}
-			if _, err := executor.ExecContext(txCtx, `DELETE FROM modary_rbac_role_permission WHERE role_id = ?`, role.ID); err != nil {
+			if _, err := executor.ExecContext(txCtx, `DELETE FROM modary_rbac_role_permission WHERE role_id = $1`, role.ID); err != nil {
 				return err
 			}
 			for _, permission := range role.Permissions {
-				if _, err := executor.ExecContext(txCtx, `INSERT INTO modary_rbac_role_permission (role_id, permission) VALUES (?, ?)`, role.ID, permission); err != nil {
+				if _, err := executor.ExecContext(txCtx, `INSERT INTO modary_rbac_role_permission (role_id, permission) VALUES ($1, $2)`, role.ID, permission); err != nil {
 					return err
 				}
 			}
@@ -237,25 +233,25 @@ func (authorizer *authorizer) provision(ctx context.Context, options Options) er
 			if _, err := executor.ExecContext(txCtx, `
 				INSERT INTO modary_rbac_binding
 			(actor_id, actor_type, scope_kind, scope_id, role_id, active, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+				VALUES ($1, $2, $3, $4, $5, TRUE, $6, $7)
 			ON CONFLICT(actor_id, actor_type, scope_kind, scope_id, role_id)
-			DO UPDATE SET active = 1, updated_at = excluded.updated_at`, binding.ActorID,
+				DO UPDATE SET active = TRUE, updated_at = excluded.updated_at`, binding.ActorID,
 				binding.ActorType, binding.Scope.Kind, binding.Scope.ID, binding.RoleID, now, now); err != nil {
 				return err
 			}
 		}
 		for _, roleID := range options.RevokedRoleIDs {
-			if _, err := executor.ExecContext(txCtx, `UPDATE modary_rbac_role SET active = 0, updated_at = ? WHERE role_id = ?`, now, roleID); err != nil {
+			if _, err := executor.ExecContext(txCtx, `UPDATE modary_rbac_role SET active = FALSE, updated_at = $1 WHERE role_id = $2`, now, roleID); err != nil {
 				return err
 			}
-			if _, err := executor.ExecContext(txCtx, `UPDATE modary_rbac_binding SET active = 0, updated_at = ? WHERE role_id = ?`, now, roleID); err != nil {
+			if _, err := executor.ExecContext(txCtx, `UPDATE modary_rbac_binding SET active = FALSE, updated_at = $1 WHERE role_id = $2`, now, roleID); err != nil {
 				return err
 			}
 		}
 		for _, binding := range options.RevokedBindings {
 			if _, err := executor.ExecContext(txCtx, `
-				UPDATE modary_rbac_binding SET active = 0, updated_at = ?
-			WHERE actor_id = ? AND actor_type = ? AND scope_kind = ? AND scope_id = ? AND role_id = ?`,
+				UPDATE modary_rbac_binding SET active = FALSE, updated_at = $1
+				WHERE actor_id = $2 AND actor_type = $3 AND scope_kind = $4 AND scope_id = $5 AND role_id = $6`,
 				now, binding.ActorID, binding.ActorType, binding.Scope.Kind, binding.Scope.ID, binding.RoleID); err != nil {
 				return err
 			}

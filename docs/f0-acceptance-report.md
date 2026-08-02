@@ -1,59 +1,49 @@
 # Modary Framework F0 Acceptance Report
 
 - Acceptance object: independently consumable Modary Go framework
-- Governing contract: `.ai-platform/specs/002-framework-decoupling/spec.md`
-- Date: 2026-07-31
+- Governing contract: `.ai-platform/specs/005-postgres-task-runtime/spec.md`
+- Date: 2026-08-02
 - Status: Accepted
-- Accepted commit: f1faecd51c46220d82cc4b7ed461e0f29170eaaa
+- Accepted source: current reviewed working source; release commit not created
+- Consumption status: Local source checkout
 - Distribution status: Not_released
 - Version tag: None
-- Owner-selected redistribution license: None
+- License: Apache-2.0
 
 ## Verdict
 
-Modary Framework F0 is technically accepted for local source consumption.
-T010 through T016 satisfy their governed contracts. The frozen review source is
-captured in `.ai-platform/evidence/T016/diff.patch`; the matching test and review
-records are in the same evidence directory.
+The PostgreSQL-first Modary F0 is technically accepted for coordinated local
+source consumption. PostgreSQL is the only official durable profile; the public
+task API is domain-neutral; River and raw transaction authority remain private;
+and the independently copied-out Counter consumer uses only public contracts.
 
-This verdict does not claim a remote version tag, a published module release, or
-a consumer product release.
+This verdict does not claim a new remote version tag or published module. The
+latest historical release does not contain this profile.
 
 ## Acceptance Matrix
 
 | Area | Current result | Evidence gate |
 |---|---|---|
 | Public Kernel and lifecycle | Accepted | Public API, lifecycle, capability, cleanup, race, and unavailable-Host tests |
-| Governed Action runtime and schemas | Accepted | Transaction, idempotency, audit, bounded JSON, SchemaGraph, and official Draft 7 corpus tests |
-| AppKit, commands, and transports | Accepted | Assembly-gate, CLI, HTTP, MCP, protocol, shutdown, and error-boundary tests |
-| Pure project tooling | Accepted | Determinism, cancellation, verified Root, outside-project build, cross-build, and fuzz tests |
-| Neutral official Adapters | Accepted | Empty provisioning, migration, transaction, restart, ownership, and security tests |
-| Independent consumer | Accepted | Copied-out, `GOWORK=off`, Node-free, multichannel conformance with a consumer-owned capability |
-| Architecture and neutrality | Accepted | AST package/import gates, public API documentation, generated drift, and active-tree neutrality |
-| Repository gates | Accepted | `make acceptance`, `make ci`, strict artifact validators, and source-diff checks |
-| Independent engineering review | Accepted | Two fresh reviewers inspected one frozen digest and reported zero P0, P1, and P2 findings |
+| Governed Action runtime | Accepted | Transaction, rollback-only nesting, idempotency, audit, bounded JSON, and schema tests |
+| PostgreSQL durable profile | Accepted | Real PostgreSQL startup, owned schemas, migrations, restart, corruption, and transaction tests |
+| Durable task runtime | Accepted | Exact-transaction enqueue, retry, recovery, multi-runner, lifecycle, and secret-safety tests |
+| Standard adapters | Accepted | PostgreSQL-native Identity, RBAC, SQL Audit, migration, plan, and idempotency tests |
+| Independent consumer | Accepted | Copied-out, `GOWORK=off`, Node-free PostgreSQL Counter conformance, transactional enqueue, restart, and worker consumption |
+| Architecture and neutrality | Accepted | Public-boundary, import-direction, generated-drift, and active-tree neutrality gates |
+| Repository gates | Accepted | `make acceptance`, `make ci`, race, repetition, fuzz, build, and source-diff checks |
+| Engineering review | Accepted | Two current post-remediation review passes with no unresolved P0, P1, or P2 finding |
 
 ## Evidence
 
-- Frozen source and acceptance summary:
-  `.ai-platform/evidence/T016/summary.md`
-- Complete post-freeze command record:
-  `.ai-platform/evidence/T016/test-results.md`
-- Independent reviews:
-  `.ai-platform/evidence/T016/review-1.md` and
-  `.ai-platform/evidence/T016/review-2.md`
-
-## Residual Risk
-
-The accepted limitations are recorded in `docs/f0-known-limitations.md`.
-Public APIs and generated formats remain alpha; the durable profile remains
-single-process SQLite; trusted callbacks and writers must cooperate with
-cancellation; and native Build security is supported only on validated
-platforms.
+- PostgreSQL and task contracts: `.ai-platform/evidence/T024/`
+- Standard durable persistence: `.ai-platform/evidence/T025/`
+- Consumer, deletion, and final acceptance: `.ai-platform/evidence/T026/`
+- Exact operational boundaries: `docs/f0-known-limitations.md`
 
 ## Release Boundary
 
-F0 publishes a framework contract and local source-consumption proof. Consumers
-own their domain, composition, policy, provisioning, UI, executable, deployment,
-and release artifacts. The public APIs and generated formats remain alpha until
-a versioned compatibility policy is published.
+Publishing `v0.1.0-alpha.3` requires a clean committed candidate, successful tag
+CI against PostgreSQL 17, normal Go module resolution, and copied-out remote
+consumer verification. Consumers use the current source checkout until those
+external gates pass.

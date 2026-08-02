@@ -5,8 +5,25 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"regexp"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
+
 	. "github.com/iiwish/modary/database"
 	"github.com/iiwish/modary/internal/transactionoutcome"
+)
+
+const databaseControlTestURL = "postgres://modary:modary-test-password@127.0.0.1:55432/modary_test?sslmode=disable"
+
+var (
+	databaseControlTestSequence atomic.Uint64
+	databaseControlTestPattern  = regexp.MustCompile(`[^a-z0-9_]+`)
 )
 
 type testSQLRunner interface {
@@ -36,7 +53,7 @@ type testTransaction struct {
 	tx      *sql.Tx
 }
 
-func (*testBackend) Driver() string { return "sqlite" }
+func (*testBackend) Driver() string { return "postgres" }
 
 func (*testBackend) ValidateMigration(string) error { return nil }
 
@@ -113,4 +130,54 @@ func newTestControl(t interface {
 		t.Fatal(err)
 	}
 	return control
+}
+
+func openPostgresTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	url := os.Getenv("MODARY_TEST_DATABASE_URL")
+	if url == "" {
+		url = os.Getenv("MODARY_DATABASE_URL")
+	}
+	if url == "" {
+		url = databaseControlTestURL
+	}
+	admin, err := sql.Open("pgx", url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.PingContext(context.Background()); err != nil {
+		_ = admin.Close()
+		if strings.Contains(err.Error(), "connection refused") {
+			t.Skipf("PostgreSQL integration service unavailable: %v", err)
+		}
+		t.Fatal(err)
+	}
+	name := strings.ToLower(databaseControlTestPattern.ReplaceAllString(t.Name(), "_"))
+	if len(name) > 30 {
+		name = name[len(name)-30:]
+	}
+	schema := fmt.Sprintf("control_%s_%d", name, databaseControlTestSequence.Add(1))
+	quoted := `"` + schema + `"`
+	if _, err := admin.Exec(`CREATE SCHEMA ` + quoted); err != nil {
+		_ = admin.Close()
+		t.Fatal(err)
+	}
+	config, err := pgx.ParseConfig(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.RuntimeParams["search_path"] = quoted
+	db := stdlib.OpenDB(*config)
+	db.SetMaxOpenConns(8)
+	db.SetMaxIdleConns(4)
+	db.SetConnMaxLifetime(time.Minute)
+	if err := db.PingContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Close()
+		_, _ = admin.Exec(`DROP SCHEMA IF EXISTS ` + quoted + ` CASCADE`)
+		_ = admin.Close()
+	})
+	return db
 }

@@ -4,12 +4,10 @@
 
 ## Supported Versions
 
-`v0.1.0-alpha.2` is the supported Alpha line. The `v0.1.0-alpha.1` tag is not
-supported because its remote onboarding gate was rejected before a GitHub
-release was created. The support table in
-`docs/reference/support-matrix.md` and each release note define its runtime
-boundary. Pre-v1 releases may receive a security fix as a new prerelease or
-patch, but are not promised indefinite backports.
+`v0.1.0-alpha.3` is the supported PostgreSQL and durable-task Alpha line. The
+support table in `docs/reference/support-matrix.md` and its release notes define
+the runtime boundary. Pre-v1 releases may receive a security fix as a new
+prerelease or patch, but are not promised indefinite backports.
 
 ## Reporting A Vulnerability
 
@@ -35,7 +33,10 @@ before a maintained release line and contact channel are published.
 
 ## F0 Security Boundary
 
-The supported F0 profile is a single process with one SQLite durability domain.
+The supported F0 profile uses one PostgreSQL control database, an owned
+application schema, and an owned River queue schema. Database credentials are
+deployment secrets. Grant the application role only the database and schema
+privileges required by Modary and consumer migrations.
 Modary governs authorization, Preview/Execute plan binding, idempotency,
 transaction boundaries, and required audit behavior. It is not a process,
 container, operating-system, or hostile-extension sandbox.
@@ -48,6 +49,8 @@ The following remain trusted inputs or deployment responsibilities:
 - operating-system identity, filesystem ownership, mounts, and host isolation;
 - local identity provisioning, credentials, authorization policy, TLS, proxy,
   network exposure, backups, and secret rotation;
+- task handler errors, which River persists as job history and therefore must be
+  stable and secret-safe rather than wrapped dependency detail;
 - cancellation cooperation by callbacks and writers.
 
 Read `docs/operations/security.md` and `docs/f0-known-limitations.md` before any

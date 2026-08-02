@@ -12,10 +12,11 @@
       "type": "feature",
       "requires": [
         "counter.clock",
-        "database"
+        "database",
+        "tasks"
       ],
       "migrations": [
-        "sqlite"
+        "postgres"
       ]
     },
     {
@@ -29,7 +30,19 @@
         "identity"
       ],
       "migrations": [
-        "sqlite"
+        "postgres"
+      ]
+    },
+    {
+      "id": "postgres",
+      "version": "0.1.0",
+      "type": "adapter",
+      "provides": [
+        "database",
+        "tasks"
+      ],
+      "migrations": [
+        "postgres"
       ]
     },
     {
@@ -43,7 +56,7 @@
         "authorization"
       ],
       "migrations": [
-        "sqlite"
+        "postgres"
       ]
     },
     {
@@ -57,18 +70,7 @@
         "audit"
       ],
       "migrations": [
-        "sqlite"
-      ]
-    },
-    {
-      "id": "sqlite",
-      "version": "0.1.0",
-      "type": "adapter",
-      "provides": [
-        "database"
-      ],
-      "migrations": [
-        "sqlite"
+        "postgres"
       ]
     },
     {
@@ -83,8 +85,13 @@
   "edges": [
     {
       "from": "counter",
-      "to": "sqlite",
+      "to": "postgres",
       "capability": "database"
+    },
+    {
+      "from": "counter",
+      "to": "postgres",
+      "capability": "tasks"
     },
     {
       "from": "counter",
@@ -93,22 +100,22 @@
     },
     {
       "from": "local-identity",
-      "to": "sqlite",
+      "to": "postgres",
       "capability": "database"
     },
     {
       "from": "rbac",
-      "to": "sqlite",
+      "to": "postgres",
       "capability": "database"
     },
     {
       "from": "sql-audit",
-      "to": "sqlite",
+      "to": "postgres",
       "capability": "database"
     }
   ],
   "order": [
-    "sqlite",
+    "postgres",
     "system-clock",
     "counter",
     "local-identity",
@@ -119,7 +126,8 @@
     "audit": "sql-audit",
     "authorization": "rbac",
     "counter.clock": "system-clock",
-    "database": "sqlite",
-    "identity": "local-identity"
+    "database": "postgres",
+    "identity": "local-identity",
+    "tasks": "postgres"
   }
 }

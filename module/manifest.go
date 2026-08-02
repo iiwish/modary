@@ -35,6 +35,8 @@ const (
 	CapabilityAuthorization Capability = "authorization"
 	// CapabilityAudit identifies the canonical audit service.
 	CapabilityAudit Capability = "audit"
+	// CapabilityTasks identifies the canonical durable task service.
+	CapabilityTasks Capability = "tasks"
 )
 
 var (

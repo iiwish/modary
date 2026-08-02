@@ -3,7 +3,7 @@
 - Status: Accepted implementation contract
 - Stability: Alpha
 - Go module: `github.com/iiwish/modary`
-- Runtime profile: single-process, single SQLite database
+- Runtime profile: PostgreSQL control database with a River task schema
 
 ## Product Boundary
 
@@ -52,10 +52,14 @@ func ApplicationMetadata() appkit.Metadata {
 	}
 }
 
-func Definition() (appkit.Definition, error) {
-	storage, err := sqlite.Module(sqlite.Options{Path: "data/example.db"})
+func Definition(config Config) (appkit.Definition, error) {
+	storage, err := postgres.Module(postgres.Options{
+		URL: config.DatabaseURL,
+		ApplicationSchema: "example_app",
+		QueueSchema: "example_queue",
+	})
 	if err != nil {
-		return appkit.Definition{}, fmt.Errorf("configure SQLite: %w", err)
+		return appkit.Definition{}, fmt.Errorf("configure PostgreSQL: %w", err)
 	}
 	return appkit.Definition{
 		Metadata: ApplicationMetadata(),
@@ -264,15 +268,23 @@ the key and control type are unavailable to external Modules and cannot be
 reached through the reflected method set of `module.Scope` or
 `module.Resolver`.
 
-The transaction callback is synchronous and exactly once. The official SQLite
+The transaction callback is synchronous and exactly once. The official PostgreSQL
 owner supplies private operation-correlated completion proof. Runtime preserves
 a business rejection only after confirmed rollback; uncertain rollback,
 rollback failure, commit failure, forged or wrapped proof, and callback contract
-violations are `INTERNAL_ERROR`. Nested SQLite transactions join the outer unit
+violations are `INTERNAL_ERROR`. Nested PostgreSQL transactions join the outer unit
 without a savepoint. An inner error or panic marks the outer transaction
 rollback-only, so an outer callback cannot commit by swallowing the inner
-failure. SQLite commit and rollback hooks detect SQL that prematurely ends the
+failure. PostgreSQL transaction state detect SQL that prematurely ends the
 framework-owned transaction.
+
+The official durable profile also provides `module.CapabilityTasks`. A Module
+that declares it resolves the public `task.Service` and may enqueue only from a
+governed Action transaction. The domain write and River insertion use the exact
+same PostgreSQL transaction internally; neither River nor raw transaction types
+cross the public boundary. Runners are configured before start, delivery is at
+least once, and consumer handlers own stable identity and idempotent external
+effects.
 
 Handler failures may return exactly one governed `action.Error` through a
 bounded trusted error graph. Framework business codes are restricted by source;
@@ -432,18 +444,18 @@ cannot interrupt a blocked call.
 
 The official F0 stack consists of:
 
-- `adapters/sqlite`: pure-Go SQLite, migrations, and one framework-private
-  persistence bundle containing plan storage, idempotency storage, and
-  transaction ownership;
-- `adapters/localidentity`: explicitly provisioned password and bearer
-  principals with Argon2id, bounded password-check concurrency, sessions,
+- `adapters/postgres`: pgx-backed PostgreSQL control storage, module and River
+  migrations, transaction ownership, plan and idempotency storage, transactional
+  task insertion, and River worker lifecycle;
+- `adapters/localidentity`: explicitly provisioned principals with independent
+  optional password and bearer credentials, Argon2id, bounded password-check concurrency, sessions,
   rotation, and revocation;
 - `adapters/rbac`: explicitly provisioned roles and scope-bound actor bindings,
   default deny, row constraints, and transaction-aware authorization reads;
 - `adapters/sqlaudit`: bounded structured audit persistence with corruption
   checks and transaction-aware writes.
 
-The official SQLite stack is the F0 durable adapter boundary. Public
+The official PostgreSQL stack is the F0 durable adapter boundary. Public
 `database.Access`, `database.Executor`, `database.Row`, and `database.Rows`
 describe only the consumer-side data capability and values. Backend
 construction, SQL policy wrapping, migration, Action persistence, and
@@ -459,20 +471,18 @@ Each Module migration source is a root `fs.ReadDirFile` containing at most 256
 entries. Names are valid single path elements of at most 255 bytes; each SQL file
 is at most 1 MiB and one source retains at most 16 MiB. Reads stop one byte beyond
 the applicable bound and all files are loaded and validated before any database
-effect. The SQLite migration profile accepts forward DDL and DML but rejects
+effect. The PostgreSQL migration profile accepts forward DDL and DML but rejects
 transaction control, savepoints, temporary objects, administrative statements,
 trigger rollback expressions, `OR ROLLBACK` conflict actions, and every bare or
 quoted `temp.` schema reference. Applied
 history is also capped at 256 rows. One Module's complete pending suffix and its
 history records commit together.
 
-Empty adapter options create only owned schema. Options are copied and validated
-before startup. Adapters do not read environment variables or global
-configuration and do not create product policy, secrets, or domain data.
-For the file-backed SQLite profile, every directory ancestor is owned by the
-effective UID or root; a group- or other-writable ancestor is accepted only when
-it is root-owned and sticky. The final database directory remains effective-
-UID-owned and non-writable by group or other users.
+Adapter options are copied and validated before startup. The PostgreSQL URL is
+required. Application and queue schemas are distinct, non-system names and must
+be owned by the configured role. Adapters do not read environment variables or
+global configuration and do not create product policy, secrets, or domain data.
+The application owns configuration loading and secret management.
 
 ## Compatibility And Release
 

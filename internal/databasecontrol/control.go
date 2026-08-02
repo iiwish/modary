@@ -45,6 +45,13 @@ type Backend interface {
 	WithinTransaction(context.Context, func(context.Context) error) error
 }
 
+// migrationLocker is an optional durable-adapter extension. Implementations
+// serialize the complete migration registry check and apply sequence across
+// processes while the surrounding transaction remains open.
+type migrationLocker interface {
+	LockMigrations(context.Context, database.Executor) error
+}
+
 // Control is the internal capability used by Host assembly and official
 // durable adapters. It is deliberately absent from package database.
 type Control interface {

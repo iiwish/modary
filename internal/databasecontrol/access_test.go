@@ -15,10 +15,10 @@ func TestAccessExecContextAcceptsOnlySingleMutationStatements(t *testing.T) {
 	access := newAccessForTest(t, fixedBackend{executor: executor})
 
 	for _, statement := range []string{
-		"INSERT INTO item(value) VALUES (?)",
-		"insert or ignore into item(value) values (?)",
-		"UPDATE item SET value = ?",
-		"delete FROM item WHERE value = ?",
+		"INSERT INTO item(value) VALUES ($1)",
+		"insert into item(value) values ($1) on conflict do nothing",
+		"UPDATE item SET value = $1",
+		"delete FROM item WHERE value = $1",
 		"/* one public mutation */ UPDATE item SET value = 1",
 		"UPDATE item SET value = 'ROLLBACK; COMMIT' -- inert SQL text",
 	} {
@@ -35,8 +35,8 @@ func TestAccessExecContextAcceptsOnlySingleMutationStatements(t *testing.T) {
 		"SELECT 1",
 		"CREATE TABLE item(value INTEGER)",
 		"DROP TABLE item",
-		"PRAGMA foreign_keys = OFF",
-		"ATTACH DATABASE 'other.db' AS other",
+		"COPY item FROM STDIN",
+		"SET search_path = public",
 		"BEGIN",
 		"COMMIT",
 		"END TRANSACTION",
@@ -44,8 +44,8 @@ func TestAccessExecContextAcceptsOnlySingleMutationStatements(t *testing.T) {
 		"SAVEPOINT nested",
 		"RELEASE nested",
 		"WITH value AS (SELECT 1) UPDATE item SET value = 1",
-		"INSERT OR ROLLBACK INTO item(value) VALUES (1)",
-		"UPDATE OR ROLLBACK item SET value = 1",
+		"TRUNCATE item",
+		"MERGE INTO item USING source ON false WHEN NOT MATCHED THEN INSERT VALUES (1)",
 		"UPDATE item SET value = 1; COMMIT",
 		"UPDATE item SET value = 1; DELETE FROM item",
 		"/* unterminated UPDATE item SET value = 1",

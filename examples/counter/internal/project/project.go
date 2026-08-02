@@ -6,14 +6,15 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 
 	"example.com/modary-counter-consumer/internal/ui"
 	"example.com/modary-counter-consumer/modules/counter"
 	"example.com/modary-counter-consumer/modules/systemclock"
 	"github.com/iiwish/modary/adapters/localidentity"
+	postgresadapter "github.com/iiwish/modary/adapters/postgres"
 	"github.com/iiwish/modary/adapters/rbac"
 	"github.com/iiwish/modary/adapters/sqlaudit"
-	sqliteadapter "github.com/iiwish/modary/adapters/sqlite"
 	"github.com/iiwish/modary/appcmd"
 	"github.com/iiwish/modary/appkit"
 	"github.com/iiwish/modary/module"
@@ -22,8 +23,11 @@ import (
 )
 
 const (
-	// DefaultDatabasePath is the explicit local-development storage path.
-	DefaultDatabasePath = "data/counter-console.db"
+	// DefaultDatabaseURL is for local development only. Deployments supply
+	// MODARY_DATABASE_URL through their secret-management boundary.
+	DefaultDatabaseURL       = "postgres://postgres:postgres@127.0.0.1:5432/modary_counter?sslmode=disable"
+	DefaultApplicationSchema = "counter_app"
+	DefaultQueueSchema       = "counter_queue"
 
 	PrimaryActorID       = "counter-operator"
 	PrimaryUsername      = "operator"
@@ -44,12 +48,20 @@ var (
 
 // Config contains the process inputs needed to assemble this consumer.
 type Config struct {
-	DatabasePath string
+	DatabaseURL       string
+	ApplicationSchema string
+	QueueSchema       string
 }
 
 // DefaultConfig returns the explicit local-development configuration.
 func DefaultConfig() Config {
-	return Config{DatabasePath: DefaultDatabasePath}
+	url := os.Getenv("MODARY_DATABASE_URL")
+	if url == "" {
+		url = DefaultDatabaseURL
+	}
+	return Config{
+		DatabaseURL: url, ApplicationSchema: DefaultApplicationSchema, QueueSchema: DefaultQueueSchema,
+	}
 }
 
 // ApplicationMetadata returns the pure command identity shared by appcmd and
@@ -72,20 +84,26 @@ func Definition() (appkit.Definition, error) {
 // explicit typed options. It performs no filesystem, database, migration,
 // handler-construction, password-hashing, or random operation.
 func NewDefinition(config Config) (appkit.Definition, error) {
-	sqliteModule, err := sqliteadapter.Module(sqliteadapter.Options{Path: config.DatabasePath})
+	postgresModule, err := postgresadapter.Module(postgresadapter.Options{
+		URL: config.DatabaseURL, ApplicationSchema: config.ApplicationSchema, QueueSchema: config.QueueSchema,
+	})
 	if err != nil {
-		return appkit.Definition{}, fmt.Errorf("configure SQLite: %w", err)
+		return appkit.Definition{}, fmt.Errorf("configure PostgreSQL: %w", err)
 	}
 	identityModule, err := localidentity.Module(localidentity.Options{
-		Users: []localidentity.User{
+		Principals: []localidentity.Principal{
 			{
 				ActorID: PrimaryActorID, ActorType: "user", DisplayName: "Counter Operator",
-				Scope: PrimaryScope, Username: PrimaryUsername, Password: PrimaryPassword,
+				Scope: PrimaryScope,
 			},
 			{
 				ActorID: SecondaryActorID, ActorType: "user", DisplayName: "Counter Reviewer",
-				Scope: SecondaryScope, Username: SecondaryUsername, Password: SecondaryPassword,
+				Scope: SecondaryScope,
 			},
+		},
+		PasswordCredentials: []localidentity.PasswordCredential{
+			{ActorID: PrimaryActorID, Username: PrimaryUsername, Password: PrimaryPassword},
+			{ActorID: SecondaryActorID, Username: SecondaryUsername, Password: SecondaryPassword},
 		},
 		BearerTokens: []localidentity.BearerToken{
 			{TokenID: "primary-cli", ActorID: PrimaryActorID, Token: PrimaryBearerToken},
@@ -122,7 +140,7 @@ func NewDefinition(config Config) (appkit.Definition, error) {
 	return appkit.Definition{
 		Metadata: ApplicationMetadata(),
 		Modules: []module.Registration{
-			sqliteModule,
+			postgresModule,
 			identityModule,
 			rbacModule,
 			sqlaudit.Module(sqlaudit.Options{}),

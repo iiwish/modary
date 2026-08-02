@@ -41,23 +41,15 @@ const (
 	passwordSaltBytes        = 16
 	passwordKeyBytes         = uint32(32)
 	passwordHashEncodedBytes = 97
-	sqliteTimeFormat         = "2006-01-02T15:04:05.000000000Z07:00"
+	databaseTimeFormat       = "2006-01-02T15:04:05.000000000Z07:00"
 
-	maxStoredActorIDBytes       = identity.MaxActorIDRunes * utf8.UTFMax
-	maxStoredActorTypeBytes     = identity.MaxActorTypeRunes * utf8.UTFMax
-	maxStoredDisplayNameBytes   = identity.MaxDisplayNameRunes * utf8.UTFMax
-	maxStoredScopeKindBytes     = 64 * utf8.UTFMax
-	maxStoredScopeIDBytes       = 256 * utf8.UTFMax
-	maxStoredCSRFTokenBytes     = 64
-	maxStoredCanonicalTimeBytes = len("2006-01-02T15:04:05.000000000Z")
+	maxStoredActorTypeBytes   = identity.MaxActorTypeRunes * utf8.UTFMax
+	maxStoredDisplayNameBytes = identity.MaxDisplayNameRunes * utf8.UTFMax
+	maxStoredScopeIDBytes     = 256 * utf8.UTFMax
+	maxStoredCSRFTokenBytes   = 64
 )
 
-const boundedActorProjection = `
-	CASE WHEN typeof(p.actor_id) = 'text' AND length(CAST(p.actor_id AS BLOB)) <= ? THEN p.actor_id END,
-	CASE WHEN typeof(p.actor_type) = 'text' AND length(CAST(p.actor_type AS BLOB)) <= ? THEN p.actor_type END,
-	CASE WHEN typeof(p.display_name) = 'text' AND length(CAST(p.display_name AS BLOB)) <= ? THEN p.display_name END,
-	CASE WHEN typeof(p.scope_kind) = 'text' AND length(CAST(p.scope_kind AS BLOB)) <= ? THEN p.scope_kind END,
-	CASE WHEN typeof(p.scope_id) = 'text' AND length(CAST(p.scope_id AS BLOB)) <= ? THEN p.scope_id END`
+const actorProjection = `p.actor_id, p.actor_type, p.display_name, p.scope_kind, p.scope_id`
 
 type service struct {
 	control          databasecontrol.Control
@@ -122,11 +114,10 @@ func (service *service) Login(ctx context.Context, username, password string) (i
 	}
 	err = executor.QueryRowContext(ctx, `
 			SELECT
-				CASE WHEN typeof(p.actor_id) = 'text' AND length(CAST(p.actor_id AS BLOB)) <= ? THEN p.actor_id END,
-				CASE WHEN typeof(c.password_hash) = 'text' AND length(CAST(c.password_hash AS BLOB)) <= ? THEN c.password_hash END
+					p.actor_id, c.password_hash
 			FROM modary_identity_password c
 			JOIN modary_identity_principal p ON p.actor_id = c.actor_id
-			WHERE c.username = ? AND p.active = 1`, maxStoredActorIDBytes, passwordHashEncodedBytes, username).Scan(
+				WHERE c.username = $1 AND p.active = TRUE`, username).Scan(
 		&storedActorID, &storedEncoded)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return identity.Session{}, fmt.Errorf("authenticate local Identity password: %w", err)
@@ -166,11 +157,10 @@ func (service *service) Login(ctx context.Context, username, password string) (i
 		var currentActorID, currentEncoded sql.NullString
 		err = tx.QueryRowContext(txCtx, `
 			SELECT
-				CASE WHEN typeof(p.actor_id) = 'text' AND length(CAST(p.actor_id AS BLOB)) <= ? THEN p.actor_id END,
-				CASE WHEN typeof(c.password_hash) = 'text' AND length(CAST(c.password_hash AS BLOB)) <= ? THEN c.password_hash END
+					p.actor_id, c.password_hash
 			FROM modary_identity_password c
 			JOIN modary_identity_principal p ON p.actor_id = c.actor_id
-			WHERE c.username = ? AND p.active = 1`, maxStoredActorIDBytes, passwordHashEncodedBytes, username).Scan(
+				WHERE c.username = $1 AND p.active = TRUE`, username).Scan(
 			&currentActorID, &currentEncoded)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrAuthenticationFailed
@@ -190,14 +180,14 @@ func (service *service) Login(ctx context.Context, username, password string) (i
 		}
 		now := service.now()
 		expiresAt := now.Add(service.sessionTTL)
-		if _, err := tx.ExecContext(txCtx, `DELETE FROM modary_identity_session WHERE expires_at <= ?`, formatSQLiteTime(now)); err != nil {
+		if _, err := tx.ExecContext(txCtx, `DELETE FROM modary_identity_session WHERE expires_at <= $1`, formatDatabaseTime(now)); err != nil {
 			return fmt.Errorf("remove expired local Identity sessions: %w", err)
 		}
 		if _, err := tx.ExecContext(txCtx, `
 		INSERT INTO modary_identity_session
 		(session_id, token_hash, actor_id, csrf_token, expires_at, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)`, "ses_"+sessionID, credentialHash(sessionToken), actor.ID,
-			csrfToken, formatSQLiteTime(expiresAt), formatSQLiteTime(now)); err != nil {
+			VALUES ($1, $2, $3, $4, $5, $6)`, "ses_"+sessionID, credentialHash(sessionToken), actor.ID,
+			csrfToken, formatDatabaseTime(expiresAt), formatDatabaseTime(now)); err != nil {
 			return fmt.Errorf("persist local Identity session: %w", err)
 		}
 		session = identity.Session{Token: sessionToken, CSRFToken: csrfToken, Actor: actor, ExpiresAt: expiresAt}
@@ -225,7 +215,7 @@ func (service *service) Logout(ctx context.Context, token string) error {
 		if err != nil {
 			return err
 		}
-		if _, err := executor.ExecContext(txCtx, `DELETE FROM modary_identity_session WHERE token_hash = ?`, credentialHash(token)); err != nil {
+		if _, err := executor.ExecContext(txCtx, `DELETE FROM modary_identity_session WHERE token_hash = $1`, credentialHash(token)); err != nil {
 			return fmt.Errorf("delete local Identity session: %w", err)
 		}
 		return nil
@@ -246,14 +236,11 @@ func (service *service) Session(ctx context.Context, token string) (identity.Ses
 	if err != nil {
 		return identity.Session{}, err
 	}
-	arguments := storedActorLimitArguments(maxStoredCSRFTokenBytes, maxStoredCanonicalTimeBytes, credentialHash(token))
 	destinations := append(storedActor.scanTargets(), &csrfToken, &expiresText)
-	err = executor.QueryRowContext(ctx, `SELECT `+boundedActorProjection+`,
-				CASE WHEN typeof(s.csrf_token) = 'text' AND length(CAST(s.csrf_token AS BLOB)) <= ? THEN s.csrf_token END,
-				CASE WHEN typeof(s.expires_at) = 'text' AND length(CAST(s.expires_at AS BLOB)) <= ? THEN s.expires_at END
+	err = executor.QueryRowContext(ctx, `SELECT `+actorProjection+`, s.csrf_token, s.expires_at
 			FROM modary_identity_session s
 			JOIN modary_identity_principal p ON p.actor_id = s.actor_id
-			WHERE s.token_hash = ? AND p.active = 1`, arguments...).Scan(destinations...)
+				WHERE s.token_hash = $1 AND p.active = TRUE`, credentialHash(token)).Scan(destinations...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return identity.Session{}, ErrSessionInvalid
 	}
@@ -263,7 +250,7 @@ func (service *service) Session(ctx context.Context, token string) (identity.Ses
 	if !csrfToken.Valid || !expiresText.Valid {
 		return identity.Session{}, fmt.Errorf("decode local Identity session: stored session fields are oversized or not text")
 	}
-	expiresAt, err := parseSQLiteTime(expiresText.String)
+	expiresAt, err := parseDatabaseTime(expiresText.String)
 	if err != nil {
 		return identity.Session{}, fmt.Errorf("decode local Identity session expiry: %w", err)
 	}
@@ -273,7 +260,7 @@ func (service *service) Session(ctx context.Context, token string) (identity.Ses
 			if executorErr != nil {
 				return executorErr
 			}
-			_, executorErr = executor.ExecContext(txCtx, `DELETE FROM modary_identity_session WHERE token_hash = ?`, credentialHash(token))
+			_, executorErr = executor.ExecContext(txCtx, `DELETE FROM modary_identity_session WHERE token_hash = $1`, credentialHash(token))
 			return executorErr
 		})
 		return identity.Session{}, ErrSessionInvalid
@@ -301,11 +288,11 @@ func (service *service) AuthenticateToken(ctx context.Context, token string) (id
 	if err != nil {
 		return identity.Actor{}, err
 	}
-	err = executor.QueryRowContext(ctx, `SELECT `+boundedActorProjection+`
+	err = executor.QueryRowContext(ctx, `SELECT `+actorProjection+`
 			FROM modary_identity_bearer b
 			JOIN modary_identity_principal p ON p.actor_id = b.actor_id
-			WHERE b.token_hash = ? AND b.active = 1 AND p.active = 1`,
-		storedActorLimitArguments(credentialHash(token))...).Scan(storedActor.scanTargets()...)
+				WHERE b.token_hash = $1 AND b.active = TRUE AND p.active = TRUE`,
+		credentialHash(token)).Scan(storedActor.scanTargets()...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return identity.Actor{}, ErrAuthenticationFailed
 	}
@@ -332,16 +319,13 @@ func (service *service) provision(ctx context.Context, options Options) error {
 		if err != nil {
 			return err
 		}
-		now := formatSQLiteTime(service.now())
-		for _, user := range options.Users {
+		now := formatDatabaseTime(service.now())
+		for _, principal := range options.Principals {
 			var existingType, existingScopeKind, existingScopeID sql.NullString
 			principalErr := tx.QueryRowContext(txCtx, `
 					SELECT
-						CASE WHEN typeof(actor_type) = 'text' AND length(CAST(actor_type AS BLOB)) <= ? THEN actor_type END,
-						CASE WHEN typeof(scope_kind) = 'text' AND length(CAST(scope_kind AS BLOB)) <= ? THEN scope_kind END,
-						CASE WHEN typeof(scope_id) = 'text' AND length(CAST(scope_id AS BLOB)) <= ? THEN scope_id END
-					FROM modary_identity_principal WHERE actor_id = ?`, maxStoredActorTypeBytes,
-				maxStoredScopeKindBytes, maxStoredScopeIDBytes, user.ActorID).Scan(
+							actor_type, scope_kind, scope_id
+						FROM modary_identity_principal WHERE actor_id = $1`, principal.ActorID).Scan(
 				&existingType, &existingScopeKind, &existingScopeID)
 			if principalErr != nil && !errors.Is(principalErr, sql.ErrNoRows) {
 				return principalErr
@@ -350,12 +334,39 @@ func (service *service) provision(ctx context.Context, options Options) error {
 				return fmt.Errorf("stored local Identity principal contains oversized or non-text security context")
 			}
 			securityContextChanged := principalErr == nil &&
-				(existingType.String != user.ActorType || existingScopeKind.String != user.Scope.Kind || existingScopeID.String != user.Scope.ID)
+				(existingType.String != principal.ActorType || existingScopeKind.String != principal.Scope.Kind || existingScopeID.String != principal.Scope.ID)
+			if _, err := tx.ExecContext(txCtx, `
+				INSERT INTO modary_identity_principal
+				(actor_id, actor_type, display_name, scope_kind, scope_id, active, created_at, updated_at)
+					VALUES ($1, $2, $3, $4, $5, TRUE, $6, $7)
+				ON CONFLICT(actor_id) DO UPDATE SET actor_type = excluded.actor_type,
+					display_name = excluded.display_name, scope_kind = excluded.scope_kind,
+						scope_id = excluded.scope_id, active = TRUE, updated_at = excluded.updated_at`,
+				principal.ActorID, principal.ActorType, principal.DisplayName,
+				principal.Scope.Kind, principal.Scope.ID, now, now); err != nil {
+				return err
+			}
+			if securityContextChanged {
+				if _, err := tx.ExecContext(txCtx, `DELETE FROM modary_identity_session WHERE actor_id = $1`, principal.ActorID); err != nil {
+					return err
+				}
+				if _, err := tx.ExecContext(txCtx, `UPDATE modary_identity_bearer SET active = FALSE, updated_at = $1 WHERE actor_id = $2`, now, principal.ActorID); err != nil {
+					return err
+				}
+			}
+		}
+		for _, credential := range options.PasswordCredentials {
+			if err := requireActivePrincipal(txCtx, tx, credential.ActorID, "password credential"); err != nil {
+				return err
+			}
 			var existingHash sql.NullString
 			existingErr := tx.QueryRowContext(txCtx, `
-				SELECT CASE WHEN typeof(password_hash) = 'text' AND length(CAST(password_hash AS BLOB)) <= ? THEN password_hash END
-				FROM modary_identity_password WHERE actor_id = ?`, passwordHashEncodedBytes, user.ActorID).Scan(&existingHash)
-			passwordMatches, verifyErr := service.verifyCredential(txCtx, existingHash.String, user.Password)
+					SELECT password_hash
+					FROM modary_identity_password WHERE actor_id = $1`, credential.ActorID).Scan(&existingHash)
+			if existingErr != nil && !errors.Is(existingErr, sql.ErrNoRows) {
+				return existingErr
+			}
+			passwordMatches, verifyErr := service.verifyCredential(txCtx, existingHash.String, credential.Password)
 			if verifyErr != nil {
 				return verifyErr
 			}
@@ -368,72 +379,72 @@ func (service *service) provision(ctx context.Context, options Options) error {
 			passwordChanged := !passwordMatches
 			encoded := existingHash.String
 			if passwordChanged {
-				encoded, err = service.hashPassword(user.Password)
+				encoded, err = service.hashPassword(credential.Password)
 				if err != nil {
 					return err
 				}
 			}
-			if existingErr != nil && !errors.Is(existingErr, sql.ErrNoRows) {
-				return existingErr
-			}
-			if _, err := tx.ExecContext(txCtx, `
-				INSERT INTO modary_identity_principal
-				(actor_id, actor_type, display_name, scope_kind, scope_id, active, created_at, updated_at)
-				VALUES (?, ?, ?, ?, ?, 1, ?, ?)
-				ON CONFLICT(actor_id) DO UPDATE SET actor_type = excluded.actor_type,
-					display_name = excluded.display_name, scope_kind = excluded.scope_kind,
-					scope_id = excluded.scope_id, active = 1, updated_at = excluded.updated_at`,
-				user.ActorID, user.ActorType, user.DisplayName, user.Scope.Kind, user.Scope.ID, now, now); err != nil {
-				return err
-			}
 			if _, err := tx.ExecContext(txCtx, `
 				INSERT INTO modary_identity_password (username, actor_id, password_hash, updated_at)
-				VALUES (?, ?, ?, ?)
+					VALUES ($1, $2, $3, $4)
 				ON CONFLICT(actor_id) DO UPDATE SET username = excluded.username,
 					password_hash = excluded.password_hash, updated_at = excluded.updated_at`,
-				user.Username, user.ActorID, encoded, now); err != nil {
+				credential.Username, credential.ActorID, encoded, now); err != nil {
 				return err
 			}
-			if (passwordChanged && existingErr == nil) || securityContextChanged {
-				if _, err := tx.ExecContext(txCtx, `DELETE FROM modary_identity_session WHERE actor_id = ?`, user.ActorID); err != nil {
-					return err
-				}
-			}
-			if securityContextChanged {
-				if _, err := tx.ExecContext(txCtx, `UPDATE modary_identity_bearer SET active = 0, updated_at = ? WHERE actor_id = ?`, now, user.ActorID); err != nil {
+			if passwordChanged && existingErr == nil {
+				if _, err := tx.ExecContext(txCtx, `DELETE FROM modary_identity_session WHERE actor_id = $1`, credential.ActorID); err != nil {
 					return err
 				}
 			}
 		}
 		for _, token := range options.BearerTokens {
+			if err := requireActivePrincipal(txCtx, tx, token.ActorID, "bearer credential"); err != nil {
+				return err
+			}
 			if _, err := tx.ExecContext(txCtx, `
 				INSERT INTO modary_identity_bearer
 				(token_id, token_hash, actor_id, active, created_at, updated_at)
-				VALUES (?, ?, ?, 1, ?, ?)
+					VALUES ($1, $2, $3, TRUE, $4, $5)
 				ON CONFLICT(token_id) DO UPDATE SET token_hash = excluded.token_hash,
-					actor_id = excluded.actor_id, active = 1, updated_at = excluded.updated_at`,
+						actor_id = excluded.actor_id, active = TRUE, updated_at = excluded.updated_at`,
 				token.TokenID, credentialHash(token.Token), token.ActorID, now, now); err != nil {
 				return err
 			}
 		}
 		for _, actorID := range options.RevokedActorIDs {
-			if _, err := tx.ExecContext(txCtx, `UPDATE modary_identity_principal SET active = 0, updated_at = ? WHERE actor_id = ?`, now, actorID); err != nil {
+			if _, err := tx.ExecContext(txCtx, `UPDATE modary_identity_principal SET active = FALSE, updated_at = $1 WHERE actor_id = $2`, now, actorID); err != nil {
 				return err
 			}
-			if _, err := tx.ExecContext(txCtx, `DELETE FROM modary_identity_session WHERE actor_id = ?`, actorID); err != nil {
+			if _, err := tx.ExecContext(txCtx, `DELETE FROM modary_identity_session WHERE actor_id = $1`, actorID); err != nil {
 				return err
 			}
-			if _, err := tx.ExecContext(txCtx, `UPDATE modary_identity_bearer SET active = 0, updated_at = ? WHERE actor_id = ?`, now, actorID); err != nil {
+			if _, err := tx.ExecContext(txCtx, `UPDATE modary_identity_bearer SET active = FALSE, updated_at = $1 WHERE actor_id = $2`, now, actorID); err != nil {
 				return err
 			}
 		}
 		for _, tokenID := range options.RevokedTokenIDs {
-			if _, err := tx.ExecContext(txCtx, `UPDATE modary_identity_bearer SET active = 0, updated_at = ? WHERE token_id = ?`, now, tokenID); err != nil {
+			if _, err := tx.ExecContext(txCtx, `UPDATE modary_identity_bearer SET active = FALSE, updated_at = $1 WHERE token_id = $2`, now, tokenID); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+}
+
+func requireActivePrincipal(ctx context.Context, executor database.Executor, actorID, credentialKind string) error {
+	var active bool
+	err := executor.QueryRowContext(ctx, `SELECT active FROM modary_identity_principal WHERE actor_id = $1`, actorID).Scan(&active)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("local Identity %s targets an unknown principal", credentialKind)
+	}
+	if err != nil {
+		return fmt.Errorf("verify local Identity %s principal: %w", credentialKind, err)
+	}
+	if !active {
+		return fmt.Errorf("local Identity %s targets an inactive principal", credentialKind)
+	}
+	return nil
 }
 
 func (service *service) executor(ctx context.Context) (database.Executor, error) {
@@ -445,9 +456,9 @@ func (service *service) executor(ctx context.Context) (database.Executor, error)
 
 func loadActor(ctx context.Context, executor database.Executor, actorID string) (identity.Actor, error) {
 	var storedActor storedActorColumns
-	err := executor.QueryRowContext(ctx, `SELECT `+boundedActorProjection+`
-			FROM modary_identity_principal p WHERE p.actor_id = ? AND p.active = 1`,
-		storedActorLimitArguments(actorID)...).Scan(storedActor.scanTargets()...)
+	err := executor.QueryRowContext(ctx, `SELECT `+actorProjection+`
+				FROM modary_identity_principal p WHERE p.actor_id = $1 AND p.active = TRUE`,
+		actorID).Scan(storedActor.scanTargets()...)
 	if err != nil {
 		return identity.Actor{}, err
 	}
@@ -476,17 +487,6 @@ func (stored storedActorColumns) decode() (identity.Actor, error) {
 	return actor, nil
 }
 
-func storedActorLimitArguments(trailing ...any) []any {
-	arguments := []any{
-		maxStoredActorIDBytes,
-		maxStoredActorTypeBytes,
-		maxStoredDisplayNameBytes,
-		maxStoredScopeKindBytes,
-		maxStoredScopeIDBytes,
-	}
-	return append(arguments, trailing...)
-}
-
 func validateStoredActor(actor identity.Actor) error {
 	if err := actor.Scope.Validate(); err != nil {
 		return fmt.Errorf("stored actor scope is invalid: %w", err)
@@ -503,13 +503,13 @@ func validateStoredActor(actor identity.Actor) error {
 	return nil
 }
 
-func formatSQLiteTime(value time.Time) string {
-	return value.UTC().Format(sqliteTimeFormat)
+func formatDatabaseTime(value time.Time) string {
+	return value.UTC().Format(databaseTimeFormat)
 }
 
-func parseSQLiteTime(value string) (time.Time, error) {
-	parsed, err := time.Parse(sqliteTimeFormat, value)
-	if err != nil || value != formatSQLiteTime(parsed) {
+func parseDatabaseTime(value string) (time.Time, error) {
+	parsed, err := time.Parse(databaseTimeFormat, value)
+	if err != nil || value != formatDatabaseTime(parsed) {
 		return time.Time{}, fmt.Errorf("timestamp is not canonical UTC")
 	}
 	return parsed, nil

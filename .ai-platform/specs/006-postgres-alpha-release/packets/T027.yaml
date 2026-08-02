@@ -1,0 +1,55 @@
+schema_version: 1
+packet_id: EP-006-T027
+task_id: T027
+feature_id: 006-postgres-alpha-release
+mode: execute_one_task
+adapter: codex-direct
+governance_inputs:
+  product_contract: .ai-platform/docs/product-design.md
+  feature_spec: .ai-platform/specs/006-postgres-alpha-release/spec.md
+  requirements_checklist: .ai-platform/specs/006-postgres-alpha-release/checklists/requirements.md
+  technical_decisions: .ai-platform/specs/006-postgres-alpha-release/plan.md
+  work_graph: .ai-platform/specs/006-postgres-alpha-release/tasks.md
+  analysis: .ai-platform/specs/006-postgres-alpha-release/analysis.md
+  approval: explicit owner approval to publish Modary on 2026-08-02
+work_unit:
+  title: Publish PostgreSQL Alpha 3
+  goal: Publish and remotely verify immutable v0.1.0-alpha.3.
+  requirements: [FR-001, FR-002, FR-003, FR-004, FR-005, FR-006, FR-007]
+  depends_on: [T026]
+codebase_context:
+  module: github.com/iiwish/modary
+  canonical_remote: https://github.com/iiwish/modary
+  durable_profile: PostgreSQL 17 with River
+  acceptance_consumer: examples/counter
+  prior_tags: [v0.1.0-alpha.1, v0.1.0-alpha.2]
+execution_constraints:
+  branch_or_worktree: main
+  allowed_files: [release metadata, canonical documentation, example dependency metadata, 006 governance, T027 evidence, Git and GitHub release objects]
+  irreversible_order: [push candidate, push annotated tag, create GitHub prerelease]
+tdd_plan:
+  required: false
+  exception: release workflow validates every reversible state before each irreversible transition
+  red:
+    command: candidate preflight before a clean committed candidate
+    expected_failure: dirty worktree is rejected
+  green:
+    command: make release-readiness VERSION=v0.1.0-alpha.3
+    expected_signal: clean candidate and complete local gates pass
+  refactor:
+    command: hosted and remote release checks
+    expected_signal: immutable remote release is independently consumable
+validation_loop:
+  commands: [make release-readiness VERSION=v0.1.0-alpha.3, make release-preflight VERSION=v0.1.0-alpha.3 RELEASE_MODE=tag, hosted main CI, hosted tag CI, go list module resolution, make remote-consumer VERSION=v0.1.0-alpha.3, strict T027 artifact validation]
+evidence_contract:
+  summary: .ai-platform/evidence/T027/summary.md
+  diff: .ai-platform/evidence/T027/diff.patch
+  test_results: .ai-platform/evidence/T027/test-results.md
+  review: .ai-platform/evidence/T027/review.md
+  release_notes: .ai-platform/evidence/T027/release-notes.md
+review_contract:
+  required_passes: [immutable_identity, compatibility_claims, candidate_validation, hosted_ci, remote_consumer, release_metadata]
+handoff:
+  status: release_in_progress
+  next_step: stop at the first failed release gate or complete external verification
+stop_conditions: [candidate or tag preflight fails, hosted main or tag CI fails, module resolution fails, remote consumer fails, an earlier tag would need mutation]

@@ -6,53 +6,45 @@ through the same authorization, Preview/Execute binding, idempotency,
 transaction, and audit semantics across CLI, HTTP, MCP, and custom surfaces.
 
 Use Modary when an application needs explicit composition, inspectable module
-boundaries, durable SQLite transactions, and consistent policy enforcement.
+boundaries, durable PostgreSQL transactions, recoverable background work, and
+consistent policy enforcement.
 Modary does not own product schemas, domain language, UI, deployment, identity
 provisioning, or release artifacts.
 
 ## Stability
 
-`v0.1.0-alpha.2` is a pre-v1 Alpha contract. Pin the exact version, review the
+`v0.1.0-alpha.3` is the PostgreSQL and durable-task pre-v1 Alpha release.
+Consumers must pin it exactly. Review the
 [versioning policy](docs/releases/versioning.md), and read the
 [known limitations](docs/f0-known-limitations.md) before production use. The F0
-durable profile is one process and one SQLite database; it is not a hostile
-extension sandbox, distributed transaction system, or public-internet IAM
-solution.
+durable profile is one PostgreSQL control database with an application schema
+and a separate River queue schema. Application and worker processes may scale
+independently. It is not a hostile extension sandbox, distributed transaction
+system, or public-internet IAM solution.
 
 Go 1.26 or newer is required. Node.js is not required by framework or example
 workflows.
 
 ## Quickstart
 
-Run the public Counter example from the tagged source:
+Run the public Counter example from the current source:
 
 ```bash
-git clone --depth 1 --branch v0.1.0-alpha.2 https://github.com/iiwish/modary.git
+git clone https://github.com/iiwish/modary.git
 cd modary
 make bootstrap
-cd examples/counter
-GOWORK=off go run ./tools/modary verify
-GOWORK=off go run ./tools/modary generate --check
-GOWORK=off go test ./...
-GOWORK=off go run ./cmd/counter-console version
-```
-
-The final command prints:
-
-```text
-counter-console 0.1.0
 ```
 
 Continue with the complete [quickstart](docs/getting-started/quickstart.md) to
-build and preview the governed Counter Action. Then use
+start PostgreSQL 17, verify the independent consumer, and preview the governed
+Counter Action. Then use
 [Create Your First Independent Application](docs/getting-started/first-application.md)
-to copy the example outside the framework checkout and resolve the exact public
-Go module version without a local replacement.
+to copy the example outside the framework checkout.
 
 ## Add Modary To An Application
 
 ```bash
-go get github.com/iiwish/modary@v0.1.0-alpha.2
+go get github.com/iiwish/modary@v0.1.0-alpha.3
 go mod tidy
 ```
 
@@ -91,7 +83,9 @@ assembled application.
 | `appcmd` | Consumer application commands and server orchestration |
 | `projecttool` | Verify, deterministic generate/check, and build workflows |
 | `transport/httpapi` | Explicit health, Action HTTP, MCP, and static handlers |
-| `adapters/*` | Official SQLite, local Identity, RBAC, and SQL Audit modules |
+| `task` | Framework-neutral transactional enqueue and worker contracts |
+| `adapters/postgres` | PostgreSQL control store and River-backed task runtime |
+| `adapters/localidentity`, `adapters/rbac`, `adapters/sqlaudit` | Standard Identity, authorization, and audit modules |
 | `scope`, `identity`, `authz`, `audit`, `database` | Narrow framework contracts |
 
 Consumer code imports only public packages. Everything below `internal/` is a

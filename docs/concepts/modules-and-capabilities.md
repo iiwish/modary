@@ -47,7 +47,7 @@ concurrent use and must honor request cancellation.
 ## Migrations
 
 The Host applies declared migrations before constructing Action handlers. F0
-supports forward-only SQLite migration sets with bounded files and history.
+supports forward-only PostgreSQL migration sets with bounded files and history.
 Lifecycle rollback covers process resources and service bindings; committed
 schema changes are durable and are not reversed by a later startup failure.
 

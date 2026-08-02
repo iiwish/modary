@@ -9,6 +9,7 @@ import (
 	"github.com/iiwish/modary/authz"
 	"github.com/iiwish/modary/database"
 	"github.com/iiwish/modary/identity"
+	"github.com/iiwish/modary/task"
 )
 
 var serviceKeyNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}(?:\.[a-z][a-z0-9-]{0,62})+$`)
@@ -164,6 +165,7 @@ var (
 	tokenAuthKey            = MustKey[identity.TokenAuthenticator]("identity.token-authenticator", CapabilityIdentity)
 	authorizerKey           = MustKey[authz.Authorizer]("authorization.authorizer", CapabilityAuthorization)
 	auditHookKey            = MustKey[audit.Hook]("audit.hook", CapabilityAudit)
+	taskServiceKey          = MustKey[task.Service]("tasks.service", CapabilityTasks)
 )
 
 func canonicalServiceIdentity(name string) *keyIdentity {
@@ -180,6 +182,8 @@ func canonicalServiceIdentity(name string) *keyIdentity {
 		return authorizerKey.spec.identity
 	case auditHookKey.Name():
 		return auditHookKey.spec.identity
+	case taskServiceKey.Name():
+		return taskServiceKey.spec.identity
 	default:
 		return nil
 	}
@@ -205,3 +209,6 @@ func Authorizer() Key[authz.Authorizer] { return authorizerKey }
 
 // AuditHook returns the canonical audit Hook service key.
 func AuditHook() Key[audit.Hook] { return auditHookKey }
+
+// Tasks returns the canonical durable task service key.
+func Tasks() Key[task.Service] { return taskServiceKey }

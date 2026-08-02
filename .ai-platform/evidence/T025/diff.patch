@@ -1,0 +1,6 @@
+# T025 reviewed diff manifest
+
+Migration control: internal/databasecontrol/**
+Action persistence: adapters/postgres/**
+Standard adapters: adapters/localidentity/**, adapters/rbac/**,
+adapters/sqlaudit/**

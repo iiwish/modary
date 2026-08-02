@@ -75,8 +75,8 @@ func TestApplicationCommandPreservesCompositionErrors(t *testing.T) {
 			t.Fatal("appcmd.Run() accepted an invalid adapter configuration")
 		}
 		if text := err.Error(); !strings.Contains(text, "construct application Definition") ||
-			!strings.Contains(text, "configure SQLite") ||
-			!strings.Contains(text, "sqlite path") {
+			!strings.Contains(text, "configure PostgreSQL") ||
+			!strings.Contains(text, "PostgreSQL URL") {
 			t.Fatalf("adapter diagnostic = %q", text)
 		}
 	})

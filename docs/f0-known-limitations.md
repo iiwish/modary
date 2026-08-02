@@ -2,19 +2,16 @@
 
 1. Public Go APIs, generated formats, and Modary-specific HTTP/MCP schemas are
    alpha. Exact-version pinning and deliberate upgrades are required before v1.
-2. The durable profile is one process and one SQLite database. It does not claim
-   distributed transactions, multi-writer scaling, high availability, failover,
-   or arbitrary storage-adapter atomicity. Privileged migration and transaction
-   control is internal to the Host and official adapters, so an external custom
-   durable adapter is not an F0 application-level extension point.
-3. File-backed SQLite is supported only where ownership and mode metadata can be
-   verified. Every directory ancestor is owned by the effective UID or root; a
-   group- or other-writable ancestor is accepted only when it is root-owned and
-   sticky. The final database directory remains effective-UID-owned and
-   non-writable by group or other users. The official adapter fails closed on
-   Windows; an ACL-aware adapter is required there. Root, same-UID processes,
-   ACLs, mount replacement, and filesystems with untrustworthy stat metadata
-   remain deployment boundaries.
+2. The durable profile uses one PostgreSQL control database with separate
+   application and River schemas. It supports multiple API and worker processes,
+   but does not claim distributed transactions, cross-database atomicity,
+   automatic database failover, or arbitrary storage-adapter atomicity.
+   Privileged migration and transaction control remains internal to the Host and
+   official adapters.
+3. PostgreSQL 17 is the tested database line. The configured role must be able to
+   create and own both schemas. Database provisioning, TLS, credentials,
+   connection routing, backups, replication, failover, monitoring, and upgrades
+   remain operator responsibilities.
 4. Local Identity is suitable for bounded local or private deployments, not a
    complete internet-facing IAM system. MFA, SSO, password recovery, breached-
    password screening, IP/account rate limiting, and centralized revocation are
@@ -25,7 +22,7 @@
 6. Preview plans use a configurable in-process cleanup path and a five-minute
    default TTL. F0 provides no scheduler for retention, archival, or bulk purge.
 7. Audit provides bounded structured events and transactional success records.
-   Retention policy, export, signing, immutability outside SQLite, external SIEM
+   Retention policy, export, signing, immutability outside PostgreSQL, external SIEM
    delivery, and operator-facing audit UI are not framework features in F0.
 8. HTTP API sessions and CSRF are included, but TLS termination, trusted proxy
    policy, security headers, origin policy, request-rate limiting, and deployment
@@ -128,7 +125,7 @@
 21. `appcmd.Options.Stdout` and `Stderr` are trusted, cooperative dependencies.
     Their `Write` calls must return; context cancellation and shutdown timeouts
     cannot interrupt a blocked writer.
-22. SQLite nested transactions join the outer transaction and do not create
+22. PostgreSQL nested transactions join the outer transaction and do not create
     savepoints. Any inner error or panic makes the complete outer unit
     rollback-only, even when outer code handles the returned error.
 23. One Module migration source supports at most 256 root entries, 1 MiB per SQL

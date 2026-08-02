@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -12,10 +11,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/iiwish/modary/action"
-	"github.com/iiwish/modary/adapters/internal/sqlitetest"
+	"github.com/iiwish/modary/adapters/internal/postgrestest"
 	"github.com/iiwish/modary/audit"
 	"github.com/iiwish/modary/scope"
-	_ "modernc.org/sqlite"
 )
 
 func TestEmptyInstallationCreatesNoEvents(t *testing.T) {
@@ -240,7 +238,7 @@ func TestCorruptRowsAreRejectedOnRead(t *testing.T) {
 	if _, err := store.load(context.Background(), 1); err == nil {
 		t.Fatal("corrupt reference JSON was accepted")
 	}
-	if _, err := db.Exec(`UPDATE modary_audit_event SET result_references_json = '[]', finished_at = 'not-a-time' WHERE event_id = 1`); err != nil {
+	if _, err := db.Exec(`UPDATE modary_audit_event SET result_references_json = '[]', finished_at = 'xxxxxxxxxxxxxxxxxxxx' WHERE event_id = 1`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.load(context.Background(), 1); err == nil {
@@ -253,20 +251,20 @@ func TestCorruptRowsAreRejectedOnRead(t *testing.T) {
 		t.Fatal("parseable noncanonical timestamp was accepted")
 	}
 	canonical := formatTimestamp(time.Now())
-	if _, err := db.Exec(`UPDATE modary_audit_event SET started_at = ?, finished_at = ?, contract_hash = 'sha256:short' WHERE event_id = 1`, canonical, canonical); err != nil {
+	if _, err := db.Exec(`UPDATE modary_audit_event SET started_at = $1, finished_at = $2, contract_hash = $3 WHERE event_id = 1`, canonical, canonical, "sha256:"+strings.Repeat("g", 64)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.load(context.Background(), 1); err == nil {
 		t.Fatal("corrupt success provenance was accepted")
 	}
-	if _, err := db.Exec(`UPDATE modary_audit_event SET contract_hash = ?, result_references_json = '[{"kind":"counter","id":"one"},{"kind":"counter","id":"one"}]' WHERE event_id = 1`, "sha256:"+strings.Repeat("a", 64)); err != nil {
+	if _, err := db.Exec(`UPDATE modary_audit_event SET contract_hash = $1, result_references_json = '[{"kind":"counter","id":"one"},{"kind":"counter","id":"one"}]' WHERE event_id = 1`, "sha256:"+strings.Repeat("a", 64)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.load(context.Background(), 1); err == nil {
 		t.Fatal("duplicate stored references were accepted")
 	}
 	if _, err := db.Exec(`UPDATE modary_audit_event
-		SET started_at = ?, finished_at = ?, result_references_json = '[]',
+		SET started_at = $1, finished_at = $2, result_references_json = '[]',
 		    audit_level = 'metadata', impact_rows = 1, impact_resources_json = '[]'
 		WHERE event_id = 1`, canonical, canonical); err != nil {
 		t.Fatal(err)
@@ -312,17 +310,8 @@ func TestHookRejectsNilContextAndUnavailableStore(t *testing.T) {
 
 func openHook(t *testing.T) (*sql.DB, *hook) {
 	t.Helper()
-	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "audit.db")+"?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_txlock=immediate")
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetMaxOpenConns(8)
-	t.Cleanup(func() { _ = db.Close() })
-	control, err := sqlitetest.NewControl(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := control.ApplyMigrations(context.Background(), ModuleID, sqliteMigrations); err != nil {
+	db, control := postgrestest.Open(t)
+	if err := control.ApplyMigrations(context.Background(), ModuleID, postgresMigrations); err != nil {
 		t.Fatal(err)
 	}
 	return db, &hook{control: control}

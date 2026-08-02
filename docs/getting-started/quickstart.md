@@ -7,10 +7,10 @@ Action, and shows where the framework and application responsibilities meet.
 It uses the same independent Go module exercised by copied-out and remote
 consumer conformance.
 
-## 1. Get The Tagged Source
+## 1. Get The Source
 
 ```bash
-git clone --depth 1 --branch v0.1.0-alpha.2 https://github.com/iiwish/modary.git
+git clone --branch v0.1.0-alpha.3 https://github.com/iiwish/modary.git
 cd modary
 make bootstrap
 ```
@@ -18,10 +18,31 @@ make bootstrap
 `make bootstrap` downloads the framework and example Go modules with Go work
 files disabled. Go 1.26 or newer is required; Node.js is not required.
 
-When working from an existing source checkout, start at the repository root and
-run the same `make bootstrap` command.
+When working from an existing checkout, start at the repository root and run
+the same `make bootstrap` command.
 
-## 2. Verify The Public Example
+## 2. Start PostgreSQL
+
+The official durable profile requires PostgreSQL 17. Start an isolated local
+database and expose the same URL to the application and integration tests:
+
+```bash
+docker run --name modary-counter-postgres \
+  -e POSTGRES_DB=modary_counter \
+  -e POSTGRES_PASSWORD=postgres \
+  -p 5432:5432 \
+  -d postgres:17-alpine
+docker exec modary-counter-postgres pg_isready -U postgres -d modary_counter
+export MODARY_DATABASE_URL='postgres://postgres:postgres@127.0.0.1:5432/modary_counter?sslmode=disable'
+export MODARY_TEST_DATABASE_URL="$MODARY_DATABASE_URL"
+```
+
+The example creates and owns `counter_app` for application control state and
+`counter_queue` for River. Production deployments use a restricted role, TLS,
+managed credentials, backups, and monitoring as described in
+[Deployment](../operations/deployment.md).
+
+## 3. Verify The Public Example
 
 ```bash
 cd examples/counter
@@ -35,7 +56,7 @@ Expected result: every command exits successfully and generated files remain
 unchanged. `verify` inspects the pure Definition without opening the database,
 applying migrations, constructing handlers, or starting modules.
 
-## 3. Build And Inspect The Command
+## 4. Build And Inspect The Command
 
 ```bash
 GOWORK=off go run ./tools/modary build
@@ -44,9 +65,9 @@ GOWORK=off ./dist/counter-console help
 ```
 
 The version command prints `counter-console 0.1.0`. Help and version are pure
-paths and do not create `data/counter-console.db`.
+paths and do not connect to PostgreSQL.
 
-## 4. Preview A Governed Action
+## 5. Preview A Governed Action
 
 Create local tutorial input and a protected token file:
 
@@ -78,10 +99,10 @@ rm -f /tmp/modary-counter-token /tmp/modary-counter-input.json
 The included token and password are public local-example credentials. Never use
 them in another application or deployment.
 
-## 5. Follow The Composition
+## 6. Follow The Composition
 
 The [composition root](../../examples/counter/internal/project/project.go)
-constructs official SQLite, local Identity, RBAC, and SQL Audit adapters, then
+constructs official PostgreSQL, local Identity, RBAC, and SQL Audit adapters, then
 registers consumer modules. Both the
 [application command](../../examples/counter/cmd/counter-console/main.go) and
 [project tool](../../examples/counter/tools/modary/main.go) use the same pure
@@ -93,7 +114,7 @@ and public conflict error. The framework owns lifecycle, capability validation,
 authorization, plan binding, idempotency, transaction boundaries, and required
 audit behavior.
 
-## 6. Make A First Change
+## 7. Make A First Change
 
 Continue with [Create Your First Independent Application](first-application.md).
 It copies this example outside the Modary checkout, removes the development
@@ -103,3 +124,9 @@ generated Action contract change.
 For the repository shape, read [Consumer Project Layout](project-layout.md).
 For the runtime semantics, read [Governed Actions](../concepts/governed-actions.md).
 Use [Troubleshooting](../how-to/troubleshooting.md) when a command fails.
+
+Stop the tutorial database when finished:
+
+```bash
+docker rm -f modary-counter-postgres
+```

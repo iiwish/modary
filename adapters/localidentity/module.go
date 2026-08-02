@@ -1,4 +1,4 @@
-// Package localidentity provides an explicit, SQLite-backed local identity
+// Package localidentity provides an explicit PostgreSQL-backed local identity
 // Adapter. It creates no principals or credentials unless the consumer supplies
 // them in Options.
 //
@@ -35,19 +35,26 @@ const (
 
 var identifierPattern = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,127}$`)
 
-//go:embed migrations/sqlite/*.sql
+//go:embed migrations/postgres/*.sql
 var migrationFiles embed.FS
 
-var sqliteMigrations = mustMigrationFS()
+var postgresMigrations = mustMigrationFS()
 
-// User is one explicitly provisioned password principal.
-type User struct {
+// Principal is one explicitly provisioned actor. Credentials are configured
+// independently so service identities do not need synthetic login secrets.
+type Principal struct {
 	ActorID     string
 	ActorType   string
 	DisplayName string
 	Scope       scope.Execution
-	Username    string
-	Password    string
+}
+
+// PasswordCredential is one explicitly provisioned username/password login for
+// an existing or concurrently provisioned principal.
+type PasswordCredential struct {
+	ActorID  string
+	Username string
+	Password string
 }
 
 // BearerToken is one explicitly provisioned bearer credential. TokenID is a
@@ -68,11 +75,12 @@ type BearerToken struct {
 // verification concurrency is bounded in-process; network and account rate
 // limiting remain deployment responsibilities.
 type Options struct {
-	Users           []User
-	BearerTokens    []BearerToken
-	RevokedActorIDs []string
-	RevokedTokenIDs []string
-	SessionTTL      time.Duration
+	Principals          []Principal
+	PasswordCredentials []PasswordCredential
+	BearerTokens        []BearerToken
+	RevokedActorIDs     []string
+	RevokedTokenIDs     []string
+	SessionTTL          time.Duration
 	// MaxConcurrentPasswordChecks bounds Argon2 memory use. Zero selects the
 	// conservative limit; values above MaximumConcurrentPasswordChecks fail.
 	MaxConcurrentPasswordChecks int
@@ -104,7 +112,7 @@ func Module(options Options) (module.Registration, error) {
 	return module.Registration{
 		Definition: module.Definition{
 			Manifest:   manifest,
-			Migrations: []module.MigrationSource{{Driver: "sqlite", Files: sqliteMigrations}},
+			Migrations: []module.MigrationSource{{Driver: "postgres", Files: postgresMigrations}},
 		},
 		Start: func(ctx context.Context, installation module.Scope) error {
 			return start(ctx, installation, normalized)
@@ -153,39 +161,50 @@ func normalizeOptions(options Options) (Options, error) {
 		return Options{}, fmt.Errorf("local Identity random source cannot be typed nil")
 	}
 
-	users := append([]User(nil), options.Users...)
+	principals := append([]Principal(nil), options.Principals...)
+	passwords := append([]PasswordCredential(nil), options.PasswordCredentials...)
 	tokens := append([]BearerToken(nil), options.BearerTokens...)
 	revokedActors := append([]string(nil), options.RevokedActorIDs...)
 	revokedTokens := append([]string(nil), options.RevokedTokenIDs...)
-	seenActors := make(map[string]struct{}, len(users))
-	seenUsernames := make(map[string]struct{}, len(users))
-	for index, user := range users {
-		if err := identity.ValidateActorID(user.ActorID); err != nil {
-			return Options{}, fmt.Errorf("local Identity user %d: %w", index, err)
+	seenActors := make(map[string]struct{}, len(principals))
+	for index, principal := range principals {
+		if err := identity.ValidateActorID(principal.ActorID); err != nil {
+			return Options{}, fmt.Errorf("local Identity principal %d: %w", index, err)
 		}
-		if err := identity.ValidateActorType(user.ActorType); err != nil {
-			return Options{}, fmt.Errorf("local Identity user %d: %w", index, err)
+		if err := identity.ValidateActorType(principal.ActorType); err != nil {
+			return Options{}, fmt.Errorf("local Identity principal %d: %w", index, err)
 		}
-		if err := identity.ValidateDisplayName(user.DisplayName); err != nil {
-			return Options{}, fmt.Errorf("local Identity user %d: %w", index, err)
+		if err := identity.ValidateDisplayName(principal.DisplayName); err != nil {
+			return Options{}, fmt.Errorf("local Identity principal %d: %w", index, err)
 		}
-		if err := user.Scope.Validate(); err != nil {
-			return Options{}, fmt.Errorf("local Identity user %d scope: %w", index, err)
+		if err := principal.Scope.Validate(); err != nil {
+			return Options{}, fmt.Errorf("local Identity principal %d scope: %w", index, err)
 		}
-		if err := validateText("username", user.Username, 256); err != nil {
-			return Options{}, fmt.Errorf("local Identity user %d: %w", index, err)
+		if _, duplicate := seenActors[principal.ActorID]; duplicate {
+			return Options{}, fmt.Errorf("local Identity actor id %q is declared more than once", principal.ActorID)
 		}
-		if utf8.RuneCountInString(user.Password) < 12 || len(user.Password) > 4096 || !utf8.ValidString(user.Password) {
-			return Options{}, fmt.Errorf("local Identity user %d password must contain at least 12 characters and at most 4096 bytes of valid UTF-8", index)
+		seenActors[principal.ActorID] = struct{}{}
+	}
+	seenPasswordActors := make(map[string]struct{}, len(passwords))
+	seenUsernames := make(map[string]struct{}, len(passwords))
+	for index, credential := range passwords {
+		if err := identity.ValidateActorID(credential.ActorID); err != nil {
+			return Options{}, fmt.Errorf("local Identity password credential %d: %w", index, err)
 		}
-		if _, duplicate := seenActors[user.ActorID]; duplicate {
-			return Options{}, fmt.Errorf("local Identity actor id %q is declared more than once", user.ActorID)
+		if err := validateText("username", credential.Username, 256); err != nil {
+			return Options{}, fmt.Errorf("local Identity password credential %d: %w", index, err)
 		}
-		seenActors[user.ActorID] = struct{}{}
-		if _, duplicate := seenUsernames[user.Username]; duplicate {
-			return Options{}, fmt.Errorf("local Identity username %q is declared more than once", user.Username)
+		if utf8.RuneCountInString(credential.Password) < 12 || len(credential.Password) > 4096 || !utf8.ValidString(credential.Password) {
+			return Options{}, fmt.Errorf("local Identity password credential %d password must contain at least 12 characters and at most 4096 bytes of valid UTF-8", index)
 		}
-		seenUsernames[user.Username] = struct{}{}
+		if _, duplicate := seenPasswordActors[credential.ActorID]; duplicate {
+			return Options{}, fmt.Errorf("local Identity actor id %q has more than one password credential", credential.ActorID)
+		}
+		seenPasswordActors[credential.ActorID] = struct{}{}
+		if _, duplicate := seenUsernames[credential.Username]; duplicate {
+			return Options{}, fmt.Errorf("local Identity username %q is declared more than once", credential.Username)
+		}
+		seenUsernames[credential.Username] = struct{}{}
 	}
 	seenTokenIDs := make(map[string]struct{}, len(tokens))
 	seenTokenHashes := make(map[string]struct{}, len(tokens))
@@ -220,6 +239,9 @@ func normalizeOptions(options Options) (Options, error) {
 		if _, provisioned := seenActors[id]; provisioned {
 			return Options{}, fmt.Errorf("local Identity actor %q cannot be provisioned and revoked together", id)
 		}
+		if _, credentialed := seenPasswordActors[id]; credentialed {
+			return Options{}, fmt.Errorf("local Identity actor %q cannot receive a password credential and be revoked together", id)
+		}
 	}
 	for _, token := range tokens {
 		if _, revoked := revokedActorSet[token.ActorID]; revoked {
@@ -231,7 +253,8 @@ func normalizeOptions(options Options) (Options, error) {
 			return Options{}, fmt.Errorf("local Identity token %q cannot be provisioned and revoked together", id)
 		}
 	}
-	options.Users = users
+	options.Principals = principals
+	options.PasswordCredentials = passwords
 	options.BearerTokens = tokens
 	options.RevokedActorIDs = revokedActors
 	options.RevokedTokenIDs = revokedTokens
@@ -294,7 +317,7 @@ func typedNil(value any) bool {
 }
 
 func mustMigrationFS() fs.FS {
-	files, err := fs.Sub(migrationFiles, "migrations/sqlite")
+	files, err := fs.Sub(migrationFiles, "migrations/postgres")
 	if err != nil {
 		panic(err)
 	}

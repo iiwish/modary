@@ -7,6 +7,7 @@ import (
 	"github.com/iiwish/modary/identity"
 	"github.com/iiwish/modary/internal/actionruntime"
 	"github.com/iiwish/modary/internal/runtimecontrol"
+	"github.com/iiwish/modary/task"
 )
 
 // Assembly is the safe result of finalizing a running Host. It contains only
@@ -17,6 +18,7 @@ type Assembly struct {
 	identities identity.Resolver
 	sessions   identity.Authenticator
 	tokens     identity.TokenAuthenticator
+	tasks      task.Service
 }
 
 // Runtime returns the governed Action execution surface.
@@ -30,6 +32,9 @@ func (assembly Assembly) Sessions() identity.Authenticator { return assembly.ses
 
 // Tokens returns the optional public bearer-token authenticator installed by Modules.
 func (assembly Assembly) Tokens() identity.TokenAuthenticator { return assembly.tokens }
+
+// Tasks returns the optional durable task service installed by Modules.
+func (assembly Assembly) Tasks() task.Service { return assembly.tasks }
 
 // Assemble resolves canonical governance services inside a running Host. The
 // first call constructs the Host-owned facade set or caches its failure; every
@@ -93,6 +98,10 @@ func (host *Host) assembleLocked() (Assembly, error) {
 	if err != nil {
 		return Assembly{}, err
 	}
+	tasks, err := resolveOptionalHostServiceLocked(host, Tasks())
+	if err != nil {
+		return Assembly{}, err
+	}
 	runtime, err := actionruntime.New(host.registry, actionruntime.Options{
 		Authorizer: authorizer, Audit: auditHook, Plans: plans,
 		Idempotency: idempotency, Transactions: transactions,
@@ -111,6 +120,9 @@ func (host *Host) assembleLocked() (Assembly, error) {
 	}
 	if tokens != nil {
 		assembly.tokens = &assemblyTokenAuthenticator{gate: host.facades, next: tokens}
+	}
+	if tasks != nil {
+		assembly.tasks = &assemblyTaskService{gate: host.facades, next: tasks}
 	}
 	return assembly, nil
 }

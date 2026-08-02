@@ -12,8 +12,6 @@ import (
 	"testing/fstest"
 
 	"github.com/iiwish/modary/database"
-
-	_ "modernc.org/sqlite"
 )
 
 type typedNilMigrationFS struct{}
@@ -183,8 +181,8 @@ func TestApplyMigrationsRollsBackModuleWhenLaterMigrationFails(t *testing.T) {
 	if err := control.ApplyMigrations(context.Background(), "atomic-test", migrations); err == nil {
 		t.Fatal("ApplyMigrations() succeeded with an invalid second migration")
 	}
-	assertSQLiteCount(t, db, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'first_table'`, 0)
-	assertSQLiteCount(t, db, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'modary_module_migration'`, 0)
+	assertCount(t, db, `SELECT CASE WHEN to_regclass('first_table') IS NULL THEN 0 ELSE 1 END`, 0)
+	assertCount(t, db, `SELECT CASE WHEN to_regclass('modary_module_migration') IS NULL THEN 0 ELSE 1 END`, 0)
 }
 
 func TestApplyMigrationsCommitsOrderedModuleAndRestarts(t *testing.T) {
@@ -201,8 +199,8 @@ func TestApplyMigrationsCommitsOrderedModuleAndRestarts(t *testing.T) {
 	if err := control.ApplyMigrations(context.Background(), "ordered-test", migrations); err != nil {
 		t.Fatalf("restart ApplyMigrations() error = %v", err)
 	}
-	assertSQLiteCount(t, db, `SELECT COUNT(*) FROM modary_module_migration WHERE module_id = 'ordered-test'`, 2)
-	assertSQLiteCount(t, db, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('parent', 'child')`, 2)
+	assertCount(t, db, `SELECT COUNT(*) FROM modary_module_migration WHERE module_id = 'ordered-test'`, 2)
+	assertCount(t, db, `SELECT COUNT(*) FROM pg_catalog.pg_class WHERE relnamespace = current_schema()::regnamespace AND relname IN ('parent', 'child')`, 2)
 }
 
 func TestReadMigrationsAcceptsLegalPartialDirectoryBatches(t *testing.T) {
@@ -394,7 +392,7 @@ func TestReadAppliedMigrationsRejectsEntry257(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	statement, err := tx.Prepare(`INSERT INTO modary_module_migration (migration_id, module_id, checksum, applied_at) VALUES (?, ?, ?, ?)`)
+	statement, err := tx.Prepare(`INSERT INTO modary_module_migration (migration_id, module_id, checksum, applied_at) VALUES ($1, $2, $3, $4)`)
 	if err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
@@ -422,7 +420,7 @@ func TestReadAppliedMigrationsRejectsEntry257(t *testing.T) {
 		t.Fatalf("readAppliedMigrations() count = %d, want %d", len(applied), maxMigrationFiles)
 	}
 	if _, err := db.Exec(
-		`INSERT INTO modary_module_migration (migration_id, module_id, checksum, applied_at) VALUES (?, ?, ?, ?)`,
+		`INSERT INTO modary_module_migration (migration_id, module_id, checksum, applied_at) VALUES ($1, $2, $3, $4)`,
 		fmt.Sprintf("bounded/%04d.sql", maxMigrationFiles),
 		"bounded",
 		"sha256:test",
@@ -453,11 +451,6 @@ func TestReadAppliedMigrationsBoundsStoredTextBeforeScan(t *testing.T) {
 			migration: "bounded/0001.sql",
 			checksum:  strings.Repeat("c", maxMigrationChecksumBytes+1),
 		},
-		{
-			name:      "non-text migration id",
-			migration: []byte("bounded/0001.sql"),
-			checksum:  "sha256:test",
-		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -472,7 +465,7 @@ func TestReadAppliedMigrationsBoundsStoredTextBeforeScan(t *testing.T) {
 				t.Fatal(err)
 			}
 			if _, err := db.Exec(
-				`INSERT INTO modary_module_migration (migration_id, module_id, checksum, applied_at) VALUES (?, ?, ?, ?)`,
+				`INSERT INTO modary_module_migration (migration_id, module_id, checksum, applied_at) VALUES ($1, $2, $3, $4)`,
 				test.migration,
 				"bounded",
 				test.checksum,
@@ -533,7 +526,7 @@ func TestApplyMigrationsRejectsRemovedOrInsertedAppliedHistory(t *testing.T) {
 			}
 		})
 	}
-	assertSQLiteCount(t, db, `SELECT COUNT(*) FROM modary_module_migration WHERE module_id = 'forward-only'`, 2)
+	assertCount(t, db, `SELECT COUNT(*) FROM modary_module_migration WHERE module_id = 'forward-only'`, 2)
 }
 
 func TestApplyMigrationsValidatesBeforeDatabaseSideEffects(t *testing.T) {
@@ -572,7 +565,7 @@ func TestApplyMigrationsValidatesBeforeDatabaseSideEffects(t *testing.T) {
 			if err := control.ApplyMigrations(context.Background(), test.moduleID, test.files); err == nil {
 				t.Fatal("ApplyMigrations() accepted invalid input")
 			}
-			assertSQLiteCount(t, db, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'modary_module_migration'`, 0)
+			assertCount(t, db, `SELECT CASE WHEN to_regclass('modary_module_migration') IS NULL THEN 0 ELSE 1 END`, 0)
 		})
 	}
 }
@@ -591,20 +584,15 @@ func TestApplyMigrationsContainsHostileFilesystemErrors(t *testing.T) {
 	if !errors.Is(err, hostile) {
 		t.Fatal("migration filesystem cause was not preserved")
 	}
-	assertSQLiteCount(t, db, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'modary_module_migration'`, 0)
+	assertCount(t, db, `SELECT CASE WHEN to_regclass('modary_module_migration') IS NULL THEN 0 ELSE 1 END`, 0)
 }
 
 func openMigrationTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", t.TempDir()+"/migration.db?_pragma=foreign_keys(1)")
-	if err != nil {
-		t.Fatalf("sql.Open() error = %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	return db
+	return openPostgresTestDB(t)
 }
 
-func assertSQLiteCount(t *testing.T, db *sql.DB, query string, want int) {
+func assertCount(t *testing.T, db *sql.DB, query string, want int) {
 	t.Helper()
 	var got int
 	if err := db.QueryRow(query).Scan(&got); err != nil {

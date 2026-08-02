@@ -9,6 +9,7 @@ import (
 	"github.com/iiwish/modary/action"
 	"github.com/iiwish/modary/identity"
 	"github.com/iiwish/modary/module"
+	"github.com/iiwish/modary/task"
 )
 
 // DefaultRollbackTimeout bounds Start's wait for cleanup when Runtime assembly
@@ -70,6 +71,7 @@ type Application struct {
 	identities identity.Resolver
 	sessions   identity.Authenticator
 	tokens     identity.TokenAuthenticator
+	tasks      task.Service
 	ready      func() bool
 	shutdown   func(context.Context) error
 }
@@ -124,6 +126,7 @@ func Start(ctx context.Context, definition Definition, options Options) (*Applic
 	identities := assembly.Identities()
 	sessions := assembly.Sessions()
 	tokens := assembly.Tokens()
+	tasks := assembly.Tasks()
 	if err := ctx.Err(); err != nil {
 		return nil, rollbackAssembly(host, rollbackTimeout, fmt.Errorf("assemble application: %w", err))
 	}
@@ -135,6 +138,7 @@ func Start(ctx context.Context, definition Definition, options Options) (*Applic
 		identities: identities,
 		sessions:   sessions,
 		tokens:     tokens,
+		tasks:      tasks,
 		ready:      func() bool { return host.State() == module.StateRunning },
 		shutdown:   host.Shutdown,
 	}
@@ -191,6 +195,14 @@ func (application *Application) Runtime() Runtime {
 		return nil
 	}
 	return application.runtime
+}
+
+// Tasks returns the optional durable task service installed by the application.
+func (application *Application) Tasks() task.Service {
+	if application == nil {
+		return nil
+	}
+	return application.tasks
 }
 
 // Ready reports whether startup completed and shutdown has not begun.

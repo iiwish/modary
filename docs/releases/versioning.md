@@ -2,10 +2,10 @@
 
 ## Release Line
 
-Modary uses semantic version tags. The current supported distribution is
-`v0.1.0-alpha.2`. A prerelease tag means the framework is usable for evaluation
-and design-partner development, but public APIs and generated formats may still
-change before `v1.0.0`.
+Modary uses semantic version tags. `v0.1.0-alpha.3` is the PostgreSQL and
+durable-task release line. A prerelease tag means the framework is usable for
+evaluation and design-partner development, but public APIs and generated
+formats may still change before `v1.0.0`.
 
 The Go module path remains `github.com/iiwish/modary` for every `v0` and `v1`
 release. A future incompatible `v2` would require the standard `/v2` module-path
@@ -24,6 +24,9 @@ publication.
 
 The immutable `v0.1.0-alpha.1` tag failed its remote onboarding gate and has no
 supported GitHub release. Consumers must not select it.
+
+`v0.1.0-alpha.2` is the historical embedded-storage Alpha and does not contain
+the PostgreSQL or River contracts. New development uses `v0.1.0-alpha.3`.
 
 Across Alpha releases, maintainers prefer additive changes, but may change a
 public Go API, manifest field, generated format, migration contract, or default
@@ -64,7 +67,7 @@ are required. Cross-version merge of generated sets is unsupported.
 
 Published framework and consumer migrations are forward-only. Never edit an
 already distributed migration in place. A correction is a new migration. Back
-up the complete SQLite database and verify restore before upgrading. Downgrade
+back up the PostgreSQL control database and verify restore before upgrading. Downgrade
 is application-level restore from a pre-upgrade backup, not reverse migration.
 
 ## Support

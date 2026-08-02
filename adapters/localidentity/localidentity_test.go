@@ -6,18 +6,16 @@ import (
 	"database/sql"
 	"errors"
 	"io"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/iiwish/modary/adapters/internal/sqlitetest"
+	"github.com/iiwish/modary/adapters/internal/postgrestest"
 	"github.com/iiwish/modary/database"
 	"github.com/iiwish/modary/internal/databasecontrol"
 	"github.com/iiwish/modary/scope"
-	_ "modernc.org/sqlite"
 )
 
 const (
@@ -47,6 +45,86 @@ func TestEmptyProvisioningCreatesOnlySchema(t *testing.T) {
 	}
 	if err := service.provision(context.Background(), Options{SessionTTL: DefaultSessionTTL}); err != nil {
 		t.Fatalf("repeat empty provisioning: %v", err)
+	}
+}
+
+func TestCredentiallessPrincipalCanBeResolvedWithoutLoginSurface(t *testing.T) {
+	options := Options{Principals: []Principal{{
+		ActorID: "worker-one", ActorType: "service", DisplayName: "Worker One",
+		Scope: scope.Must("account", "account-1"),
+	}}}
+	db, service := openService(t, options)
+	actor, err := service.ResolveByID(context.Background(), "worker-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actor.ID != "worker-one" || actor.Type != "service" || actor.Scope != options.Principals[0].Scope {
+		t.Fatalf("credentialless actor = %#v", actor)
+	}
+	if _, err := service.Login(context.Background(), "worker-one", testPassword); !errors.Is(err, ErrAuthenticationFailed) {
+		t.Fatalf("credentialless Login error = %v", err)
+	}
+	var passwordCredentials int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM modary_identity_password`).Scan(&passwordCredentials); err != nil {
+		t.Fatal(err)
+	}
+	if passwordCredentials != 0 {
+		t.Fatalf("credentialless principal persisted %d password credential(s)", passwordCredentials)
+	}
+}
+
+func TestCredentialProvisioningRequiresAnActivePrincipal(t *testing.T) {
+	db, service := openService(t, Options{})
+	password := "unknown principal password"
+	err := service.provision(context.Background(), Options{
+		SessionTTL: DefaultSessionTTL,
+		PasswordCredentials: []PasswordCredential{{
+			ActorID: "missing-one", Username: "missing@example.test", Password: password,
+		}},
+	})
+	if err == nil || strings.Contains(err.Error(), password) {
+		t.Fatalf("unknown password principal error = %v", err)
+	}
+	token := "token_abcdef0123456789abcdef0123456789abcdef0123456789"
+	err = service.provision(context.Background(), Options{
+		SessionTTL:   DefaultSessionTTL,
+		BearerTokens: []BearerToken{{TokenID: "missing-token", ActorID: "missing-one", Token: token}},
+	})
+	if err == nil || strings.Contains(err.Error(), token) {
+		t.Fatalf("unknown bearer principal error = %v", err)
+	}
+	var credentials int
+	if err := db.QueryRow(`SELECT
+		(SELECT COUNT(*) FROM modary_identity_password) +
+		(SELECT COUNT(*) FROM modary_identity_bearer)`).Scan(&credentials); err != nil {
+		t.Fatal(err)
+	}
+	if credentials != 0 {
+		t.Fatalf("invalid credential provisioning persisted %d row(s)", credentials)
+	}
+
+	principal := Principal{
+		ActorID: "retired-one", ActorType: "service", DisplayName: "Retired One",
+		Scope: scope.Must("account", "account-1"),
+	}
+	if err := service.provision(context.Background(), Options{SessionTTL: DefaultSessionTTL, Principals: []Principal{principal}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.provision(context.Background(), Options{SessionTTL: DefaultSessionTTL, RevokedActorIDs: []string{principal.ActorID}}); err != nil {
+		t.Fatal(err)
+	}
+	err = service.provision(context.Background(), Options{
+		SessionTTL:   DefaultSessionTTL,
+		BearerTokens: []BearerToken{{TokenID: "retired-token", ActorID: principal.ActorID, Token: token}},
+	})
+	if err == nil || strings.Contains(err.Error(), token) {
+		t.Fatalf("inactive bearer principal error = %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM modary_identity_bearer`).Scan(&credentials); err != nil {
+		t.Fatal(err)
+	}
+	if credentials != 0 {
+		t.Fatalf("inactive principal received %d bearer credential(s)", credentials)
 	}
 }
 
@@ -114,27 +192,32 @@ func TestExplicitCredentialsAuthenticateAndPersistOnlyHashes(t *testing.T) {
 
 func TestOpaqueActorIdentifiersFollowTheKernelContract(t *testing.T) {
 	executionScope := scope.Must("tenant", "tenant-one")
-	options := Options{Users: []User{{
-		ActorID:     "01JABCDEF|user@example.test",
-		ActorType:   "外部身份/service",
-		DisplayName: "External User",
-		Scope:       executionScope,
-		Username:    "external@example.test",
-		Password:    testPassword,
-	}}}
+	options := Options{
+		Principals: []Principal{{
+			ActorID:     "01JABCDEF|user@example.test",
+			ActorType:   "外部身份/service",
+			DisplayName: "External User",
+			Scope:       executionScope,
+		}},
+		PasswordCredentials: []PasswordCredential{{
+			ActorID:  "01JABCDEF|user@example.test",
+			Username: "external@example.test",
+			Password: testPassword,
+		}},
+	}
 	_, service := openService(t, options)
-	actor, err := service.ResolveByID(context.Background(), options.Users[0].ActorID)
+	actor, err := service.ResolveByID(context.Background(), options.Principals[0].ActorID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if actor.ID != options.Users[0].ActorID || actor.Type != options.Users[0].ActorType || actor.Scope != executionScope {
+	if actor.ID != options.Principals[0].ActorID || actor.Type != options.Principals[0].ActorType || actor.Scope != executionScope {
 		t.Fatalf("resolved actor = %#v", actor)
 	}
 }
 
 func TestOptionalDisplayNameRoundTripsThroughCredentials(t *testing.T) {
 	options := provisionedOptions(time.Now().UTC())
-	options.Users[0].DisplayName = ""
+	options.Principals[0].DisplayName = ""
 	_, service := openService(t, options)
 	actor, err := service.ResolveByID(context.Background(), "person-one")
 	if err != nil || actor.DisplayName != "" {
@@ -180,7 +263,7 @@ func TestProvisioningIsIdempotentAndSupportsRotationAndRevocation(t *testing.T) 
 	rotatedPassword := "a newly rotated password"
 	rotatedToken := "token_abcdef0123456789abcdef0123456789abcdef0123456789"
 	rotated := provisionedOptions(now.Add(time.Hour))
-	rotated.Users[0].Password = rotatedPassword
+	rotated.PasswordCredentials[0].Password = rotatedPassword
 	rotated.BearerTokens[0].Token = rotatedToken
 	rotated.Random = bytes.NewReader(bytes.Repeat([]byte{0x4a}, 256))
 	rotatedService := newService(identityControl(t, db), rotated)
@@ -317,9 +400,9 @@ func TestSecurityContextChangeInvalidatesExistingCredentials(t *testing.T) {
 	}
 
 	changed := options
-	changed.Users = append([]User(nil), options.Users...)
-	changed.Users[0].ActorType = "service"
-	changed.Users[0].Scope = scope.Must("account", "account-2")
+	changed.Principals = append([]Principal(nil), options.Principals...)
+	changed.Principals[0].ActorType = "service"
+	changed.Principals[0].Scope = scope.Must("account", "account-2")
 	changed.BearerTokens = nil
 	changed.Random = errorReader{err: errors.New("unchanged password must not consume random")}
 	changedService := newService(identityControl(t, db), changed)
@@ -333,7 +416,7 @@ func TestSecurityContextChangeInvalidatesExistingCredentials(t *testing.T) {
 		t.Fatalf("security-context change retained bearer: %v", err)
 	}
 	actor, err := changedService.ResolveByID(context.Background(), "person-one")
-	if err != nil || actor.Type != "service" || actor.Scope != changed.Users[0].Scope {
+	if err != nil || actor.Type != "service" || actor.Scope != changed.Principals[0].Scope {
 		t.Fatalf("updated actor = %#v, %v", actor, err)
 	}
 
@@ -341,7 +424,7 @@ func TestSecurityContextChangeInvalidatesExistingCredentials(t *testing.T) {
 	if err := changedService.provision(context.Background(), changed); err != nil {
 		t.Fatal(err)
 	}
-	if actor, err := changedService.AuthenticateToken(context.Background(), testToken); err != nil || actor.Scope != changed.Users[0].Scope {
+	if actor, err := changedService.AuthenticateToken(context.Background(), testToken); err != nil || actor.Scope != changed.Principals[0].Scope {
 		t.Fatalf("explicitly reactivated bearer = %#v, %v", actor, err)
 	}
 }
@@ -357,13 +440,13 @@ func TestCredentialReadsClassifyConcurrentRevocation(t *testing.T) {
 	writerDone := make(chan error, 1)
 	go func() {
 		for index := range 100 {
-			active := index % 2
-			if _, err := db.Exec(`UPDATE modary_identity_principal SET active = ? WHERE actor_id = 'person-one'`, active); err != nil {
+			active := index%2 == 1
+			if _, err := db.Exec(`UPDATE modary_identity_principal SET active = $1 WHERE actor_id = 'person-one'`, active); err != nil {
 				writerDone <- err
 				return
 			}
 		}
-		_, err := db.Exec(`UPDATE modary_identity_principal SET active = 0 WHERE actor_id = 'person-one'`)
+		_, err := db.Exec(`UPDATE modary_identity_principal SET active = FALSE WHERE actor_id = 'person-one'`)
 		writerDone <- err
 	}()
 	for range 200 {
@@ -460,7 +543,7 @@ func TestPasswordRotationCannotRaceAStaleLoginIntoAValidSession(t *testing.T) {
 	}
 
 	rotated := provisionedOptions(time.Now().UTC())
-	rotated.Users[0].Password = "a newly rotated password"
+	rotated.PasswordCredentials[0].Password = "a newly rotated password"
 	rotated.BearerTokens = nil
 	rotated.Random = bytes.NewReader(bytes.Repeat([]byte{0x7c}, 128))
 	normalized, err := normalizeOptions(rotated)
@@ -496,14 +579,19 @@ func TestOptionsFailClosedBeforeRegistration(t *testing.T) {
 		{name: "negative password concurrency", mutate: func(options *Options) { options.MaxConcurrentPasswordChecks = -1 }},
 		{name: "excessive password concurrency", mutate: func(options *Options) { options.MaxConcurrentPasswordChecks = MaximumConcurrentPasswordChecks + 1 }},
 		{name: "typed nil random", mutate: func(options *Options) { options.Random = typedNil }},
-		{name: "duplicate actor", mutate: func(options *Options) { options.Users = append(options.Users, options.Users[0]) }},
+		{name: "duplicate actor", mutate: func(options *Options) { options.Principals = append(options.Principals, options.Principals[0]) }},
 		{name: "duplicate username", mutate: func(options *Options) {
-			duplicate := options.Users[0]
+			duplicate := options.PasswordCredentials[0]
 			duplicate.ActorID = "person-two"
-			options.Users = append(options.Users, duplicate)
+			options.PasswordCredentials = append(options.PasswordCredentials, duplicate)
 		}},
-		{name: "short password", mutate: func(options *Options) { options.Users[0].Password = "too-short" }},
-		{name: "invalid scope", mutate: func(options *Options) { options.Users[0].Scope = scope.Execution{} }},
+		{name: "duplicate password actor", mutate: func(options *Options) {
+			duplicate := options.PasswordCredentials[0]
+			duplicate.Username = "person-two@example.test"
+			options.PasswordCredentials = append(options.PasswordCredentials, duplicate)
+		}},
+		{name: "short password", mutate: func(options *Options) { options.PasswordCredentials[0].Password = "too-short" }},
+		{name: "invalid scope", mutate: func(options *Options) { options.Principals[0].Scope = scope.Execution{} }},
 		{name: "short bearer", mutate: func(options *Options) { options.BearerTokens[0].Token = "short" }},
 		{name: "internal bearer whitespace", mutate: func(options *Options) {
 			options.BearerTokens[0].Token = strings.Repeat("a", 16) + " " + strings.Repeat("b", 16)
@@ -520,7 +608,8 @@ func TestOptionsFailClosedBeforeRegistration(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			options := valid
-			options.Users = append([]User(nil), valid.Users...)
+			options.Principals = append([]Principal(nil), valid.Principals...)
+			options.PasswordCredentials = append([]PasswordCredential(nil), valid.PasswordCredentials...)
 			options.BearerTokens = append([]BearerToken(nil), valid.BearerTokens...)
 			test.mutate(&options)
 			registration, err := Module(options)
@@ -536,6 +625,28 @@ func TestOptionsFailClosedBeforeRegistration(t *testing.T) {
 	}
 	if registration.Definition.Manifest.ID != ModuleID || registration.Start == nil || len(registration.Definition.Migrations) != 1 {
 		t.Fatalf("registration = %#v", registration.Definition)
+	}
+}
+
+func TestOptionsAreDefensivelyCopiedAcrossPrincipalAndCredentialBoundaries(t *testing.T) {
+	source := provisionedOptions(time.Now().UTC())
+	source.RevokedActorIDs = []string{"retired-one"}
+	source.RevokedTokenIDs = []string{"retired-token"}
+	normalized, err := normalizeOptions(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.Principals[0].ActorID = "mutated-principal"
+	source.PasswordCredentials[0].Username = "mutated@example.test"
+	source.BearerTokens[0].TokenID = "mutated-token"
+	source.RevokedActorIDs[0] = "mutated-revocation"
+	source.RevokedTokenIDs[0] = "mutated-token-revocation"
+
+	if normalized.Principals[0].ActorID != "person-one" ||
+		normalized.PasswordCredentials[0].Username != "person@example.test" ||
+		normalized.BearerTokens[0].TokenID != "automation-one" ||
+		normalized.RevokedActorIDs[0] != "retired-one" || normalized.RevokedTokenIDs[0] != "retired-token" {
+		t.Fatalf("normalized options changed with source mutation: %#v", normalized)
 	}
 }
 
@@ -626,7 +737,8 @@ func TestLoginRejectsMalformedInputsAndCorruptCredentials(t *testing.T) {
 	if _, err := service.Login(context.Background(), "person@example.test", strings.Repeat("x", 4097)); !errors.Is(err, ErrAuthenticationFailed) {
 		t.Fatalf("oversized password error = %v", err)
 	}
-	if _, err := db.Exec(`UPDATE modary_identity_password SET password_hash = 'corrupt-secret-material'`); err != nil {
+	malformedHash := strings.Repeat("x", passwordHashEncodedBytes)
+	if _, err := db.Exec(`UPDATE modary_identity_password SET password_hash = $1`, malformedHash); err != nil {
 		t.Fatal(err)
 	}
 	_, err := service.Login(context.Background(), "person@example.test", testPassword)
@@ -635,75 +747,48 @@ func TestLoginRejectsMalformedInputsAndCorruptCredentials(t *testing.T) {
 	}
 }
 
-func TestStoredIdentityReadsRejectOversizedFieldsBeforeScan(t *testing.T) {
+func TestPostgresSchemaRejectsOversizedIdentityFields(t *testing.T) {
 	t.Run("password login", func(t *testing.T) {
-		db, service := openService(t, provisionedOptions(time.Now()))
+		db, _ := openService(t, provisionedOptions(time.Now()))
 		oversized := strings.Repeat("p", passwordHashEncodedBytes+1)
-		if _, err := db.Exec(`UPDATE modary_identity_password SET password_hash = ?`, oversized); err != nil {
-			t.Fatal(err)
-		}
-		service.passwordVerifier = func(encoded, _ string) bool {
-			if encoded != "" {
-				t.Fatalf("oversized password hash crossed the SQL projection: %d bytes", len(encoded))
-			}
-			return false
-		}
-		_, err := service.Login(context.Background(), "person@example.test", testPassword)
-		if err == nil || errors.Is(err, ErrAuthenticationFailed) || strings.Contains(err.Error(), oversized) {
-			t.Fatalf("oversized stored password error = %v", err)
+		if _, err := db.Exec(`UPDATE modary_identity_password SET password_hash = $1`, oversized); err == nil {
+			t.Fatal("oversized password hash passed the PostgreSQL constraint")
 		}
 	})
 
 	t.Run("actor resolution", func(t *testing.T) {
-		db, service := openService(t, provisionedOptions(time.Now()))
+		db, _ := openService(t, provisionedOptions(time.Now()))
 		oversized := strings.Repeat("d", maxStoredDisplayNameBytes+1)
-		if _, err := db.Exec(`UPDATE modary_identity_principal SET display_name = ?`, oversized); err != nil {
-			t.Fatal(err)
-		}
-		_, err := service.ResolveByID(context.Background(), "person-one")
-		if err == nil || errors.Is(err, ErrActorNotFound) || strings.Contains(err.Error(), oversized) {
-			t.Fatalf("oversized stored actor error = %v", err)
+		if _, err := db.Exec(`UPDATE modary_identity_principal SET display_name = $1`, oversized); err == nil {
+			t.Fatal("oversized display name passed the PostgreSQL constraint")
 		}
 	})
 
 	t.Run("session", func(t *testing.T) {
 		db, service := openService(t, provisionedOptions(time.Now()))
-		session, err := service.Login(context.Background(), "person@example.test", testPassword)
-		if err != nil {
+		if _, err := service.Login(context.Background(), "person@example.test", testPassword); err != nil {
 			t.Fatal(err)
 		}
 		oversized := strings.Repeat("c", maxStoredCSRFTokenBytes+1)
-		if _, err := db.Exec(`UPDATE modary_identity_session SET csrf_token = ?`, oversized); err != nil {
-			t.Fatal(err)
-		}
-		_, err = service.Session(context.Background(), session.Token)
-		if err == nil || errors.Is(err, ErrSessionInvalid) || strings.Contains(err.Error(), oversized) {
-			t.Fatalf("oversized stored session error = %v", err)
+		if _, err := db.Exec(`UPDATE modary_identity_session SET csrf_token = $1`, oversized); err == nil {
+			t.Fatal("oversized CSRF token passed the PostgreSQL constraint")
 		}
 	})
 
 	t.Run("bearer actor", func(t *testing.T) {
-		db, service := openService(t, provisionedOptions(time.Now()))
+		db, _ := openService(t, provisionedOptions(time.Now()))
 		oversized := strings.Repeat("t", maxStoredActorTypeBytes+1)
-		if _, err := db.Exec(`UPDATE modary_identity_principal SET actor_type = ?`, oversized); err != nil {
-			t.Fatal(err)
-		}
-		_, err := service.AuthenticateToken(context.Background(), testToken)
-		if err == nil || errors.Is(err, ErrAuthenticationFailed) || strings.Contains(err.Error(), oversized) {
-			t.Fatalf("oversized stored bearer actor error = %v", err)
+		if _, err := db.Exec(`UPDATE modary_identity_principal SET actor_type = $1`, oversized); err == nil {
+			t.Fatal("oversized actor type passed the PostgreSQL constraint")
 		}
 	})
 
 	t.Run("provisioning re-read", func(t *testing.T) {
 		options := provisionedOptions(time.Now())
-		db, service := openService(t, options)
+		db, _ := openService(t, options)
 		oversized := strings.Repeat("s", maxStoredScopeIDBytes+1)
-		if _, err := db.Exec(`UPDATE modary_identity_principal SET scope_id = ?`, oversized); err != nil {
-			t.Fatal(err)
-		}
-		err := service.provision(context.Background(), options)
-		if err == nil || strings.Contains(err.Error(), oversized) {
-			t.Fatalf("oversized provisioning re-read error = %v", err)
+		if _, err := db.Exec(`UPDATE modary_identity_principal SET scope_id = $1`, oversized); err == nil {
+			t.Fatal("oversized scope id passed the PostgreSQL constraint")
 		}
 	})
 }
@@ -786,14 +871,8 @@ func openService(t *testing.T, raw Options) (*sql.DB, *service) {
 
 func openIdentityDatabase(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "identity.db")+"?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_txlock=immediate")
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetMaxOpenConns(8)
-	t.Cleanup(func() { _ = db.Close() })
-	control := identityControl(t, db)
-	if err := control.ApplyMigrations(context.Background(), ModuleID, sqliteMigrations); err != nil {
+	db, control := postgrestest.Open(t)
+	if err := control.ApplyMigrations(context.Background(), ModuleID, postgresMigrations); err != nil {
 		t.Fatal(err)
 	}
 	return db
@@ -801,7 +880,7 @@ func openIdentityDatabase(t *testing.T) *sql.DB {
 
 func identityControl(t *testing.T, db *sql.DB) databasecontrol.Control {
 	t.Helper()
-	control, err := sqlitetest.NewControl(db)
+	control, err := postgrestest.NewControl(db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -841,9 +920,12 @@ func (backend *credentialBoundaryBackend) WithinTransaction(context.Context, fun
 
 func provisionedOptions(_ time.Time) Options {
 	return Options{
-		Users: []User{{
+		Principals: []Principal{{
 			ActorID: "person-one", ActorType: "human", DisplayName: "Person One",
-			Scope: scope.Must("account", "account-1"), Username: "person@example.test", Password: testPassword,
+			Scope: scope.Must("account", "account-1"),
+		}},
+		PasswordCredentials: []PasswordCredential{{
+			ActorID: "person-one", Username: "person@example.test", Password: testPassword,
 		}},
 		BearerTokens: []BearerToken{{TokenID: "automation-one", ActorID: "person-one", Token: testToken}},
 		SessionTTL:   2 * time.Hour,

@@ -22,7 +22,7 @@ large refactors.
 ## 3. Update The Exact Version
 
 ```bash
-go get github.com/iiwish/modary@v0.1.0-alpha.2
+go get github.com/iiwish/modary@v0.1.0-alpha.3
 go mod tidy
 ```
 
@@ -68,7 +68,7 @@ GOWORK=off go test -race ./...
 Create and verify a production-representative backup. Restore it into a private
 staging path, run the target binary once, inspect migration and startup results,
 exercise representative Actions, restart, and verify durable state and audit.
-Follow [SQLite backup and restore](../operations/sqlite-backup-restore.md).
+Follow [PostgreSQL backup and restore](../operations/postgresql-backup-restore.md).
 
 ## 8. Build The Release Artifact
 

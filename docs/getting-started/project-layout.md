@@ -19,7 +19,7 @@ consumer/
     ui/
   modules/
     feature/module.go
-    feature/migrations/sqlite/*.sql
+    feature/migrations/postgres/*.sql
     adapter/module.go
 ```
 

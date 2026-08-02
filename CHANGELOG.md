@@ -4,6 +4,37 @@ All notable Modary changes are recorded here. Versioning follows semantic
 versioning terminology; every pre-v1 release remains an Alpha contract unless
 its release notes explicitly state otherwise.
 
+## v0.1.0-alpha.3 - 2026-08-02
+
+### Changed
+
+- The official durable profile uses PostgreSQL with separate application and
+  River schemas and supports multiple API and worker processes.
+- A domain-neutral `task` package provides transactional enqueue and immutable
+  runner contracts while River and pgx remain adapter implementation details.
+- Standard adapters, Counter, migrations, integration tests, CI, operations,
+  and onboarding use the PostgreSQL profile.
+
+### Removed
+
+- The embedded database adapter, migrations, dependency graph, examples, and
+  compatibility surface have been removed.
+
+### Compatibility
+
+- This release replaces the Alpha 2 durable profile rather than upgrading it in
+  place. There is no automatic migration from the former embedded control store.
+- Consumers configure PostgreSQL 17 with distinct application and River schemas,
+  regenerate consumer-owned artifacts, and rehearse data migration or restoration
+  before deployment.
+- Public APIs and generated formats remain pre-v1 Alpha contracts. Pin
+  `v0.1.0-alpha.3` exactly and review the upgrade guide and generated diff.
+
+### Known Limitations
+
+- See `docs/f0-known-limitations.md` and `docs/reference/support-matrix.md` for
+  the supported PostgreSQL, platform, security, and task-delivery boundaries.
+
 ## v0.1.0-alpha.2 - 2026-08-01
 
 ### Fixed

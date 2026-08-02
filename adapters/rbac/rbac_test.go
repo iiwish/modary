@@ -5,17 +5,15 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/iiwish/modary/adapters/internal/sqlitetest"
+	"github.com/iiwish/modary/adapters/internal/postgrestest"
 	"github.com/iiwish/modary/authz"
 	"github.com/iiwish/modary/identity"
 	"github.com/iiwish/modary/scope"
-	_ "modernc.org/sqlite"
 )
 
 func TestEmptyProvisioningIsDefaultDenyAndCreatesNoPolicy(t *testing.T) {
@@ -254,7 +252,7 @@ func TestProvisioningAndRevocationAreIdempotent(t *testing.T) {
 
 func TestProvisioningRollsBackOnMissingRole(t *testing.T) {
 	db := openRBACDatabase(t)
-	control, err := sqlitetest.NewControl(db)
+	control, err := postgrestest.NewControl(db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,57 +273,31 @@ func TestProvisioningRollsBackOnMissingRole(t *testing.T) {
 }
 
 func TestCorruptStoredPolicyFailsClosed(t *testing.T) {
-	db, authorizer := openAuthorizer(t, Options{
+	db, _ := openAuthorizer(t, Options{
 		Roles: []Role{{ID: "writer", Permissions: []string{"counter.write"}}}, Bindings: []Binding{binding("writer")},
 	})
-	if _, err := db.Exec(`PRAGMA ignore_check_constraints = ON`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`UPDATE modary_rbac_role SET max_rows = -1 WHERE role_id = 'writer'`); err != nil {
-		t.Fatal(err)
-	}
-	if decision, err := authorizer.Authorize(context.Background(), policyRequest("counter.write")); err == nil || decision.Allowed {
-		t.Fatalf("corrupt policy decision = %#v, %v", decision, err)
+	if _, err := db.Exec(`UPDATE modary_rbac_role SET max_rows = -1 WHERE role_id = 'writer'`); err == nil {
+		t.Fatal("negative policy limit passed the PostgreSQL constraint")
 	}
 }
 
-func TestStoredPolicyBoundsOversizedFieldsBeforeScan(t *testing.T) {
+func TestPostgresSchemaRejectsOversizedPolicyFields(t *testing.T) {
 	t.Run("permission", func(t *testing.T) {
-		db, authorizer := openAuthorizer(t, Options{
+		db, _ := openAuthorizer(t, Options{
 			Roles: []Role{{ID: "writer", Permissions: []string{"counter.write"}}}, Bindings: []Binding{binding("writer")},
 		})
 		oversized := strings.Repeat("p", maxStoredPolicyTokenBytes+1)
-		if _, err := db.Exec(`UPDATE modary_rbac_role_permission SET permission = ?`, oversized); err != nil {
-			t.Fatal(err)
-		}
-		decision, err := authorizer.Authorize(context.Background(), policyRequest("counter.write"))
-		if err == nil || decision.Allowed || strings.Contains(err.Error(), oversized) {
-			t.Fatalf("oversized permission decision = %#v, %v", decision, err)
+		if _, err := db.Exec(`UPDATE modary_rbac_role_permission SET permission = $1`, oversized); err == nil {
+			t.Fatal("oversized permission passed the PostgreSQL constraint")
 		}
 	})
 
 	t.Run("role id", func(t *testing.T) {
-		db, authorizer := openAuthorizer(t, Options{})
-		db.SetMaxOpenConns(1)
-		if _, err := db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
-			t.Fatal(err)
-		}
+		db, _ := openAuthorizer(t, Options{})
 		oversized := strings.Repeat("r", maxStoredPolicyTokenBytes+1)
 		now := time.Now().UTC().Format(time.RFC3339Nano)
-		if _, err := db.Exec(`INSERT INTO modary_rbac_role (role_id, max_rows, active, created_at, updated_at) VALUES (?, 0, 1, ?, ?)`, oversized, now, now); err != nil {
-			t.Fatal(err)
-		}
-		request := policyRequest("counter.write")
-		if _, err := db.Exec(`
-			INSERT INTO modary_rbac_binding
-			(actor_id, actor_type, scope_kind, scope_id, role_id, active, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, 1, ?, ?)`, request.Actor.ID, request.Actor.Type,
-			request.Scope.Kind, request.Scope.ID, oversized, now, now); err != nil {
-			t.Fatal(err)
-		}
-		decision, err := authorizer.Authorize(context.Background(), request)
-		if err == nil || decision.Allowed || strings.Contains(err.Error(), oversized) {
-			t.Fatalf("oversized role decision = %#v, %v", decision, err)
+		if _, err := db.Exec(`INSERT INTO modary_rbac_role (role_id, max_rows, active, created_at, updated_at) VALUES ($1, 0, TRUE, $2, $3)`, oversized, now, now); err == nil {
+			t.Fatal("oversized role id passed the PostgreSQL constraint")
 		}
 	})
 }
@@ -338,7 +310,7 @@ func TestStoredPolicyRejectsExcessiveEffectiveRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	statement, err := tx.Prepare(`INSERT INTO modary_rbac_role_permission (role_id, permission) VALUES ('writer', ?)`)
+	statement, err := tx.Prepare(`INSERT INTO modary_rbac_role_permission (role_id, permission) VALUES ('writer', $1)`)
 	if err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
@@ -485,7 +457,7 @@ func openAuthorizer(t *testing.T, raw Options) (*sql.DB, *authorizer) {
 		t.Fatal(err)
 	}
 	db := openRBACDatabase(t)
-	control, err := sqlitetest.NewControl(db)
+	control, err := postgrestest.NewControl(db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -498,17 +470,8 @@ func openAuthorizer(t *testing.T, raw Options) (*sql.DB, *authorizer) {
 
 func openRBACDatabase(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "rbac.db")+"?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_txlock=immediate")
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetMaxOpenConns(8)
-	t.Cleanup(func() { _ = db.Close() })
-	control, err := sqlitetest.NewControl(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := control.ApplyMigrations(context.Background(), ModuleID, sqliteMigrations); err != nil {
+	db, control := postgrestest.Open(t)
+	if err := control.ApplyMigrations(context.Background(), ModuleID, postgresMigrations); err != nil {
 		t.Fatal(err)
 	}
 	return db

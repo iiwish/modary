@@ -2,14 +2,14 @@
 
 > [简体中文版](../zh-CN/getting-started/first-application.md)
 
-This guide turns the tagged Counter example into an ordinary application
-directory that resolves Modary through the public Go module tag. Complete the
+This guide turns the Counter example into an ordinary application directory
+bound to the current Modary source checkout. Complete the
 [quickstart](quickstart.md) first so the framework model and expected commands
 are familiar.
 
 ## 1. Copy The Example
 
-From the parent directory of a tagged Modary checkout:
+From the parent directory of the current Modary source checkout:
 
 ```bash
 cp -R modary/examples/counter my-counter
@@ -20,29 +20,22 @@ The copied directory is already an independent Go module. It contains its own
 composition root, project command, application command, feature module,
 migration, generated contracts, tests, and static UI.
 
-## 2. Select The Published Framework
+## 2. Bind The Framework Checkout
 
-Remove the source-checkout development binding and retain the exact Alpha:
+Point the copied module at the absolute framework checkout next to it:
 
 ```bash
-GOWORK=off go mod edit -dropreplace=github.com/iiwish/modary
-GOWORK=off go mod edit -require=github.com/iiwish/modary@v0.1.0-alpha.2
+GOWORK=off go mod edit -replace=github.com/iiwish/modary="$(cd ../modary && pwd -P)"
 GOWORK=off go mod tidy
 ```
 
-Verify that normal module resolution selected the release and no replacement:
+Verify the binding before continuing:
 
 ```bash
-GOWORK=off go list -m -f '{{.Path}} {{.Version}} {{if .Replace}}replaced{{end}}' github.com/iiwish/modary
+GOWORK=off go list -m -f '{{.Path}} {{if .Replace}}{{.Replace.Dir}}{{end}}' github.com/iiwish/modary
 ```
 
-Expected output:
-
-```text
-github.com/iiwish/modary v0.1.0-alpha.2
-```
-
-Record the remotely resolved starting point before making the tutorial change:
+Record the starting point before making the tutorial change:
 
 ```bash
 git init
@@ -60,8 +53,9 @@ GOWORK=off go run ./tools/modary build
 GOWORK=off ./dist/counter-console version
 ```
 
-The final command prints `counter-console 0.1.0`. No command needs Node.js or a
-Modary source checkout.
+The final command prints `counter-console 0.1.0`. The application needs
+PostgreSQL but no Node.js runtime. Keep the database environment from the
+quickstart exported while running these commands.
 
 ## 4. Adopt A Real Module Path
 
@@ -101,6 +95,8 @@ then remove Counter code only after the replacement module, migration, Action,
 composition registration, generated artifacts, and tests pass together.
 
 The development `replace` is useful only while Modary and the application are
-checked out together. Never commit a local filesystem replacement in an
-application release branch. See [troubleshooting](../how-to/troubleshooting.md)
-for module, generation, capability, migration, and platform failures.
+checked out together. Before releasing the application, remove it and pin the
+exact Modary release that contains the PostgreSQL task profile. Never commit a
+local filesystem replacement in an application release branch. See
+[troubleshooting](../how-to/troubleshooting.md) for module, generation,
+capability, migration, and platform failures.

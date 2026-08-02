@@ -1,78 +1,83 @@
 # Deployment Profile
 
-Modary F0 is suitable for a single-node, single-process application using one
-official SQLite durability domain and explicit local identity/RBAC
-configuration. It is not a high-availability platform or a public-internet IAM
-system.
+Modary F0 uses one PostgreSQL control database. API processes and River worker
+processes may scale independently. Modary is not a distributed transaction
+coordinator, PostgreSQL operator, or public-internet IAM system.
 
 ## Recommended Topology
 
-Run one consumer-owned executable under a process supervisor. Store the SQLite
-database on a local filesystem with stable durability semantics and the
-ownership policy required by the adapter. Terminate TLS and apply network policy
-at a reviewed consumer-owned server or reverse proxy. Keep generated UI assets
-inside the consumer release if they are served by the process.
+Run consumer-owned API and worker executables under process supervision. Both
+connect to the same control database. Modary and product control tables live in
+the application schema; River lives in a distinct queue schema. Business data
+may remain in consumer-selected databases or APIs behind Connector interfaces.
 
-Avoid network filesystems, multiple independent application writers, shared
-database files across containers, or automatic failover unless the consumer has
-separately proved SQLite locking, filesystem, backup, and process behavior.
+Terminate public TLS and apply host, origin, proxy, and rate policy at the
+consumer boundary. PostgreSQL replication, failover, pooling, statement
+timeouts, capacity, vacuum, and network policy remain operator responsibilities.
 
 ## Configuration
 
-The consumer loads configuration before creating the pure Definition. Separate
-non-secret configuration from secrets. Validate database paths, bind addresses,
-external origins, cookie policy, trusted proxy settings, and shutdown timeouts.
+Load configuration before constructing `appkit.Definition`. Keep the PostgreSQL
+URL in a secret store. Validate schema names, bind addresses, external origins,
+cookie policy, trusted proxies, worker queues, concurrency, job timeout, soft
+stop timeout, and application shutdown timeout.
 
-Do not place credentials, bearer tokens, private keys, or encryption material in
-`modary.yaml`, generated files, command arguments, source code, or logs. The
-framework provides no universal secret store.
+The configured role must own both schemas. Treat the application and queue
+schemas as one exclusive pair; the adapter persists that binding and rejects a
+schema already paired with another profile. Use one database for both schemas
+when an Action must atomically write state and enqueue work. A separate queue
+database is not equivalent.
 
 ## Startup
 
-Startup validates the entire module graph before side effects, applies
-forward-only migrations, starts providers in dependency order, constructs
-Handlers, and assembles the application. Keep readiness false until assembly is
-complete. A startup failure attempts reverse cleanup of process resources but
-does not reverse a committed migration.
+Startup validates the module graph before side effects, connects PostgreSQL,
+creates or verifies owned schemas, verifies their durable pairing, applies River
+and Module migrations, starts providers in dependency order, constructs
+handlers, and assembles the application. PostgreSQL advisory locks serialize
+schema bootstrap and migrations across simultaneous process starts. Keep
+readiness false until assembly completes.
 
-Run backup and restore verification before deploying any migration-bearing
-upgrade. Never start an older binary against a database migrated by a newer
-release unless the consumer explicitly supports that combination.
+A startup failure cleans process resources in reverse order. It does not undo a
+Module migration that committed before another Module failed.
+
+## Worker Processes
+
+Construct runners from `application.Tasks()` with explicit queues and worker
+limits. A runner is immutable after construction. River delivery is at least
+once, so use the job ID or a product run ID as an idempotency key for external
+effects. Do not assume that handler return means exactly-once execution.
 
 ## Health
 
-Mount the framework health handler explicitly. Use process liveness to detect a
-running process and readiness to control traffic only after the application is
-assembled. A healthy process does not prove that downstream consumer systems,
-backup policy, free disk, or public proxy policy are correct; add consumer-owned
-checks where appropriate.
+Mount the framework health handler explicitly for API processes. Add
+consumer-owned checks for Connectors and product dependencies. Worker health
+should cover PostgreSQL reachability, runner startup, queue lag, retry/discard
+rates, and the age of the oldest available job.
 
 ## Shutdown
 
-On SIGTERM or another supervisor signal:
-
 1. stop accepting new public traffic;
 2. cancel the application command context;
-3. allow Runtime and identity leases to drain;
-4. let module cleanup run in reverse dependency order;
-5. bound the process supervisor's final timeout beyond the application's
-   cooperative shutdown budget.
+3. stop River from fetching new jobs and allow the soft-stop budget to drain;
+4. cancel remaining job contexts before closing the database pool;
+5. let Module cleanup run in reverse dependency order;
+6. keep the supervisor's final timeout longer than the application budget.
 
-Non-cooperative callbacks can outlive their timeout and overlap later cleanup.
-Treat cancellation compliance as a deployment qualification for every consumer
-module and adapter.
+Handlers and callbacks must honor cancellation. External effects still need
+idempotency because a process may stop after the effect succeeds but before the
+job result is committed.
 
 ## Production Checklist
 
-- The exact Modary and consumer versions are pinned and recorded.
-- The deployment matches the [support matrix](../reference/support-matrix.md).
-- `make acceptance` or the consumer-equivalent gates pass from a clean checkout.
-- TLS, host validation, proxy trust, rate limits, and external origin are explicit.
-- Production identity and RBAC provisioning contain no development defaults.
-- Token files and database paths satisfy the documented ownership policy.
-- Database backup and restore have been tested on the release candidate.
-- Disk capacity, database integrity, audit retention, and process logs are monitored.
-- Shutdown and restart durability have been exercised under active requests.
-- Known limitations are accepted by the product and operations owners.
+- Exact Modary, River, PostgreSQL, and consumer versions are recorded.
+- Both schemas exist, are distinct, exclusively paired, and owned by the application role.
+- TLS and PostgreSQL network policy match the deployment trust boundary.
+- API and worker concurrency have explicit capacity limits.
+- Production identity and RBAC contain no example credentials.
+- Queue retry, discard, latency, and backlog are monitored.
+- A restore test covers both schemas and restored pending jobs.
+- Shutdown and restart are exercised with active requests and jobs.
+- Connectors document idempotency, timeouts, and partial-failure behavior.
+- Known limitations are accepted or mitigated by product and operations owners.
 
-See [security](security.md) and [SQLite backup and restore](sqlite-backup-restore.md).
+See [security](security.md) and [PostgreSQL backup and restore](postgresql-backup-restore.md).

@@ -1,0 +1,49 @@
+schema_version: 1
+packet_id: EP-005-T026
+task_id: T026
+feature_id: 005-postgres-task-runtime
+mode: execute_one_task
+adapter: codex-direct
+governance_inputs:
+  feature_spec: .ai-platform/specs/005-postgres-task-runtime/spec.md
+  technical_decisions: .ai-platform/specs/005-postgres-task-runtime/plan.md
+  work_graph: .ai-platform/specs/005-postgres-task-runtime/tasks.md
+  approval: explicit owner approval on 2026-08-01
+work_unit:
+  title: Consumer Deletion And Acceptance
+  goal: Port Counter and gates, remove SQLite, update docs, and accept Modary.
+  requirements: [FR-009, FR-010, SC-001, SC-002, SC-003, SC-004, SC-005]
+  depends_on: [T025]
+codebase_context:
+  language: Go
+  control_store: PostgreSQL
+  task_runtime: River
+  acceptance_consumer: examples/counter
+  consumer_boundary: copied out with GOWORK disabled
+execution_constraints:
+  branch_or_worktree: current
+  allowed_files: [all active Modary files except immutable historical evidence, .ai-platform/evidence/T026/**]
+tdd_plan:
+  required: true
+  red:
+    command: repository PostgreSQL-only and Counter gates before port
+    expected_failure: active SQLite references and consumer SQL remain
+  green:
+    command: make acceptance
+    expected_signal: all acceptance gates pass on PostgreSQL
+  refactor:
+    command: make ci && go test -race ./...
+    expected_signal: complete quality and race gates pass
+validation_loop:
+  commands: [make acceptance, make ci, go test -race ./..., git diff --check]
+evidence_contract:
+  summary: .ai-platform/evidence/T026/summary.md
+  diff: .ai-platform/evidence/T026/diff.patch
+  test_results: .ai-platform/evidence/T026/test-results.md
+review_contract:
+  required_passes: [spec_compliance, sqlite_deletion, independent_consumer, security, documentation, engineering_quality]
+handoff:
+  status: accepted
+  next_step: prepare the separately governed Modary release
+  release_boundary: T026 does not commit, tag, push, or publish
+stop_conditions: [a required active consumer remains SQLite-only, complete tests reveal a compatibility dependency that cannot be deleted]

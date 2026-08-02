@@ -10,7 +10,6 @@ import (
 
 	. "github.com/iiwish/modary/database"
 	"github.com/iiwish/modary/internal/transactionoutcome"
-	_ "modernc.org/sqlite"
 )
 
 func TestAccessAllowsReadsAndRequiresGovernedTransactionForWrites(t *testing.T) {
@@ -214,7 +213,7 @@ func TestControlContainsBackendPanicsAndUsesValidatedDriver(t *testing.T) {
 	}
 
 	backend.panicDriver = true
-	if got := control.Driver(); got != "sqlite" {
+	if got := control.Driver(); got != "postgres" {
 		t.Fatalf("Driver() = %q after backend mutation, want cached validated value", got)
 	}
 
@@ -233,13 +232,7 @@ func TestControlContainsBackendPanicsAndUsesValidatedDriver(t *testing.T) {
 
 func openExecutorTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+t.Name()+"?mode=memory&cache=shared")
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetMaxOpenConns(1)
-	t.Cleanup(func() { _ = db.Close() })
-	return db
+	return openPostgresTestDB(t)
 }
 
 func assertExecutorCount(t *testing.T, db *sql.DB, want int) {
@@ -288,7 +281,7 @@ func (backend *boundaryBackend) Driver() string {
 	if backend.panicDriver {
 		panic("database Driver panic must be contained")
 	}
-	return "sqlite"
+	return "postgres"
 }
 
 func (*boundaryBackend) ValidateMigration(string) error { return nil }

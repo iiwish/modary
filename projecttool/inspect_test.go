@@ -42,7 +42,7 @@ func TestInspectIsPureDeterministicAndDefensive(t *testing.T) {
 	if got, want := first.Modules[0].Requires, []module.Capability{"records.clock", "records.store"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("sorted requirements = %v, want %v", got, want)
 	}
-	if got, want := first.Modules[1].Migrations, []string{"archive", "sqlite"}; !reflect.DeepEqual(got, want) {
+	if got, want := first.Modules[1].Migrations, []string{"archive", "postgres"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("sorted migrations = %v, want %v", got, want)
 	}
 	if got, want := []string{first.Actions[0].Descriptor.ID, first.Actions[1].Descriptor.ID}, []string{"records.archive", "records.create"}; !reflect.DeepEqual(got, want) {
@@ -257,7 +257,7 @@ func TestInspectDuplicateIdentityPreScanIsDeterministicBeforeInternalValidation(
 		},
 		{
 			name: "migration identity",
-			want: `duplicate migration identity "sqlite" owned by Module "storage"`,
+			want: `duplicate migration identity "postgres" owned by Module "storage"`,
 			duplicate: func(first appkit.Definition) (appkit.Definition, appkit.Definition) {
 				registration := &first.Modules[0]
 				duplicate := registration.Definition.Migrations[0]

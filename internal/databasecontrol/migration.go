@@ -74,13 +74,20 @@ func (control *control) applyMigrations(ctx context.Context, moduleID string, fi
 		if err != nil {
 			return fmt.Errorf("resolve migration executor: %w", err)
 		}
+		if locker, ok := control.backend.(migrationLocker); ok {
+			if err := invokeDependencyError("acquire database migration lock", func() error {
+				return locker.LockMigrations(txCtx, executor)
+			}); err != nil {
+				return err
+			}
+		}
 		if _, err := invokeDependency("create migration registry", func() (sql.Result, error) {
 			return executor.ExecContext(txCtx, `
 			CREATE TABLE IF NOT EXISTS modary_module_migration (
-				migration_id TEXT PRIMARY KEY,
-				module_id TEXT NOT NULL,
-				checksum TEXT NOT NULL,
-				applied_at TEXT NOT NULL
+				migration_id TEXT PRIMARY KEY CHECK (octet_length(migration_id) <= 319),
+				module_id TEXT NOT NULL CHECK (octet_length(module_id) <= 63),
+				checksum TEXT NOT NULL CHECK (octet_length(checksum) <= 71),
+				applied_at TEXT NOT NULL CHECK (octet_length(applied_at) BETWEEN 20 AND 30)
 			)`)
 		}); err != nil {
 			return fmt.Errorf("create migration registry: %w", err)
@@ -108,7 +115,7 @@ func (control *control) applyMigrations(ctx context.Context, moduleID string, fi
 				return fmt.Errorf("apply migration %s: %w", item.id, err)
 			}
 			if _, err := invokeDependency("record applied migration", func() (sql.Result, error) {
-				return executor.ExecContext(txCtx, `INSERT INTO modary_module_migration (migration_id, module_id, checksum, applied_at) VALUES (?, ?, ?, ?)`, item.id, moduleID, item.checksum, time.Now().UTC().Format(time.RFC3339Nano))
+				return executor.ExecContext(txCtx, `INSERT INTO modary_module_migration (migration_id, module_id, checksum, applied_at) VALUES ($1, $2, $3, $4)`, item.id, moduleID, item.checksum, time.Now().UTC().Format(time.RFC3339Nano))
 			}); err != nil {
 				return fmt.Errorf("record migration %s: %w", item.id, err)
 			}
@@ -279,12 +286,12 @@ func readAppliedMigrations(ctx context.Context, executor database.Executor, modu
 	rows, err := invokeDependency("list applied migrations", func() (database.Rows, error) {
 		return executor.QueryContext(ctx, `
 				SELECT
-					CASE WHEN typeof(migration_id) = 'text' AND length(CAST(migration_id AS BLOB)) <= ? THEN migration_id END,
-					CASE WHEN typeof(checksum) = 'text' AND length(CAST(checksum AS BLOB)) <= ? THEN checksum END
+					CASE WHEN octet_length(migration_id) <= $1 THEN migration_id END,
+					CASE WHEN octet_length(checksum) <= $2 THEN checksum END
 				FROM modary_module_migration
-				WHERE module_id = ?
-				ORDER BY 1
-				LIMIT ?`, maxAppliedMigrationIDBytes, maxMigrationChecksumBytes, moduleID, maxMigrationFiles+1)
+				WHERE module_id = $3
+				ORDER BY migration_id
+				LIMIT $4`, maxAppliedMigrationIDBytes, maxMigrationChecksumBytes, moduleID, maxMigrationFiles+1)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list applied migrations for %s: %w", moduleID, err)

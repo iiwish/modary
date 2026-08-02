@@ -183,7 +183,7 @@ for obsolete in cmd core modules web tests internal/app internal/generated inter
 	fi
 done
 
-if persisted_artifact=$(find . -path './.git' -prune -o -type f \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' -o -name '*.exe' \) -print -quit 2>&1); then
+if persisted_artifact=$(find . -path './.git' -prune -o -type f \( -name '*.db' -o -name '*.exe' \) -print -quit 2>&1); then
 	if test -n "$persisted_artifact"; then
 		printf 'runtime or binary artifact remains in the active tree: %s\n' "$persisted_artifact" >&2
 		status=1
@@ -217,6 +217,7 @@ if test -d internal; then
 		! -name runtimecontrol \
 		! -name safeerr \
 		! -name sqlpolicy \
+		! -name testpostgres \
 		! -name testsupport \
 		! -name transactionoutcome \
 		-print -quit 2>&1); then

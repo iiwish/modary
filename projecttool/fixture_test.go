@@ -63,7 +63,7 @@ func fixtureDefinition(counters *inspectionCounters, reverse bool) appkit.Defini
 				},
 			},
 			Migrations: []module.MigrationSource{
-				{Driver: "sqlite", Files: failOnOpenFS{calls: &counters.opens}},
+				{Driver: "postgres", Files: failOnOpenFS{calls: &counters.opens}},
 				{Driver: "archive", Files: failOnOpenFS{calls: &counters.opens}},
 			},
 		},

@@ -23,9 +23,9 @@ validation before startup.
 
 ## 3. Add Forward-Only Migrations
 
-Embed SQLite migrations in the consumer package and expose the migration
+Embed PostgreSQL migrations in the consumer package and expose the migration
 directory as an `fs.FS`. Register it as a `module.MigrationSource` for driver
-`sqlite`. Migration names and contents are bounded and validated before database
+`postgres`. Migration names and contents are bounded and validated before database
 effects.
 
 Never rewrite a migration that reached a released consumer. Add a new migration

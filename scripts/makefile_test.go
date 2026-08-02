@@ -220,7 +220,7 @@ fi
 		}
 	}
 	if len(compiledTests) != 8 {
-		t.Fatalf("unsupported-platform test compile invocations = %d, want Windows appcmd/projecttool/sqlite and Darwin filepolicy for two architectures:\n%s", len(compiledTests), data)
+		t.Fatalf("unsupported-platform test compile invocations = %d, want Windows appcmd/projecttool/postgres and Darwin filepolicy for two architectures:\n%s", len(compiledTests), data)
 	}
 	for _, outputPath := range compiledTests {
 		if !strings.HasPrefix(outputPath, "/tmp/modary-cross-tests.") {
@@ -230,7 +230,7 @@ fi
 			t.Errorf("cross-test output %q was not removed, stat error = %v", outputPath, statErr)
 		}
 	}
-	for _, packagePath := range []string{"./appcmd", "./projecttool", "./adapters/sqlite", "./internal/filepolicy"} {
+	for _, packagePath := range []string{"./appcmd", "./projecttool", "./adapters/postgres", "./internal/filepolicy"} {
 		if !strings.Contains(string(data), packagePath) {
 			t.Fatalf("cross-build did not compile %s tests:\n%s", packagePath, data)
 		}

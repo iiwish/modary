@@ -10,6 +10,8 @@ F0 contract is authoritative when a guide and a deep contract appear to differ.
 - [中文文档入口](zh-CN/index.md)
 - [快速上手](zh-CN/getting-started/quickstart.md)
 - [创建第一个独立应用](zh-CN/getting-started/first-application.md)
+- [持久化与耐久任务](zh-CN/concepts/persistence-and-tasks.md)
+- [运行耐久后台任务](zh-CN/how-to/run-background-tasks.md)
 
 ## Start Building
 
@@ -23,11 +25,13 @@ F0 contract is authoritative when a guide and a deep contract appear to differ.
 - [Framework and consumer ownership](concepts/consumer-boundary.md)
 - [Modules, capabilities, and lifecycle](concepts/modules-and-capabilities.md)
 - [Governed Action lifecycle](concepts/governed-actions.md)
+- [Persistence and durable task model](concepts/persistence-and-tasks.md)
 
 ## Complete Common Tasks
 
 - [Add a consumer module](how-to/add-module.md)
 - [Expose one Action through supported surfaces](how-to/expose-action.md)
+- [Enqueue and run durable background tasks](how-to/run-background-tasks.md)
 - [Test a Modary application](how-to/test-application.md)
 - [Troubleshoot common first-run failures](how-to/troubleshooting.md)
 
@@ -44,7 +48,7 @@ F0 contract is authoritative when a guide and a deep contract appear to differ.
 
 - [Deployment profile and production checklist](operations/deployment.md)
 - [Security boundaries and secret handling](operations/security.md)
-- [SQLite backup and restore](operations/sqlite-backup-restore.md)
+- [PostgreSQL backup and restore](operations/postgresql-backup-restore.md)
 
 ## Release And Upgrade
 
@@ -59,7 +63,7 @@ F0 contract is authoritative when a guide and a deep contract appear to differ.
 
 - [ADR-001: explicit composition and capability lifecycle](adr/ADR-001-explicit-composition-and-capability-lifecycle.md)
 - [ADR-002: governed Action transaction](adr/ADR-002-governed-action-transaction.md)
-- [ADR-003: SQLite and module migrations](adr/ADR-003-sqlite-and-module-migrations.md)
+- [ADR-003: PostgreSQL and module migrations](adr/ADR-003-postgresql-and-module-migrations.md)
 - [ADR-004: consumer-owned surfaces](adr/ADR-004-consumer-owned-surfaces.md)
 
 ## Choose The Right Depth

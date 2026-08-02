@@ -43,9 +43,7 @@ func TestPublicCommandReaderErrorChainIsSafeToInspect(t *testing.T) {
 
 func TestPublicActionCallbackErrorChainIsSafeToInspect(t *testing.T) {
 	hostile, callbackCause := newConsumerBoundaryCause(t, context.Canceled)
-	definition := mustDefinition(t, project.Config{
-		DatabasePath: privateDatabasePath(t, "callback-error.db"),
-	})
+	definition := mustDefinition(t, postgresTestConfig(t))
 	definition.Modules = append([]module.Registration(nil), definition.Modules...)
 	replaced := false
 	for moduleIndex := range definition.Modules {

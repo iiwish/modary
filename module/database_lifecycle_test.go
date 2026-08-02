@@ -10,12 +10,16 @@ import (
 	"testing"
 	"testing/fstest"
 
-	modarysqlite "github.com/iiwish/modary/adapters/sqlite"
+	"github.com/iiwish/modary/adapters/postgres"
+	"github.com/iiwish/modary/internal/testpostgres"
 	"github.com/iiwish/modary/module"
 )
 
 func TestHostAppliesDeclaredMigrationsInDependencyOrderBeforeStart(t *testing.T) {
-	sqliteModule, err := modarysqlite.Module(modarysqlite.Options{Path: ":memory:"})
+	databaseConfig := testpostgres.New(t)
+	postgresModule, err := postgres.Module(postgres.Options{
+		URL: databaseConfig.URL, ApplicationSchema: databaseConfig.ApplicationSchema, QueueSchema: databaseConfig.QueueSchema,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +27,7 @@ func TestHostAppliesDeclaredMigrationsInDependencyOrderBeforeStart(t *testing.T)
 	var orderMu sync.Mutex
 	first := migrationModule("migration-first", []module.Capability{module.CapabilityDatabase}, []module.Capability{"migration-first"}, fstest.MapFS{
 		"0001_first.sql": {Data: []byte(`
-			CREATE TABLE migration_order (position INTEGER PRIMARY KEY, name TEXT NOT NULL) STRICT;
+			CREATE TABLE migration_order (position INTEGER PRIMARY KEY, name TEXT NOT NULL);
 			INSERT INTO migration_order (position, name) VALUES (1, 'first')`)},
 	}, func(ctx context.Context, scope module.Scope) error {
 		access, err := module.Resolve(scope, module.Database())
@@ -68,7 +72,7 @@ func TestHostAppliesDeclaredMigrationsInDependencyOrderBeforeStart(t *testing.T)
 	if _, exposed := any(host).(module.Resolver); exposed {
 		t.Fatal("public Host implements Resolver")
 	}
-	if err := host.Register(second, sqliteModule, first); err != nil {
+	if err := host.Register(second, postgresModule, first); err != nil {
 		t.Fatal(err)
 	}
 	if err := host.Start(context.Background()); err != nil {
@@ -83,13 +87,16 @@ func TestHostAppliesDeclaredMigrationsInDependencyOrderBeforeStart(t *testing.T)
 }
 
 func TestHostContainsPanickingMigrationSourceWithoutFormattingValue(t *testing.T) {
-	sqliteModule, err := modarysqlite.Module(modarysqlite.Options{Path: ":memory:"})
+	databaseConfig := testpostgres.New(t)
+	postgresModule, err := postgres.Module(postgres.Options{
+		URL: databaseConfig.URL, ApplicationSchema: databaseConfig.ApplicationSchema, QueueSchema: databaseConfig.QueueSchema,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	consumer := migrationModule("panic-migration", []module.Capability{module.CapabilityDatabase}, nil, panicMigrationSource{}, nil)
 	host := module.NewHost()
-	if err := host.Register(sqliteModule, consumer); err != nil {
+	if err := host.Register(postgresModule, consumer); err != nil {
 		t.Fatal(err)
 	}
 	err = host.Start(context.Background())
@@ -112,7 +119,7 @@ func migrationModule(id string, requires, provides []module.Capability, migratio
 				Requires:      requires,
 				Provides:      provides,
 			},
-			Migrations: []module.MigrationSource{{Driver: "sqlite", Files: migrations}},
+			Migrations: []module.MigrationSource{{Driver: "postgres", Files: migrations}},
 		},
 		Start: start,
 	}

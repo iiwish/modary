@@ -20,6 +20,7 @@ REPEAT_PACKAGES := \
 	./internal/transactionoutcome \
 	./module \
 	./projecttool \
+	./task \
 	./transport/httpapi
 
 .PHONY: bootstrap format-check tidy-check diff-check docs-check verify check-generated neutrality \
@@ -110,7 +111,7 @@ cross-build:
 	for goarch in amd64 arm64; do \
 		GOOS=windows GOARCH="$$goarch" CGO_ENABLED=0 $(GO_COMMAND_ENV) $(GO) test -c -o "$$cross_test_dir/appcmd-$$goarch.test.exe" ./appcmd; \
 		GOOS=windows GOARCH="$$goarch" CGO_ENABLED=0 $(GO_COMMAND_ENV) $(GO) test -c -o "$$cross_test_dir/projecttool-$$goarch.test.exe" ./projecttool; \
-		GOOS=windows GOARCH="$$goarch" CGO_ENABLED=0 $(GO_COMMAND_ENV) $(GO) test -c -o "$$cross_test_dir/sqlite-$$goarch.test.exe" ./adapters/sqlite; \
+		GOOS=windows GOARCH="$$goarch" CGO_ENABLED=0 $(GO_COMMAND_ENV) $(GO) test -c -o "$$cross_test_dir/postgres-$$goarch.test.exe" ./adapters/postgres; \
 		GOOS=darwin GOARCH="$$goarch" CGO_ENABLED=0 $(GO_COMMAND_ENV) $(GO) test -c -o "$$cross_test_dir/filepolicy-$$goarch.test" ./internal/filepolicy; \
 	done
 

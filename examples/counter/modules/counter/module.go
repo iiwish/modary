@@ -24,6 +24,7 @@ import (
 	"github.com/iiwish/modary/database"
 	"github.com/iiwish/modary/module"
 	"github.com/iiwish/modary/scope"
+	"github.com/iiwish/modary/task"
 )
 
 const (
@@ -33,12 +34,15 @@ const (
 	ActionID = "counter.increment"
 	// Permission is the exact RBAC grant required by ActionID.
 	Permission = ActionID
+	// IncrementedTaskKind identifies the durable event emitted with a committed
+	// Counter increment.
+	IncrementedTaskKind = "counter.incremented"
 	// ErrorVersionConflict is the consumer-owned public code for an optimistic
 	// version that does not match current Counter state.
 	ErrorVersionConflict = "COUNTER.VERSION_CONFLICT"
 )
 
-//go:embed migrations/sqlite/*.sql
+//go:embed migrations/postgres/*.sql
 var migrationFiles embed.FS
 
 type incrementInput struct {
@@ -71,7 +75,7 @@ type State struct {
 // Module returns a pure feature Registration. The Host applies the declared
 // migrations before constructing the Action handler.
 func Module() (module.Registration, error) {
-	migrations, err := fs.Sub(migrationFiles, "migrations/sqlite")
+	migrations, err := fs.Sub(migrationFiles, "migrations/postgres")
 	if err != nil {
 		return module.Registration{}, fmt.Errorf("prepare Counter migrations: %w", err)
 	}
@@ -84,10 +88,11 @@ func Module() (module.Registration, error) {
 				Type:          module.ModuleTypeFeature,
 				Requires: []module.Capability{
 					module.CapabilityDatabase,
+					module.CapabilityTasks,
 					clockcontract.Capability,
 				},
 			},
-			Migrations: []module.MigrationSource{{Driver: "sqlite", Files: migrations}},
+			Migrations: []module.MigrationSource{{Driver: "postgres", Files: migrations}},
 			Actions: []module.ActionBinding{{
 				Descriptor: descriptor(),
 				NewHandler: func(_ context.Context, services module.Resolver) (action.Handler, error) {
@@ -99,7 +104,11 @@ func Module() (module.Registration, error) {
 					if err != nil {
 						return nil, fmt.Errorf("resolve Counter clock: %w", err)
 					}
-					return &incrementHandler{db: db, clock: clock}, nil
+					tasks, err := module.Resolve(services, module.Tasks())
+					if err != nil {
+						return nil, fmt.Errorf("resolve Counter tasks: %w", err)
+					}
+					return &incrementHandler{db: db, clock: clock, tasks: tasks}, nil
 				},
 			}},
 		},
@@ -148,6 +157,7 @@ func descriptor() action.Descriptor {
 type incrementHandler struct {
 	db    database.Access
 	clock clockcontract.Clock
+	tasks task.Service
 }
 
 func (handler *incrementHandler) Plan(ctx context.Context, request action.Request) (action.PlanData, error) {
@@ -220,12 +230,12 @@ func (handler *incrementHandler) Execute(ctx context.Context, plan action.Plan) 
 	result, err := handler.db.ExecContext(ctx, `
 		INSERT INTO consumer_counter
 			(scope_kind, scope_id, value, version, updated_at)
-		VALUES (?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT(scope_kind, scope_id) DO UPDATE SET
 			value = excluded.value,
 			version = excluded.version,
 			updated_at = excluded.updated_at
-		WHERE consumer_counter.value = ? AND consumer_counter.version = ?`,
+		WHERE consumer_counter.value = $6 AND consumer_counter.version = $7`,
 		plan.Scope.Kind,
 		plan.Scope.ID,
 		payload.NextValue,
@@ -247,6 +257,22 @@ func (handler *incrementHandler) Execute(ctx context.Context, plan action.Plan) 
 	output, err := json.Marshal(State{Value: payload.NextValue, Version: payload.NextVersion})
 	if err != nil {
 		return action.Result{}, fmt.Errorf("encode Counter result: %w", err)
+	}
+	taskPayload, err := json.Marshal(struct {
+		Scope   scope.Execution `json:"scope"`
+		Value   int64           `json:"value"`
+		Version int64           `json:"version"`
+	}{Scope: plan.Scope, Value: payload.NextValue, Version: payload.NextVersion})
+	if err != nil {
+		return action.Result{}, fmt.Errorf("encode Counter task: %w", err)
+	}
+	taskIdentity := sha256.Sum256(taskPayload)
+	if _, err := handler.tasks.Enqueue(ctx, task.Request{
+		Kind:      IncrementedTaskKind,
+		Payload:   taskPayload,
+		UniqueKey: "sha256:" + hex.EncodeToString(taskIdentity[:]),
+	}); err != nil {
+		return action.Result{}, fmt.Errorf("enqueue Counter task: %w", err)
 	}
 	return action.Result{
 		Data:       output,
@@ -275,7 +301,7 @@ func readState(ctx context.Context, db database.Access, execution scope.Executio
 	err := db.QueryRowContext(ctx, `
 		SELECT value, version
 		FROM consumer_counter
-		WHERE scope_kind = ? AND scope_id = ?`,
+		WHERE scope_kind = $1 AND scope_id = $2`,
 		execution.Kind,
 		execution.ID,
 	).Scan(&state.Value, &state.Version)

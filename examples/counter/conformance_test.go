@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,21 +22,83 @@ import (
 	"example.com/modary-counter-consumer/modules/counter"
 	"github.com/iiwish/modary/action"
 	"github.com/iiwish/modary/adapters/localidentity"
+	postgresadapter "github.com/iiwish/modary/adapters/postgres"
 	"github.com/iiwish/modary/adapters/rbac"
 	"github.com/iiwish/modary/adapters/sqlaudit"
-	sqliteadapter "github.com/iiwish/modary/adapters/sqlite"
 	"github.com/iiwish/modary/appcmd"
 	"github.com/iiwish/modary/appkit"
 	"github.com/iiwish/modary/identity"
 	"github.com/iiwish/modary/module"
 	"github.com/iiwish/modary/scope"
+	"github.com/iiwish/modary/task"
 	"github.com/iiwish/modary/transport/httpapi"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 )
+
+var consumerSchemaSequence atomic.Uint64
+
+func TestCopiedOutConsumerUsesTransactionalTaskRuntime(t *testing.T) {
+	config := postgresTestConfig(t)
+	definition := mustDefinition(t, config)
+	producer := startApplication(t, definition)
+	actor := resolveActor(t, producer, project.PrimaryActorID)
+	input := counterInput(0, 7)
+	preview := previewCounter(t, producer, actor, "test", "task-preview", input)
+	executeCounter(t, producer, actor, "test", "task-execute", input, preview.PlanHash, "task-once")
+	shutdownApplication(t, producer)
+
+	worker := startApplication(t, definition)
+	t.Cleanup(func() {
+		if worker.Ready() {
+			shutdownApplication(t, worker)
+		}
+	})
+
+	worked := make(chan task.Job, 1)
+	runner, err := worker.Tasks().NewRunner(task.HandlerFunc(func(_ context.Context, job task.Job) error {
+		worked <- job
+		return nil
+	}), task.RunnerOptions{Queues: []task.Queue{{Name: task.DefaultQueue, MaxWorkers: 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := runner.Stop(stopCtx); err != nil {
+			t.Errorf("stop task runner: %v", err)
+		}
+	})
+
+	select {
+	case job := <-worked:
+		if job.Kind != counter.IncrementedTaskKind || job.Queue != task.DefaultQueue || job.Attempt != 1 {
+			t.Fatalf("worked task = %#v", job)
+		}
+		var payload struct {
+			Scope   scope.Execution `json:"scope"`
+			Value   int64           `json:"value"`
+			Version int64           `json:"version"`
+		}
+		if err := json.Unmarshal(job.Payload, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.Scope != project.PrimaryScope || payload.Value != 7 || payload.Version != 1 {
+			t.Fatalf("worked task payload = %#v", payload)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Counter Action committed without producing its durable task")
+	}
+}
 
 func TestGovernedCounterAcrossRuntimeCLIHTTPMCPAndRestart(t *testing.T) {
 	ctx := context.Background()
-	databasePath := privateDatabasePath(t, "counter.db")
-	definition := mustDefinition(t, project.Config{DatabasePath: databasePath})
+	config := postgresTestConfig(t)
+	definition := mustDefinition(t, config)
 
 	application := startApplication(t, definition)
 	primary := resolveActor(t, application, project.PrimaryActorID)
@@ -151,12 +214,14 @@ func TestGovernedCounterAcrossRuntimeCLIHTTPMCPAndRestart(t *testing.T) {
 	}
 	shutdownApplication(t, application)
 
-	assertDurableStateAndAudit(t, databasePath)
+	assertDurableStateAndAudit(t, config)
 }
 
 func TestOfficialAdaptersHaveEmptyProvisioningByDefault(t *testing.T) {
-	databasePath := privateDatabasePath(t, "empty.db")
-	sqliteModule, err := sqliteadapter.Module(sqliteadapter.Options{Path: databasePath})
+	config := postgresTestConfig(t)
+	postgresModule, err := postgresadapter.Module(postgresadapter.Options{
+		URL: config.DatabaseURL, ApplicationSchema: config.ApplicationSchema, QueueSchema: config.QueueSchema,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +236,7 @@ func TestOfficialAdaptersHaveEmptyProvisioningByDefault(t *testing.T) {
 	application := startApplication(t, appkit.Definition{
 		Metadata: appkit.Metadata{ID: "empty-consumer", Name: "Empty Consumer", Version: "0.1.0"},
 		Modules: []module.Registration{
-			sqliteModule,
+			postgresModule,
 			identityModule,
 			rbacModule,
 			sqlaudit.Module(sqlaudit.Options{}),
@@ -179,7 +244,7 @@ func TestOfficialAdaptersHaveEmptyProvisioningByDefault(t *testing.T) {
 	})
 	shutdownApplication(t, application)
 
-	db := openDatabase(t, databasePath)
+	db := openDatabase(t, config)
 	defer db.Close()
 	for _, table := range []string{
 		"modary_identity_principal",
@@ -199,21 +264,17 @@ func TestOfficialAdaptersHaveEmptyProvisioningByDefault(t *testing.T) {
 			t.Errorf("%s contains %d implicitly provisioned rows", table, count)
 		}
 	}
-	var counterTables int
-	if err := db.QueryRow(`
-		SELECT COUNT(*) FROM sqlite_master
-		WHERE type = 'table' AND name = 'consumer_counter'`).Scan(&counterTables); err != nil {
+	var counterTableExists bool
+	if err := db.QueryRow(`SELECT to_regclass('consumer_counter') IS NOT NULL`).Scan(&counterTableExists); err != nil {
 		t.Fatal(err)
 	}
-	if counterTables != 0 {
+	if counterTableExists {
 		t.Fatal("official adapters created a consumer-domain table")
 	}
 }
 
 func TestConsumerApplicationCommandServesAndDrains(t *testing.T) {
-	definition := mustDefinition(t, project.Config{
-		DatabasePath: privateDatabasePath(t, "serve.db"),
-	})
+	definition := mustDefinition(t, postgresTestConfig(t))
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -660,9 +721,9 @@ func runExplicitMountConformance(t *testing.T, application *appkit.Application) 
 	}
 }
 
-func assertDurableStateAndAudit(t *testing.T, databasePath string) {
+func assertDurableStateAndAudit(t *testing.T, config project.Config) {
 	t.Helper()
-	db := openDatabase(t, databasePath)
+	db := openDatabase(t, config)
 	defer db.Close()
 	assertStoredState(t, db, project.PrimaryScope, counter.State{Value: 15, Version: 5})
 	assertStoredState(t, db, project.SecondaryScope, counter.State{Value: 2, Version: 1})
@@ -671,7 +732,7 @@ func assertDurableStateAndAudit(t *testing.T, databasePath string) {
 	rows, err := db.Query(`
 		SELECT decision, COUNT(*)
 		FROM modary_audit_event
-		WHERE action_id = ?
+		WHERE action_id = $1
 		GROUP BY decision`, counter.ActionID)
 	if err != nil {
 		t.Fatal(err)
@@ -710,7 +771,7 @@ func assertDurableStateAndAudit(t *testing.T, databasePath string) {
 	if err := db.QueryRow(`
 		SELECT error_code, error_kind, reason
 		FROM modary_audit_event
-		WHERE request_id = ?`, "runtime-stale-loser").Scan(&errorCode, &errorKind, &reason); err != nil {
+		WHERE request_id = $1`, "runtime-stale-loser").Scan(&errorCode, &errorKind, &reason); err != nil {
 		t.Fatal(err)
 	}
 	if errorCode != action.CodePlanStale || errorKind != string(action.ErrorKindConflict) || reason != "Counter changed after Preview" {
@@ -778,7 +839,7 @@ func assertCounterConflictAudit(t *testing.T, db *sql.DB) {
 	rows, err := db.Query(`
 		SELECT channel, decision, error_kind, reason, request_id
 		FROM modary_audit_event
-		WHERE action_id = ? AND error_code = ?
+		WHERE action_id = $1 AND error_code = $2
 		ORDER BY channel`, counter.ActionID, counter.ErrorVersionConflict)
 	if err != nil {
 		t.Fatal(err)
@@ -918,7 +979,7 @@ func assertStoredState(t *testing.T, db *sql.DB, execution scope.Execution, expe
 	var actual counter.State
 	if err := db.QueryRow(`
 		SELECT value, version FROM consumer_counter
-		WHERE scope_kind = ? AND scope_id = ?`,
+		WHERE scope_kind = $1 AND scope_id = $2`,
 		execution.Kind,
 		execution.ID,
 	).Scan(&actual.Value, &actual.Version); err != nil {
@@ -929,12 +990,14 @@ func assertStoredState(t *testing.T, db *sql.DB, execution scope.Execution, expe
 	}
 }
 
-func openDatabase(t *testing.T, path string) *sql.DB {
+func openDatabase(t *testing.T, config project.Config) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	parsed, err := pgx.ParseConfig(config.DatabaseURL)
 	if err != nil {
 		t.Fatal(err)
 	}
+	parsed.RuntimeParams["search_path"] = quoteTestIdentifier(config.ApplicationSchema)
+	db := stdlib.OpenDB(*parsed)
 	if err := db.Ping(); err != nil {
 		db.Close()
 		t.Fatal(err)
@@ -942,12 +1005,41 @@ func openDatabase(t *testing.T, path string) *sql.DB {
 	return db
 }
 
-func privateDatabasePath(t *testing.T, name string) string {
+func postgresTestConfig(t *testing.T) project.Config {
 	t.Helper()
-	// The secure SQLite profile creates a missing database directory as 0700.
-	// Keeping it below t.TempDir also avoids relying on the test runner's
-	// platform-specific parent-directory mode.
-	return filepath.Join(t.TempDir(), "private", name)
+	url := os.Getenv("MODARY_TEST_DATABASE_URL")
+	if url == "" {
+		url = os.Getenv("MODARY_DATABASE_URL")
+	}
+	if url == "" {
+		url = "postgres://modary:modary-test-password@127.0.0.1:55432/modary_test?sslmode=disable"
+	}
+	admin, err := sql.Open("pgx", url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.PingContext(context.Background()); err != nil {
+		_ = admin.Close()
+		if strings.Contains(err.Error(), "connection refused") {
+			t.Skipf("PostgreSQL integration service unavailable: %v", err)
+		}
+		t.Fatal(err)
+	}
+	suffix := consumerSchemaSequence.Add(1)
+	config := project.Config{
+		DatabaseURL: url, ApplicationSchema: fmt.Sprintf("counter_test_%d", suffix),
+		QueueSchema: fmt.Sprintf("counter_queue_test_%d", suffix),
+	}
+	t.Cleanup(func() {
+		_, _ = admin.Exec(`DROP SCHEMA IF EXISTS ` + quoteTestIdentifier(config.QueueSchema) + ` CASCADE`)
+		_, _ = admin.Exec(`DROP SCHEMA IF EXISTS ` + quoteTestIdentifier(config.ApplicationSchema) + ` CASCADE`)
+		_ = admin.Close()
+	})
+	return config
+}
+
+func quoteTestIdentifier(identifier string) string {
+	return `"` + strings.ReplaceAll(identifier, `"`, `""`) + `"`
 }
 
 func httpRequest(

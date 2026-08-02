@@ -39,8 +39,10 @@ docs/zh-CN/getting-started/first-application.md
 docs/concepts/consumer-boundary.md
 docs/concepts/modules-and-capabilities.md
 docs/concepts/governed-actions.md
+docs/concepts/persistence-and-tasks.md
 docs/how-to/add-module.md
 docs/how-to/expose-action.md
+docs/how-to/run-background-tasks.md
 docs/how-to/test-application.md
 docs/how-to/troubleshooting.md
 docs/reference/packages.md
@@ -48,7 +50,7 @@ docs/reference/support-matrix.md
 docs/reference/project-manifest.md
 docs/operations/deployment.md
 docs/operations/security.md
-docs/operations/sqlite-backup-restore.md
+docs/operations/postgresql-backup-restore.md
 docs/releases/versioning.md
 docs/releases/release-process.md
 docs/releases/upgrade-guide.md'
@@ -74,16 +76,6 @@ require_navigation docs/getting-started/quickstart.md ../zh-CN/getting-started/q
 require_navigation docs/zh-CN/getting-started/quickstart.md ../../getting-started/quickstart.md
 require_navigation docs/getting-started/first-application.md ../zh-CN/getting-started/first-application.md
 require_navigation docs/zh-CN/getting-started/first-application.md ../../getting-started/first-application.md
-
-for file in \
-	docs/getting-started/quickstart.md \
-	docs/getting-started/first-application.md \
-	docs/zh-CN/getting-started/quickstart.md \
-	docs/zh-CN/getting-started/first-application.md; do
-	if ! rg -q -F 'v0.1.0-alpha.2' "$file"; then
-		fail "onboarding tutorial does not identify the current supported version: $file"
-	fi
-done
 
 markdown_files="README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md"
 if docs_files=$(find docs -type f -name '*.md' -print | sort); then

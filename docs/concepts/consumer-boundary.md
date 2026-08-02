@@ -12,7 +12,7 @@ The consumer owns product meaning and deployment decisions.
   idempotency, transaction ownership, and required audit semantics;
 - domain-neutral application assembly, command orchestration, HTTP/MCP
   projections, project verification, generation, and build policy;
-- explicit official adapters for the supported SQLite/local profile.
+- explicit official adapters for the supported PostgreSQL/local profile.
 
 ## The Consumer Owns
 

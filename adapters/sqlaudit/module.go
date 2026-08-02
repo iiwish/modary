@@ -1,4 +1,4 @@
-// Package sqlaudit provides a neutral SQLite-backed audit Hook.
+// Package sqlaudit provides a neutral PostgreSQL-backed audit Hook.
 //
 // Stability: alpha. Consumers should pin an exact pre-v1 Modary version.
 package sqlaudit
@@ -17,10 +17,10 @@ import (
 // ModuleID is the stable Module manifest and migration owner identifier.
 const ModuleID = "sql-audit"
 
-//go:embed migrations/sqlite/*.sql
+//go:embed migrations/postgres/*.sql
 var migrationFiles embed.FS
 
-var sqliteMigrations = mustMigrationFS()
+var postgresMigrations = mustMigrationFS()
 
 // Options is reserved for future backward-compatible storage policy. Its zero
 // value is the complete F0 contract and provisions no events.
@@ -38,7 +38,7 @@ func Module(_ Options) module.Registration {
 				Requires:      []module.Capability{module.CapabilityDatabase},
 				Provides:      []module.Capability{module.CapabilityAudit},
 			},
-			Migrations: []module.MigrationSource{{Driver: "sqlite", Files: sqliteMigrations}},
+			Migrations: []module.MigrationSource{{Driver: "postgres", Files: postgresMigrations}},
 		},
 		Start: start,
 	}
@@ -56,7 +56,7 @@ func start(ctx context.Context, installation module.Scope) error {
 }
 
 func mustMigrationFS() fs.FS {
-	files, err := fs.Sub(migrationFiles, "migrations/sqlite")
+	files, err := fs.Sub(migrationFiles, "migrations/postgres")
 	if err != nil {
 		panic(err)
 	}

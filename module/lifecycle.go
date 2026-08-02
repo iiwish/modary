@@ -7,6 +7,7 @@ import (
 
 	"github.com/iiwish/modary/action"
 	"github.com/iiwish/modary/identity"
+	"github.com/iiwish/modary/task"
 )
 
 var (
@@ -228,4 +229,33 @@ func (authenticator *assemblyTokenAuthenticator) AuthenticateToken(ctx context.C
 	}
 	defer release()
 	return authenticator.next.AuthenticateToken(callCtx, token)
+}
+
+type assemblyTaskService struct {
+	gate *assemblyGate
+	next task.Service
+}
+
+func (service *assemblyTaskService) Enqueue(ctx context.Context, request task.Request) (task.Receipt, error) {
+	if service == nil || service.gate == nil || service.next == nil {
+		return task.Receipt{}, task.ErrUnavailable
+	}
+	callCtx, release, err := service.gate.acquire(ctx)
+	if err != nil {
+		return task.Receipt{}, task.ErrUnavailable
+	}
+	defer release()
+	return service.next.Enqueue(callCtx, request)
+}
+
+func (service *assemblyTaskService) NewRunner(handler task.Handler, options task.RunnerOptions) (task.Runner, error) {
+	if service == nil || service.gate == nil || service.next == nil {
+		return nil, task.ErrUnavailable
+	}
+	_, release, err := service.gate.acquire(context.Background())
+	if err != nil {
+		return nil, task.ErrUnavailable
+	}
+	defer release()
+	return service.next.NewRunner(handler, options)
 }

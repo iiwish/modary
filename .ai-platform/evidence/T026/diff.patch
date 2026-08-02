@@ -1,0 +1,14 @@
+# T026 reviewed diff manifest
+
+Independent consumer: examples/counter/**
+Transactional task adoption: examples/counter/modules/counter/module.go,
+examples/counter/conformance_test.go,
+examples/counter/internal/generated/module_graph.json
+Physical-schema ownership remediation: adapters/postgres/module.go,
+adapters/postgres/module_test.go
+Canonical documentation: README.md, SECURITY.md, docs/**
+Final acceptance governance: .ai-platform/specs/005-postgres-task-runtime/**,
+.ai-platform/docs/**, .ai-platform/evidence/T026/**
+Quality and CI: Makefile, scripts/**, .github/workflows/ci.yml
+Deleted profile: adapters/sqlite/** and all active embedded-database migrations,
+helpers, tests, dependencies, examples, and operations documents

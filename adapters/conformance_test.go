@@ -9,23 +9,22 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"path/filepath"
 	"testing"
 	"testing/fstest"
 
 	"github.com/iiwish/modary/action"
 	"github.com/iiwish/modary/adapters/localidentity"
+	"github.com/iiwish/modary/adapters/postgres"
 	"github.com/iiwish/modary/adapters/rbac"
 	"github.com/iiwish/modary/adapters/sqlaudit"
-	modarysqlite "github.com/iiwish/modary/adapters/sqlite"
 	"github.com/iiwish/modary/appkit"
 	"github.com/iiwish/modary/audit"
 	"github.com/iiwish/modary/authz"
 	"github.com/iiwish/modary/database"
 	"github.com/iiwish/modary/identity"
+	"github.com/iiwish/modary/internal/testpostgres"
 	"github.com/iiwish/modary/module"
 	"github.com/iiwish/modary/scope"
-	_ "modernc.org/sqlite"
 )
 
 const (
@@ -39,16 +38,16 @@ var conformanceMigrations fs.FS = fstest.MapFS{
 CREATE TABLE counter_value (
     scope_kind TEXT NOT NULL,
     scope_id TEXT NOT NULL,
-    value INTEGER NOT NULL,
-    version INTEGER NOT NULL CHECK (version > 0),
+    value BIGINT NOT NULL,
+    version BIGINT NOT NULL CHECK (version > 0),
     PRIMARY KEY (scope_kind, scope_id)
-) STRICT;
+);
 `)},
 }
 
 func TestOfficialAdaptersComposeForGovernedWrites(t *testing.T) {
 	ctx := context.Background()
-	databasePath := filepath.Join(t.TempDir(), "conformance.db")
+	databaseConfig := testpostgres.New(t)
 	executionScope := scope.Must("tenant", "tenant-alpha")
 	actor := identity.Actor{
 		ID:          "person-one",
@@ -57,7 +56,7 @@ func TestOfficialAdaptersComposeForGovernedWrites(t *testing.T) {
 		Scope:       executionScope,
 	}
 
-	application := startConformanceApplication(t, databasePath, executionScope, 5)
+	application := startConformanceApplication(t, databaseConfig, executionScope, 5)
 	sessions, err := application.Sessions()
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +113,7 @@ func TestOfficialAdaptersComposeForGovernedWrites(t *testing.T) {
 	staleCandidate.PlanHash = stalePreview.PlanHash
 	shutdownApplication(t, application)
 
-	application = startConformanceApplication(t, databasePath, executionScope, 5)
+	application = startConformanceApplication(t, databaseConfig, executionScope, 5)
 	restartReplay := first
 	restartReplay.RequestID = "counter-restart-replay"
 	replayedResult, err := application.Runtime().Execute(ctx, restartReplay)
@@ -123,7 +122,7 @@ func TestOfficialAdaptersComposeForGovernedWrites(t *testing.T) {
 	}
 	shutdownApplication(t, application)
 
-	application = startConformanceApplication(t, databasePath, executionScope, 10)
+	application = startConformanceApplication(t, databaseConfig, executionScope, 10)
 	if _, err := application.Runtime().Execute(ctx, staleCandidate); !action.IsCode(err, action.CodePlanStale) {
 		t.Fatalf("Execute() after policy change error = %v", err)
 	}
@@ -147,15 +146,11 @@ func TestOfficialAdaptersComposeForGovernedWrites(t *testing.T) {
 	}
 	shutdownApplication(t, application)
 
-	db, err := sql.Open("sqlite", databasePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db := testpostgres.Open(t, databaseConfig)
 	var value, version int
 	if err := db.QueryRowContext(ctx, `
 		SELECT value, version FROM counter_value
-		WHERE scope_kind = ? AND scope_id = ?`, executionScope.Kind, executionScope.ID).Scan(&value, &version); err != nil {
+		WHERE scope_kind = $1 AND scope_id = $2`, executionScope.Kind, executionScope.ID).Scan(&value, &version); err != nil {
 		t.Fatal(err)
 	}
 	if value != 3 || version != 1 {
@@ -183,20 +178,25 @@ func TestOfficialAdaptersComposeForGovernedWrites(t *testing.T) {
 		WHERE request_id = 'counter-transaction-failure' AND decision = 'allowed'`)
 }
 
-func startConformanceApplication(t *testing.T, path string, executionScope scope.Execution, maxRows int) *appkit.Application {
+func startConformanceApplication(t *testing.T, config testpostgres.Config, executionScope scope.Execution, maxRows int) *appkit.Application {
 	t.Helper()
-	sqliteRegistration, err := modarysqlite.Module(modarysqlite.Options{Path: path})
+	postgresRegistration, err := postgres.Module(postgres.Options{
+		URL: config.URL, ApplicationSchema: config.ApplicationSchema, QueueSchema: config.QueueSchema,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	identityRegistration, err := localidentity.Module(localidentity.Options{
-		Users: []localidentity.User{{
+		Principals: []localidentity.Principal{{
 			ActorID:     "person-one",
 			ActorType:   "human",
 			DisplayName: "Person One",
 			Scope:       executionScope,
-			Username:    "person@example.test",
-			Password:    conformancePassword,
+		}},
+		PasswordCredentials: []localidentity.PasswordCredential{{
+			ActorID:  "person-one",
+			Username: "person@example.test",
+			Password: conformancePassword,
 		}},
 		BearerTokens: []localidentity.BearerToken{{
 			TokenID: "automation-one",
@@ -226,7 +226,7 @@ func startConformanceApplication(t *testing.T, path string, executionScope scope
 	application, err := appkit.Start(context.Background(), appkit.Definition{
 		Metadata: appkit.Metadata{ID: "adapter-conformance", Name: "Adapter Conformance", Version: "0.1.0"},
 		Modules: []module.Registration{
-			sqliteRegistration,
+			postgresRegistration,
 			identityRegistration,
 			rbacRegistration,
 			sqlaudit.Module(sqlaudit.Options{}),
@@ -257,7 +257,7 @@ func counterRegistration() module.Registration {
 				Requires:      []module.Capability{module.CapabilityDatabase},
 				Provides:      []module.Capability{"counter"},
 			},
-			Migrations: []module.MigrationSource{{Driver: "sqlite", Files: conformanceMigrations}},
+			Migrations: []module.MigrationSource{{Driver: "postgres", Files: conformanceMigrations}},
 			Actions: []module.ActionBinding{{
 				Descriptor: action.Descriptor{
 					ID:      conformanceActionID,
@@ -316,7 +316,7 @@ func (handler *counterHandler) Plan(ctx context.Context, request action.Request)
 	var current, version int
 	err := handler.db.QueryRowContext(ctx, `
 		SELECT value, version FROM counter_value
-		WHERE scope_kind = ? AND scope_id = ?`, request.Scope.Kind, request.Scope.ID).Scan(&current, &version)
+		WHERE scope_kind = $1 AND scope_id = $2`, request.Scope.Kind, request.Scope.ID).Scan(&current, &version)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return action.PlanData{}, err
 	}
@@ -346,11 +346,11 @@ func (handler *counterHandler) Execute(ctx context.Context, plan action.Plan) (a
 	}
 	result, err := handler.db.ExecContext(ctx, `
 		INSERT INTO counter_value (scope_kind, scope_id, value, version)
-		VALUES (?, ?, ?, 1)
+		VALUES ($1, $2, $3, 1)
 		ON CONFLICT(scope_kind, scope_id) DO UPDATE SET
 			value = excluded.value,
 			version = counter_value.version + 1
-		WHERE counter_value.version = ?`,
+		WHERE counter_value.version = $4`,
 		plan.Scope.Kind, plan.Scope.ID, payload.NextValue, payload.ExpectedVersion)
 	if err != nil {
 		return action.Result{}, err

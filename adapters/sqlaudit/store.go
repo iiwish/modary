@@ -25,7 +25,7 @@ var ErrContextRequired = errors.New("SQL Audit context is required")
 
 var digestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
-const sqliteTimestampFormat = "2006-01-02T15:04:05.000000000Z07:00"
+const databaseTimestampFormat = "2006-01-02T15:04:05.000000000Z07:00"
 
 type hook struct{ control databasecontrol.Control }
 
@@ -72,7 +72,7 @@ func (store *hook) Record(ctx context.Context, event audit.Event) error {
 		 contract_hash, scope_kind, scope_id, input_hash, plan_hash, decision,
 		 audit_level, result_summary, impact_rows, impact_resources_json,
 		 result_references_json, error_code, error_kind, reason, started_at, finished_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb, $17::jsonb, $18, $19, $20, $21, $22)`,
 		event.RequestID, event.ActorID, event.ActorType, event.Channel, event.ActionID,
 		event.ActionVersion, event.ContractHash, event.Scope.Kind, event.Scope.ID,
 		event.InputHash, event.PlanHash, event.Decision, event.AuditLevel,
@@ -345,7 +345,7 @@ func (store *hook) load(ctx context.Context, eventID int64) (audit.Event, error)
 		       contract_hash, scope_kind, scope_id, input_hash, plan_hash, decision,
 		       audit_level, result_summary, impact_rows, impact_resources_json,
 		       result_references_json, error_code, error_kind, reason, started_at, finished_at
-		FROM modary_audit_event WHERE event_id = ?`, eventID).Scan(
+			FROM modary_audit_event WHERE event_id = $1`, eventID).Scan(
 		&event.RequestID, &event.ActorID, &event.ActorType, &event.Channel,
 		&event.ActionID, &event.ActionVersion, &event.ContractHash, &event.Scope.Kind,
 		&event.Scope.ID, &event.InputHash, &event.PlanHash, &event.Decision,
@@ -381,11 +381,11 @@ func (store *hook) load(ctx context.Context, eventID int64) (audit.Event, error)
 }
 
 func formatTimestamp(value time.Time) string {
-	return value.UTC().Format(sqliteTimestampFormat)
+	return value.UTC().Format(databaseTimestampFormat)
 }
 
 func parseTimestamp(value string) (time.Time, error) {
-	parsed, err := time.Parse(sqliteTimestampFormat, value)
+	parsed, err := time.Parse(databaseTimestampFormat, value)
 	if err != nil || value != formatTimestamp(parsed) {
 		return time.Time{}, fmt.Errorf("timestamp is not canonical UTC")
 	}

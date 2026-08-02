@@ -344,7 +344,7 @@ func TestDefinitionOwnsActionsAndMigrationsWithoutInspectingRuntimeValues(t *tes
 			return inertActionHandler{}, nil
 		},
 	}}
-	migrations := []MigrationSource{{Driver: "sqlite", Files: panicMigrationFS{}}}
+	migrations := []MigrationSource{{Driver: "postgres", Files: panicMigrationFS{}}}
 	registration := Registration{
 		Definition: Definition{
 			Manifest:   validManifest("counter", "feature", nil, []string{"counter", "database"}),
@@ -386,10 +386,10 @@ func TestDefinitionRejectsInvalidMigrationDeclarations(t *testing.T) {
 		migrations []MigrationSource
 		want       string
 	}{
-		{name: "driver", migrations: []MigrationSource{{Driver: "SQLite!", Files: panicMigrationFS{}}}, want: "invalid migration driver"},
-		{name: "nil files", migrations: []MigrationSource{{Driver: "sqlite"}}, want: "has no files"},
-		{name: "typed nil files", migrations: []MigrationSource{{Driver: "sqlite", Files: (*panicMigrationFS)(nil)}}, want: "has no files"},
-		{name: "duplicate driver", migrations: []MigrationSource{{Driver: "sqlite", Files: panicMigrationFS{}}, {Driver: "sqlite", Files: panicMigrationFS{}}}, want: "more than once"},
+		{name: "driver", migrations: []MigrationSource{{Driver: "Postgres!", Files: panicMigrationFS{}}}, want: "invalid migration driver"},
+		{name: "nil files", migrations: []MigrationSource{{Driver: "postgres"}}, want: "has no files"},
+		{name: "typed nil files", migrations: []MigrationSource{{Driver: "postgres", Files: (*panicMigrationFS)(nil)}}, want: "has no files"},
+		{name: "duplicate driver", migrations: []MigrationSource{{Driver: "postgres", Files: panicMigrationFS{}}, {Driver: "postgres", Files: panicMigrationFS{}}}, want: "more than once"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -415,7 +415,7 @@ func TestRegisterRejectsMigrationsWithoutDatabaseCapabilityBeforeLifecycle(t *te
 			return nil
 		},
 	)
-	registration.Definition.Migrations = []MigrationSource{{Driver: "sqlite", Files: panicMigrationFS{}}}
+	registration.Definition.Migrations = []MigrationSource{{Driver: "postgres", Files: panicMigrationFS{}}}
 	if err := host.Register(registration); err == nil || !strings.Contains(err.Error(), "without requiring or providing capability \"database\"") {
 		t.Fatalf("Register() error = %v", err)
 	}
