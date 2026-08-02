@@ -4,10 +4,10 @@
 - Governing contract: `.ai-platform/specs/005-postgres-task-runtime/spec.md`
 - Date: 2026-08-02
 - Status: Accepted
-- Accepted source: current reviewed working source; release commit not created
-- Consumption status: Local source checkout
-- Distribution status: Not_released
-- Version tag: None
+- Accepted source: f39457a52c10ceecd8defb77e0def1b331c45dd2
+- Consumption status: Tagged Go module and source checkout
+- Distribution status: Released
+- Version tag: v0.1.0-alpha.3
 - License: Apache-2.0
 
 ## Verdict
@@ -17,8 +17,8 @@ source consumption. PostgreSQL is the only official durable profile; the public
 task API is domain-neutral; River and raw transaction authority remain private;
 and the independently copied-out Counter consumer uses only public contracts.
 
-This verdict does not claim a new remote version tag or published module. The
-latest historical release does not contain this profile.
+The accepted source is published as `v0.1.0-alpha.3`. Hosted tag CI and normal
+copied-out Go module consumption verify the same immutable commit.
 
 ## Acceptance Matrix
 
@@ -43,7 +43,6 @@ latest historical release does not contain this profile.
 
 ## Release Boundary
 
-Publishing `v0.1.0-alpha.3` requires a clean committed candidate, successful tag
-CI against PostgreSQL 17, normal Go module resolution, and copied-out remote
-consumer verification. Consumers use the current source checkout until those
-external gates pass.
+Alpha 3 passed clean candidate validation, hosted CI against PostgreSQL 17,
+normal Go module resolution, and copied-out remote consumer verification.
+Future releases repeat those gates and never move a published tag.

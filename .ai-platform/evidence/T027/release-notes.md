@@ -45,6 +45,15 @@ container, public-internet IAM suite, distributed transaction system, database
 failover controller, or hostile plugin sandbox. Task delivery is at least once;
 consumer handlers keep external effects idempotent.
 
+## Validation
+
+- Candidate commit: `f39457a52c10ceecd8defb77e0def1b331c45dd2`
+- Hosted main CI: https://github.com/iiwish/modary/actions/runs/30728949673
+- Hosted tag CI and remote consumer:
+  https://github.com/iiwish/modary/actions/runs/30729209127
+- Normal Go module resolution and an independent local copied-out remote
+  consumer both resolved `v0.1.0-alpha.3` without a replacement.
+
 Read `docs/f0-known-limitations.md`, `docs/reference/support-matrix.md`, and
 `docs/operations/security.md` before deployment. Report vulnerabilities through
 https://github.com/iiwish/modary/security/advisories/new.

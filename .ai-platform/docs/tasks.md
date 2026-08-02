@@ -12,7 +12,7 @@ The active PostgreSQL-first work graph is
 | T024 | Completed | PostgreSQL control adapter, governed transaction binding, and public task contract |
 | T025 | Completed | PostgreSQL-native Action, Identity, RBAC, Audit, and migration persistence |
 | T026 | Completed | Independent consumer, deletion audit, documentation, full gates, and two-pass review |
-| T027 | In_Progress | Immutable Alpha 3 publication, hosted CI, remote consumption, and release evidence |
+| T027 | Completed | Immutable Alpha 3 publication, hosted CI, remote consumption, and release evidence |
 
 ## T026: Consumer, Deletion, And Acceptance
 
@@ -65,7 +65,7 @@ Evidence required: `.ai-platform/evidence/T026/summary.md`, `diff.patch`,
 
 ## T027: Publish PostgreSQL Alpha 3
 
-Status: In_Progress
+Status: Completed
 Priority: P0
 Dependencies: T026
 Blocks: Remote consumption of the PostgreSQL and River release

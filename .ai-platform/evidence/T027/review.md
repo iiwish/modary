@@ -1,13 +1,13 @@
 # T027 Release Review
 
-- Stage: Candidate
+- Stage: Final
 - Date: 2026-08-02
 - Verdict: Pass
 - P0: 0
 - P1: 0
 - P2: 0
 
-## Candidate Scope
+## Release Scope
 
 The candidate publishes the already accepted independent Modary framework. It
 does not add a product, UI, binary, container, stable compatibility promise, or
@@ -16,7 +16,7 @@ profile is incompatible with the historical embedded-storage Alpha 2 profile.
 
 ## Release Safety
 
-The packet requires clean candidate validation, hosted main CI, annotated-tag
-preflight, hosted tag CI, normal Go module resolution, and copied-out remote
-consumption in order. Earlier tags remain immutable. Final acceptance remains
-open until external evidence replaces this candidate-stage review.
+Clean candidate validation, hosted main CI, annotated-tag preflight, hosted tag
+CI, normal Go module resolution, and copied-out remote consumption passed in
+order. The tag and release resolve to the reviewed candidate commit. Earlier
+tags remain immutable, and no release claim exceeds the documented Alpha scope.

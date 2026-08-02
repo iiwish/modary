@@ -6,7 +6,7 @@
 
 ## T027: Publish PostgreSQL Alpha 3
 
-Status: In_Progress
+Status: Completed
 Priority: P0
 Depends on: T026
 Blocks: Remote consumption of the PostgreSQL and River release

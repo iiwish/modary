@@ -4,6 +4,10 @@ All notable Modary changes are recorded here. Versioning follows semantic
 versioning terminology; every pre-v1 release remains an Alpha contract unless
 its release notes explicitly state otherwise.
 
+## Unreleased
+
+No changes have been recorded after Alpha 3.
+
 ## v0.1.0-alpha.3 - 2026-08-02
 
 ### Changed

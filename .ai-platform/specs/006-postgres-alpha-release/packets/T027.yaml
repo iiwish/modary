@@ -50,6 +50,6 @@ evidence_contract:
 review_contract:
   required_passes: [immutable_identity, compatibility_claims, candidate_validation, hosted_ci, remote_consumer, release_metadata]
 handoff:
-  status: release_in_progress
-  next_step: stop at the first failed release gate or complete external verification
+  status: released_and_remote_verified
+  next_step: begin downstream consumer development against the exact Alpha 3 version
 stop_conditions: [candidate or tag preflight fails, hosted main or tag CI fails, module resolution fails, remote consumer fails, an earlier tag would need mutation]

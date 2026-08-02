@@ -161,15 +161,15 @@ for review in .ai-platform/evidence/T026/review-3.md .ai-platform/evidence/T026/
 done
 
 require_line docs/f0-acceptance-report.md '- Status: Accepted'
-require_line docs/f0-acceptance-report.md '- Distribution status: Not_released'
-require_line docs/f0-acceptance-report.md '- Version tag: None'
-require_line .ai-platform/docs/release-report.md '- Report version: 2.1'
-require_line .ai-platform/docs/release-report.md '- Status: Distribution_ready'
+require_line docs/f0-acceptance-report.md '- Distribution status: Released'
+require_line docs/f0-acceptance-report.md '- Version tag: v0.1.0-alpha.3'
+require_line .ai-platform/docs/release-report.md '- Report version: 2.2'
+require_line .ai-platform/docs/release-report.md '- Status: Remote_verified'
 require_line .ai-platform/docs/release-report.md '- Technical F0 acceptance: Accepted'
 require_line .ai-platform/docs/release-report.md '- Engineering readiness: Accepted'
-require_line .ai-platform/docs/release-report.md '- Distribution status: Not_released'
-require_line .ai-platform/docs/release-report.md '- Version tag: None'
-require_line .ai-platform/docs/release-report.md '- Remote consumer verification: Not_run'
+require_line .ai-platform/docs/release-report.md '- Distribution status: Released'
+require_line .ai-platform/docs/release-report.md '- Version tag: v0.1.0-alpha.3'
+require_line .ai-platform/docs/release-report.md '- Remote consumer verification: Passed'
 require_line .ai-platform/docs/release-report.md '- Owner-selected redistribution license: Apache-2.0'
 require_line .ai-platform/docs/release-report.md '- Target version: v0.1.0-alpha.3'
 

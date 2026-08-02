@@ -23,10 +23,10 @@ runner configuration, retry metadata, and lifecycle without exposing River or
 database transaction types. Delivery is at least once, so consumers use stable
 job identity and idempotent external effects.
 
-The PostgreSQL and task profile is the `v0.1.0-alpha.3` pre-v1 release contract.
+The PostgreSQL and task profile is published as the `v0.1.0-alpha.3` pre-v1 release contract.
 `v0.1.0-alpha.2` remains the historical embedded-storage release and does not
-contain this profile. Alpha 3 must pass the current release, PostgreSQL, remote
-consumer, documentation, and tag-CI gates before distribution is complete.
+contain this profile. Alpha 3 passes the release, PostgreSQL, remote-consumer,
+documentation, and tag-CI gates.
 
 Framework acceptance is self-contained. The Counter conformance application is
 copied outside the repository, runs as its own Go module with `GOWORK=off`, and

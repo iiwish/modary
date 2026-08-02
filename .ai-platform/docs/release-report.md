@@ -1,16 +1,21 @@
 # Modary PostgreSQL Alpha Readiness Report
 
-- Report version: 2.1
-- Status: Distribution_ready
+- Report version: 2.2
+- Status: Remote_verified
 - Technical F0 acceptance: Accepted
 - Engineering readiness: Accepted
 - Onboarding readiness: Accepted for source-checkout consumption
-- Current source version: v0.1.0-alpha.3 release candidate
+- Current source version: v0.1.0-alpha.3
 - Target version: v0.1.0-alpha.3
-- Distribution status: Not_released
-- Version tag: None
-- Remote consumer verification: Not_run
-- Latest published historical version: v0.1.0-alpha.2
+- Distribution status: Released
+- Version tag: v0.1.0-alpha.3
+- Remote consumer verification: Passed
+- Latest supported release: v0.1.0-alpha.3
+- Candidate and tag commit: f39457a52c10ceecd8defb77e0def1b331c45dd2
+- Annotated tag object: 55e0a5b0d7b8a8422f4e9bd2e504b7d61d50d9c0
+- Main CI: https://github.com/iiwish/modary/actions/runs/30728949673
+- Tag CI: https://github.com/iiwish/modary/actions/runs/30729209127
+- Release: https://github.com/iiwish/modary/releases/tag/v0.1.0-alpha.3
 - Canonical remote: https://github.com/iiwish/modary
 - Owner-selected redistribution license: Apache-2.0
 - Private security reporting channel: https://github.com/iiwish/modary/security/advisories/new
@@ -45,14 +50,13 @@ enqueue durable work, stop its producer application, and consume the job after a
 restart through public contracts alone. This self-contained conformance boundary
 does not depend on a downstream product repository.
 
-The current source is suitable for coordinated source-checkout development by
-independent consumers and is the accepted `v0.1.0-alpha.3` candidate. It must
-not be advertised as remotely consumable until the immutable tag, tag CI,
-normal Go module resolution, and copied-out remote consumer gate all pass.
+The accepted source is published and remotely consumable as
+`v0.1.0-alpha.3`. The immutable annotated tag, hosted main and tag CI, normal Go
+module resolution, and hosted and local copied-out remote consumer gates all
+identify candidate commit `f39457a52c10ceecd8defb77e0def1b331c45dd2`.
 
 ## Release Boundary
 
-Publication freezes and commits the accepted source, runs release preflight and
-full CI against PostgreSQL 17, creates the immutable `v0.1.0-alpha.3` annotated
-tag, verifies normal Go proxy consumption, and publishes matching release
-notes. Until those external checks pass, distribution remains unclaimed.
+Alpha 3 is `Remote_Verified`. Future releases repeat the clean candidate,
+immutable tag, hosted CI, normal module resolution, copied-out consumer, and
+matching release-note process. Published tags and migrations remain immutable.
