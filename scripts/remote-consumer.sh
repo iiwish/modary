@@ -7,7 +7,7 @@ if test -z "$root"; then
 	root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 fi
 
-for tool in grep awk mktemp cp mkdir chmod rm; do
+for tool in grep awk mktemp cp mkdir chmod rm cat; do
 	if ! command -v "$tool" >/dev/null 2>&1; then
 		printf 'remote consumer gate requires %s\n' "$tool" >&2
 		exit 2
@@ -57,16 +57,29 @@ export GOFLAGS
 for module_path in \
 	github.com/iiwish/modary \
 	github.com/iiwish/modary/components/postgres \
-	github.com/iiwish/modary/components/governedpostgres; do
+	github.com/iiwish/modary/components/governedpostgres \
+	github.com/iiwish/modary/components/oidc \
+	github.com/iiwish/modary/components/otel; do
 	"$GO" mod edit -dropreplace="$module_path"
 	"$GO" mod edit -require="$module_path@$version"
 done
+mkdir -p releaseprobe
+cat >releaseprobe/releaseprobe.go <<'EOF'
+package releaseprobe
+
+import (
+	_ "github.com/iiwish/modary/components/oidc"
+	_ "github.com/iiwish/modary/components/otel"
+)
+EOF
 "$GO" mod tidy
 
 for module_path in \
 	github.com/iiwish/modary \
 	github.com/iiwish/modary/components/postgres \
-	github.com/iiwish/modary/components/governedpostgres; do
+	github.com/iiwish/modary/components/governedpostgres \
+	github.com/iiwish/modary/components/oidc \
+	github.com/iiwish/modary/components/otel; do
 	resolved_version=$("$GO" list -m -f '{{.Version}}' "$module_path")
 	if test "$resolved_version" != "$version"; then
 		printf 'remote consumer resolved %s %s, want %s\n' "$module_path" "$resolved_version" "$version" >&2
@@ -86,4 +99,4 @@ MODARY_EXTERNAL_CONSUMER_COPIED_OUT=1 "$GO" test -count=1 ./...
 "$GO" build ./...
 "$GO" run ./cmd/counter-console version
 
-printf 'remote consumer passed: modules=3 version=%s\n' "$version"
+printf 'remote consumer passed: modules=5 version=%s\n' "$version"

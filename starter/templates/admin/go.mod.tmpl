@@ -5,6 +5,10 @@ go 1.26.5
 require (
 	github.com/iiwish/modary {{.ModaryVersion}}
 	github.com/iiwish/modary/components/postgres {{.ModaryVersion}}
+	{{if .HasOIDC}}github.com/iiwish/modary/components/oidc {{.ModaryVersion}}
+	{{end}}
+	{{if .HasOTel}}github.com/iiwish/modary/components/otel {{.ModaryVersion}}
+	{{end}}
 	{{if .HasTasks}}github.com/iiwish/modary/components/governedpostgres {{.ModaryVersion}}
 	{{end}}
 )
@@ -12,6 +16,12 @@ require (
 replace github.com/iiwish/modary => {{quote .ModaryReplace}}
 
 replace github.com/iiwish/modary/components/postgres => {{quote .PostgresReplace}}
+
+{{if .HasOIDC}}replace github.com/iiwish/modary/components/oidc => {{quote .OIDCReplace}}
+{{end}}
+
+{{if .HasOTel}}replace github.com/iiwish/modary/components/otel => {{quote .OTelReplace}}
+{{end}}
 
 {{if .HasTasks}}replace github.com/iiwish/modary/components/governedpostgres => {{quote .GovernedReplace}}
 {{end}}

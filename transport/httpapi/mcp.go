@@ -26,6 +26,7 @@ import (
 	frameworkschema "github.com/iiwish/modary/internal/jsonschema"
 	"github.com/iiwish/modary/internal/jsonvalue"
 	"github.com/iiwish/modary/internal/safeerr"
+	"github.com/iiwish/modary/scope"
 )
 
 // MCP protocol and resource limits used when MCPOptions fields are zero.
@@ -51,6 +52,7 @@ type MCPOptions struct {
 	MaxBodyBytes       int64
 	RequestTimeout     time.Duration
 	MaxConcurrentCalls int
+	ResolveScope       ScopeResolver
 }
 
 type mcpHandler struct {
@@ -63,6 +65,7 @@ type mcpHandler struct {
 	maxBodyBytes   int64
 	requestTimeout time.Duration
 	calls          chan struct{}
+	resolveScope   ScopeResolver
 }
 
 type mcpOperation string
@@ -134,6 +137,9 @@ func NewMCP(application *appkit.Application, options MCPOptions) (http.Handler, 
 	if !application.Ready() {
 		return nil, fmt.Errorf("MCP application: %w", appkit.ErrApplicationUnavailable)
 	}
+	if options.ResolveScope == nil {
+		return nil, fmt.Errorf("MCP scope resolver is required")
+	}
 	if options.MaxBodyBytes < 0 {
 		return nil, fmt.Errorf("MCP max body bytes cannot be negative")
 	}
@@ -181,7 +187,8 @@ func NewMCP(application *appkit.Application, options MCPOptions) (http.Handler, 
 		metadata: application.Metadata(), runtime: application.Runtime(), tokens: tokens,
 		tools: tools, toolByName: byName, allowedOrigins: allowedOrigins,
 		maxBodyBytes: options.MaxBodyBytes, requestTimeout: options.RequestTimeout,
-		calls: make(chan struct{}, options.MaxConcurrentCalls),
+		calls:        make(chan struct{}, options.MaxConcurrentCalls),
+		resolveScope: options.ResolveScope,
 	}, nil
 }
 
@@ -261,6 +268,11 @@ func (handler *mcpHandler) serveHTTP(writer http.ResponseWriter, request *http.R
 		})
 		return
 	}
+	executionScope, err := handler.resolveScope(request, actor)
+	if err != nil || executionScope.Validate() != nil {
+		handler.writeRPC(writer, http.StatusBadRequest, mcpRPCResponse{JSONRPC: "2.0", Error: &mcpRPCError{Code: -32602, Message: "execution scope is invalid"}})
+		return
+	}
 	rpc, status, rpcErr := decodeMCPRequest(writer, request, handler.maxBodyBytes)
 	if rpcErr != nil {
 		handler.writeRPC(writer, status, mcpRPCResponse{JSONRPC: "2.0", ID: rpc.ID, Error: rpcErr})
@@ -276,10 +288,10 @@ func (handler *mcpHandler) serveHTTP(writer http.ResponseWriter, request *http.R
 			return
 		}
 	}
-	handler.dispatch(ctx, writer, rpc, actor)
+	handler.dispatch(ctx, writer, rpc, actor, executionScope)
 }
 
-func (handler *mcpHandler) dispatch(ctx context.Context, writer http.ResponseWriter, rpc mcpRPCRequest, actor identity.Actor) {
+func (handler *mcpHandler) dispatch(ctx context.Context, writer http.ResponseWriter, rpc mcpRPCRequest, actor identity.Actor, executionScope scope.Execution) {
 	notification := len(rpc.ID) == 0
 	switch rpc.Method {
 	case "initialize":
@@ -340,7 +352,7 @@ func (handler *mcpHandler) dispatch(ctx context.Context, writer http.ResponseWri
 			writer.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		handler.callTool(ctx, writer, rpc, actor)
+		handler.callTool(ctx, writer, rpc, actor, executionScope)
 	default:
 		if notification {
 			writer.WriteHeader(http.StatusAccepted)
@@ -386,7 +398,7 @@ func (handler *mcpHandler) listTools(writer http.ResponseWriter, rpc mcpRPCReque
 	})
 }
 
-func (handler *mcpHandler) callTool(ctx context.Context, writer http.ResponseWriter, rpc mcpRPCRequest, actor identity.Actor) {
+func (handler *mcpHandler) callTool(ctx context.Context, writer http.ResponseWriter, rpc mcpRPCRequest, actor identity.Actor, executionScope scope.Execution) {
 	var params struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments,omitempty"`
@@ -417,7 +429,7 @@ func (handler *mcpHandler) callTool(ctx context.Context, writer http.ResponseWri
 		return
 	}
 	request := action.Request{
-		Actor: actor, Channel: action.ChannelMCP, ActionID: tool.actionID, Scope: actor.Scope,
+		Actor: actor, Channel: action.ChannelMCP, ActionID: tool.actionID, Scope: executionScope,
 		Input: arguments.Input, PlanHash: arguments.PlanHash, IdempotencyKey: arguments.IdempotencyKey,
 	}
 	if tool.operation == mcpPreview {

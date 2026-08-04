@@ -33,7 +33,7 @@ func TestNewMCPValidatesDependenciesAndOptions(t *testing.T) {
 	}
 
 	withoutTokens := newHTTPTestApplication(t, true)
-	if handler, err := NewMCP(withoutTokens.app, MCPOptions{}); err == nil || handler != nil || !errors.Is(err, appkit.ErrTokensUnavailable) {
+	if handler, err := NewMCP(withoutTokens.app, MCPOptions{ResolveScope: fixedScope(scope.Must("tenant", "mcp-test"))}); err == nil || handler != nil || !errors.Is(err, appkit.ErrTokensUnavailable) {
 		t.Fatalf("NewMCP(missing tokens) = %#v, %v", handler, err)
 	}
 
@@ -217,7 +217,6 @@ func TestMCPRejectsInvalidAuthenticatedActorsBeforeDiscovery(t *testing.T) {
 		{name: "missing id", mutate: func(actor *identity.Actor) { actor.ID = "" }},
 		{name: "invalid type", mutate: func(actor *identity.Actor) { actor.Type = " agent" }},
 		{name: "invalid display name", mutate: func(actor *identity.Actor) { actor.DisplayName = "agent\nsecret" }},
-		{name: "invalid scope", mutate: func(actor *identity.Actor) { actor.Scope = scope.Execution{} }},
 	}
 	methods := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test-client","version":"1.0.0"}}}`,
@@ -416,7 +415,7 @@ func TestMCPToolDiscoverySchemasAndGovernedExecution(t *testing.T) {
 	}
 	assertTextMirrorsStructured(t, executeEnvelope.Result.Content[0].Text, executeEnvelope.Result.StructuredContent)
 	plan := application.actionHandler.executedPlan()
-	if plan.Channel != action.ChannelMCP || plan.Scope != application.actor.Scope || plan.ActorID != application.actor.ID || plan.ActorType != application.actor.Type {
+	if plan.Channel != action.ChannelMCP || plan.Scope != application.executionScope || plan.ActorID != application.actor.ID || plan.ActorType != application.actor.Type {
 		t.Fatalf("governed execution plan = %#v", plan)
 	}
 
@@ -1159,11 +1158,12 @@ func TestMCPNotificationsPingPanicRecoveryAndErrorRedaction(t *testing.T) {
 }
 
 type mcpTestApplication struct {
-	app           *appkit.Application
-	actor         identity.Actor
-	tokens        *mcpTestTokens
-	actionHandler *testActionHandler
-	audit         *mcpAuditRecorder
+	app            *appkit.Application
+	actor          identity.Actor
+	tokens         *mcpTestTokens
+	actionHandler  *testActionHandler
+	audit          *mcpAuditRecorder
+	executionScope scope.Execution
 }
 
 func newMCPTestApplication(t *testing.T) *mcpTestApplication {
@@ -1173,7 +1173,7 @@ func newMCPTestApplication(t *testing.T) *mcpTestApplication {
 func newMCPTestApplicationWithInputSchema(t *testing.T, inputSchema json.RawMessage) *mcpTestApplication {
 	t.Helper()
 	executionScope := scope.Must("tenant", "mcp-test")
-	actor := identity.Actor{ID: "agent-1", Type: "agent", DisplayName: "Test Agent", Scope: executionScope}
+	actor := identity.Actor{ID: "agent-1", Type: "agent", DisplayName: "Test Agent"}
 	tokens := &mcpTestTokens{actor: actor, start: make(chan struct{})}
 	actionHandler := &testActionHandler{}
 	auditRecorder := &mcpAuditRecorder{}
@@ -1184,6 +1184,7 @@ func newMCPTestApplicationWithInputSchema(t *testing.T, inputSchema json.RawMess
 			module.CapabilityAuthorization,
 			module.CapabilityAudit,
 			module.CapabilityIdentity,
+			module.CapabilityBearers,
 			"consumer",
 		},
 	}
@@ -1226,7 +1227,7 @@ func newMCPTestApplicationWithInputSchema(t *testing.T, inputSchema json.RawMess
 		t.Fatalf("appkit.Start() error = %v", err)
 	}
 	t.Cleanup(func() { _ = application.Shutdown(context.Background()) })
-	return &mcpTestApplication{app: application, actor: actor, tokens: tokens, actionHandler: actionHandler, audit: auditRecorder}
+	return &mcpTestApplication{app: application, actor: actor, tokens: tokens, actionHandler: actionHandler, audit: auditRecorder, executionScope: executionScope}
 }
 
 type mcpAuditRecorder struct {
@@ -1325,6 +1326,9 @@ func (tokens *mcpTestTokens) waitForBlockedAuthentication(t *testing.T) {
 
 func mustNewMCP(t *testing.T, application *appkit.Application, options MCPOptions) http.Handler {
 	t.Helper()
+	if options.ResolveScope == nil {
+		options.ResolveScope = fixedScope(scope.Must("tenant", "mcp-test"))
+	}
 	handler, err := NewMCP(application, options)
 	if err != nil {
 		t.Fatalf("NewMCP() error = %v", err)

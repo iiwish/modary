@@ -45,6 +45,8 @@ jobs:
             go.sum
             components/postgres/go.sum
             components/governedpostgres/go.sum
+            components/oidc/go.sum
+            components/otel/go.sum
             integration/go.sum
             examples/counter/go.sum
       - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
@@ -61,7 +63,7 @@ jobs:
 
   copied-profiles:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 55
     services:
       postgres:
         image: postgres:17-alpine
@@ -90,6 +92,8 @@ jobs:
             go.sum
             components/postgres/go.sum
             components/governedpostgres/go.sum
+            components/oidc/go.sum
+            components/otel/go.sum
       - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
         with:
           node-version: 24
@@ -115,6 +119,8 @@ jobs:
             go.sum
             components/postgres/go.sum
             components/governedpostgres/go.sum
+            components/oidc/go.sum
+            components/otel/go.sum
             integration/go.sum
             examples/counter/go.sum
       - name: Record native toolchain
@@ -142,11 +148,28 @@ jobs:
       - name: Verify the gate leaves source unchanged
         run: git status --short && test -z "$(git status --porcelain --untracked-files=all)"
 
+  operational-providers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            components/oidc/go.sum
+            components/otel/go.sum
+      - run: make provider-acceptance
+      - name: Verify provider acceptance leaves source unchanged
+        run: git status --short && test -z "$(git status --porcelain --untracked-files=all)"
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [quality, copied-profiles, darwin-arm64]
+    needs: [quality, copied-profiles, darwin-arm64, operational-providers]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 55
     permissions:
       contents: read
     services:
@@ -177,10 +200,13 @@ jobs:
             go.sum
             components/postgres/go.sum
             components/governedpostgres/go.sum
+            components/oidc/go.sum
+            components/otel/go.sum
             examples/counter/go.sum
       - name: Install repository scanner
         run: sudo apt-get update && sudo apt-get install --no-install-recommends -y ripgrep
       - run: make release-preflight VERSION="${GITHUB_REF_NAME}" RELEASE_MODE=tag
       - run: make remote-consumer VERSION="${GITHUB_REF_NAME}"
+      - run: make released-container-acceptance VERSION="${GITHUB_REF_NAME}"
       - name: Verify the release gates leave source unchanged
         run: git status --short && test -z "$(git status --porcelain --untracked-files=all)"

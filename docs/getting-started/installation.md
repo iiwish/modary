@@ -9,10 +9,8 @@
 
 ## Current Version State
 
-The current branch targets `v0.2.0-alpha.1` and is accepted as a source F0. It
-is not a published tag. The immutable published baseline is
-`v0.1.0-alpha.3`, whose product surface is the Governed stack and Counter
-consumer rather than the v0.2 Starter Profiles.
+The current supported release is `v0.3.0-alpha.1`. The immutable
+`v0.2.0-alpha.1` tag is the preceding React component-framework baseline.
 
 Pre-v1 consumers pin exact versions. Do not use `latest`, a branch, or a broad
 version range in production.
@@ -32,18 +30,20 @@ go run ./cmd/modary new ../sample-api --profile api \
 local `replace` directive into the new project. Remove that directive and pin a
 published exact version before distributing the consumer.
 
-## Use A Published v0.2 Starter
-
-After the target tag is published:
+## Use The Published v0.3 Starter
 
 ```bash
-go run github.com/iiwish/modary/cmd/modary@v0.2.0-alpha.1 \
+go run github.com/iiwish/modary/cmd/modary@v0.3.0-alpha.1 \
   new sample-api --profile api --module example.com/acme/sample-api
 ```
 
 The global command is create-only. It accepts a nonexistent or empty real
 directory, validates all templates first, and refuses to merge, overwrite, or
 patch a non-empty destination.
+
+Admin selections are repeatable: `--with tasks`, `--with audit`, `--with oidc`,
+and `--with otel`. OIDC replaces local password login. OTel changes only the
+backend module graph and process readiness; it adds no UI surface.
 
 ## Verify A New Project
 

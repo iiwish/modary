@@ -1,0 +1,65 @@
+schema_version: 1
+packet_id: EP-010-T043
+task_id: T043
+feature_id: 010-production-foundation
+mode: execute_one_task
+title: Production OIDC Component And Admin Flow
+status: Completed
+adapter: direct
+goal: >-
+  Deliver a separate generic OIDC module and explicitly selected Admin browser
+  flow backed by revocable application sessions.
+requirements: [US-001, US-002, FR-005, FR-006, FR-007, FR-018, NFR-001, NFR-005]
+depends_on: [T042]
+conflicts_with: [T042, T047, T048]
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  spec: .ai-platform/specs/010-production-foundation/spec.md
+  checklist: .ai-platform/specs/010-production-foundation/checklists/requirements.md
+  plan: .ai-platform/specs/010-production-foundation/plan.md
+  analysis: .ai-platform/specs/010-production-foundation/analysis.md
+  work_graph: .ai-platform/specs/010-production-foundation/tasks.md
+  approval: explicit owner instruction on 2026-08-04
+work_unit:
+  title: Production OIDC Component And Admin Flow
+  goal: Deliver a separate generic OIDC module and selected Admin browser flow backed by revocable sessions.
+  requirements: [US-001, US-002, FR-005, FR-006, FR-007, FR-018, NFR-001, NFR-005]
+  depends_on: [T042]
+codebase_context:
+  relevant_paths: [components/oidc, components/postgres, transport/sessionhttp, starter, scripts]
+  preserve: [local Admin flow, strict contribution preflight, heavy-module isolation]
+  forbidden: [hand-rolled JWT verification, implicit claim roles, email identity, proxy-header trust, Core OIDC dependency]
+execution_constraints:
+  allowed_files: [components/oidc/**, components/postgres/**, identity/**, module/**, appkit/**, transport/sessionhttp/**, starter/**, scripts/**, Makefile, go.work, docs/**, .github/**, .ai-platform/specs/010-production-foundation/**, .ai-platform/evidence/T043/**]
+  conflicts_with: [T042, T047, T048]
+  worktree: current owner-approved main worktree after T042
+  delegation: direct execution because subagent delegation was not authorized
+allowed_files: [components/oidc/**, components/postgres/**, identity/**, module/**, appkit/**, transport/sessionhttp/**, starter/**, scripts/**, Makefile, go.work, docs/**, .github/**, .ai-platform/specs/010-production-foundation/**, .ai-platform/evidence/T043/**]
+tdd:
+  red: Add protocol rejection, replay, selection, absence, browser and real-provider tests.
+  green: Integrate maintained OIDC/OAuth2 libraries and selected source composition.
+  refactor: Isolate flow state, mapping, routes, and UI without dual hidden modes.
+tdd_plan:
+  red: Add protocol rejection, replay, selection, absence, browser and real-provider tests.
+  green: Integrate maintained OIDC/OAuth2 libraries and selected source composition.
+  refactor: Isolate flow state, mapping, routes, and UI without dual hidden modes.
+validation_commands: ["(cd components/oidc && go test -race ./...)", "go test ./starter ./transport/sessionhttp", "make copied-profile-acceptance", "git diff --check"]
+validation_loop:
+  commands: [OIDC race tests, Starter/session tests, real-provider and browser acceptance, copied profiles, dependency absence, diff check]
+  retry_budget: 3 per failing gate before scope reassessment
+evidence:
+  summary: .ai-platform/evidence/T043/summary.md
+  diff: .ai-platform/evidence/T043/diff.patch
+  tests: .ai-platform/evidence/T043/test-results.md
+  review: .ai-platform/evidence/T043/review.md
+evidence_contract:
+  summary: .ai-platform/evidence/T043/summary.md
+  diff: .ai-platform/evidence/T043/diff.patch
+  test_results: .ai-platform/evidence/T043/test-results.md
+  review: .ai-platform/evidence/T043/review.md
+review_contract:
+  sequence: [spec compliance, security, engineering quality, browser and provider acceptance]
+  acceptance: no unresolved P0 through P2 finding
+handoff:
+  next_task: T044
+stop_conditions: [state/nonce/PKCE cannot be one-use and bounded, provider secrets enter source or logs, unselected graphs gain OIDC]

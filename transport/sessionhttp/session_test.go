@@ -14,13 +14,12 @@ import (
 	"github.com/iiwish/modary/appkit"
 	"github.com/iiwish/modary/identity"
 	"github.com/iiwish/modary/module"
-	"github.com/iiwish/modary/scope"
 )
 
 func TestSessionAPIAndMiddleware(t *testing.T) {
 	service := newTestAuthenticator()
 	application := startTestApplication(t, service)
-	api, err := New(application, Options{AllowInsecureCookie: true})
+	api, err := New(application, Options{AllowInsecureCookie: true, EnablePasswordLogin: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +88,7 @@ func TestSessionAPIRejectsInvalidConstructionAndProtocol(t *testing.T) {
 	}
 	service := newTestAuthenticator()
 	application := startTestApplication(t, service)
-	api, err := New(application, Options{})
+	api, err := New(application, Options{EnablePasswordLogin: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,11 +131,14 @@ func request(t *testing.T, handler http.Handler, method, path, body string, cook
 func startTestApplication(t *testing.T, service *testAuthenticator) *appkit.Application {
 	t.Helper()
 	registration := module.Register(module.Manifest{SchemaVersion: module.SchemaVersion, ID: "test-identity", Version: "0.1.0",
-		Type: module.ModuleTypeAdapter, Provides: []module.Capability{module.CapabilityIdentity, module.CapabilitySessions}}, func(_ context.Context, installation module.Scope) error {
+		Type: module.ModuleTypeAdapter, Provides: []module.Capability{module.CapabilityIdentity, module.CapabilityPasswords, module.CapabilitySessions}}, func(_ context.Context, installation module.Scope) error {
 		if err := module.Provide(installation, module.IdentityResolver(), identity.Resolver(service)); err != nil {
 			return err
 		}
-		return module.Provide(installation, module.SessionAuthenticator(), identity.Authenticator(service))
+		if err := module.Provide(installation, module.PasswordAuthenticator(), identity.PasswordAuthenticator(service)); err != nil {
+			return err
+		}
+		return module.Provide(installation, module.SessionManager(), identity.SessionManager(service))
 	})
 	application, err := appkit.Start(context.Background(), appkit.Definition{Metadata: appkit.Metadata{ID: "session-test", Name: "Session Test", Version: "0.1.0"},
 		Modules: []module.Registration{registration}}, appkit.Options{})
@@ -160,26 +162,29 @@ func (service *testAuthenticator) ResolveByID(context.Context, string) (identity
 	return identity.Actor{}, identity.ErrActorNotFound
 }
 
-func (service *testAuthenticator) Login(_ context.Context, username, password string) (identity.Session, error) {
+func (service *testAuthenticator) AuthenticatePassword(_ context.Context, username, password string) (identity.Authentication, error) {
 	if username != "admin" || password != "correct-password" {
-		return identity.Session{}, identity.ErrAuthenticationFailed
+		return identity.Authentication{}, identity.ErrAuthenticationFailed
 	}
-	actor := identity.Actor{ID: "admin", Type: "human", DisplayName: "Admin", Scope: scope.Must("workspace", "default")}
-	session := identity.Session{Token: "session-token", CSRFToken: "csrf-token", Actor: actor, ExpiresAt: time.Now().Add(time.Hour)}
+	return identity.Authentication{Actor: identity.Actor{ID: "admin", Type: "human", DisplayName: "Admin"}, Method: identity.AuthenticationMethodPassword, CredentialVersion: "version"}, nil
+}
+
+func (service *testAuthenticator) CreateSession(_ context.Context, authentication identity.Authentication) (identity.Session, error) {
+	session := identity.Session{Token: "session-token", CSRFToken: "csrf-token", Actor: authentication.Actor, ExpiresAt: time.Now().Add(time.Hour)}
 	service.mu.Lock()
 	service.sessions[session.Token] = session
 	service.mu.Unlock()
 	return session, nil
 }
 
-func (service *testAuthenticator) Logout(_ context.Context, token string) error {
+func (service *testAuthenticator) RevokeSession(_ context.Context, token string) error {
 	service.mu.Lock()
 	delete(service.sessions, token)
 	service.mu.Unlock()
 	return nil
 }
 
-func (service *testAuthenticator) Session(_ context.Context, token string) (identity.Session, error) {
+func (service *testAuthenticator) ResolveSession(_ context.Context, token string) (identity.Session, error) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	session, ok := service.sessions[token]

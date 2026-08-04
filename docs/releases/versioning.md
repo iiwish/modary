@@ -5,17 +5,18 @@
 Modary uses semantic version tags and the Go module path
 `github.com/iiwish/modary`.
 
-The official PostgreSQL modules are published from the same repository under
+The official component modules are published from the same repository under
 `github.com/iiwish/modary/components/postgres` and
-`github.com/iiwish/modary/components/governedpostgres`. Each release uses one
-version and commit with root tag `vX.Y.Z-pre` plus matching subdirectory tags
-`components/postgres/vX.Y.Z-pre` and
-`components/governedpostgres/vX.Y.Z-pre`.
+`github.com/iiwish/modary/components/governedpostgres`,
+`github.com/iiwish/modary/components/oidc`, and
+`github.com/iiwish/modary/components/otel`. Each release uses one version and
+commit with a root tag and matching subdirectory tags for all four components.
 
 | Line | State | Contract |
 |---|---|---|
 | `v0.1.0-alpha.3` | Published and immutable | Historical Governed-first PostgreSQL/River release |
-| `v0.2.0-alpha.1` | Current release | Componentized Core with API/Admin/Governed Profiles |
+| `v0.2.0-alpha.1` | Published and immutable | React component framework baseline |
+| `v0.3.0-alpha.1` | Current release | Production identity, process, deployment, and observability foundation |
 
 A prerelease is suitable for evaluation and design-partner development, but
 public APIs, generated structure, and component boundaries may change before

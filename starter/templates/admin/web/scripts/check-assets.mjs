@@ -5,19 +5,23 @@ import { join, relative, resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
 const variants = existsSync(resolve(root, 'scripts/selections')) ? [
-  ['default', '../internal/web/dist'],
-  ['tasks', '../internal/web/dist-tasks'],
-  ['audit', '../internal/web/dist-audit'],
-  ['operations', '../internal/web/dist-operations'],
-] : [[null, '../internal/web/dist']]
+  ['default', 'local', '../internal/web/dist'],
+  ['tasks', 'local', '../internal/web/dist-tasks'],
+  ['audit', 'local', '../internal/web/dist-audit'],
+  ['operations', 'local', '../internal/web/dist-operations'],
+  ['default', 'oidc', '../internal/web/dist-oidc'],
+  ['tasks', 'oidc', '../internal/web/dist-oidc-tasks'],
+  ['audit', 'oidc', '../internal/web/dist-oidc-audit'],
+  ['operations', 'oidc', '../internal/web/dist-oidc-operations'],
+] : [[null, 'local', '../internal/web/dist']]
 
-for (const [selection, output] of variants) {
+for (const [selection, authentication, output] of variants) {
   const expected = resolve(root, output)
   const temporary = mkdtempSync(join(tmpdir(), `modary-admin-${selection}-`))
   try {
     const result = spawnSync('pnpm', ['exec', 'vite', 'build', '--outDir', temporary, '--emptyOutDir'], {
       cwd: root,
-      env: selection ? { ...process.env, VITE_ADMIN_SELECTION: selection } : process.env,
+      env: selection ? { ...process.env, VITE_ADMIN_SELECTION: selection, VITE_AUTH_SELECTION: authentication } : process.env,
       encoding: 'utf8',
       stdio: 'pipe',
     })

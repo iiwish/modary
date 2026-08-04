@@ -17,7 +17,7 @@ import (
 	"github.com/iiwish/modary/audit"
 	"github.com/iiwish/modary/authz"
 	postgres "github.com/iiwish/modary/components/governedpostgres"
-	"github.com/iiwish/modary/components/postgres/localidentity"
+	"github.com/iiwish/modary/components/postgres/identitystore"
 	"github.com/iiwish/modary/components/postgres/rbac"
 	"github.com/iiwish/modary/components/postgres/sqlaudit"
 	"github.com/iiwish/modary/database"
@@ -53,7 +53,6 @@ func TestOfficialAdaptersComposeForGovernedWrites(t *testing.T) {
 		ID:          "person-one",
 		Type:        "human",
 		DisplayName: "Person One",
-		Scope:       executionScope,
 	}
 
 	application := startConformanceApplication(t, databaseConfig, executionScope, 5)
@@ -61,7 +60,15 @@ func TestOfficialAdaptersComposeForGovernedWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := sessions.Login(ctx, "person@example.test", conformancePassword)
+	passwords, err := application.Passwords()
+	if err != nil {
+		t.Fatal(err)
+	}
+	authentication, err := passwords.AuthenticatePassword(ctx, "person@example.test", conformancePassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := sessions.CreateSession(ctx, authentication)
 	if err != nil || session.Actor != actor || session.Token == "" || session.CSRFToken == "" {
 		t.Fatalf("Login() = %#v, %v", session, err)
 	}
@@ -186,19 +193,18 @@ func startConformanceApplication(t *testing.T, config testpostgres.Config, execu
 	if err != nil {
 		t.Fatal(err)
 	}
-	identityRegistration, err := localidentity.Module(localidentity.Options{
-		Principals: []localidentity.Principal{{
+	identityRegistration, err := identitystore.Module(identitystore.Options{
+		Principals: []identitystore.Principal{{
 			ActorID:     "person-one",
 			ActorType:   "human",
 			DisplayName: "Person One",
-			Scope:       executionScope,
 		}},
-		PasswordCredentials: []localidentity.PasswordCredential{{
+		PasswordCredentials: []identitystore.PasswordCredential{{
 			ActorID:  "person-one",
 			Username: "person@example.test",
 			Password: conformancePassword,
 		}},
-		BearerTokens: []localidentity.BearerToken{{
+		BearerTokens: []identitystore.BearerToken{{
 			TokenID: "automation-one",
 			ActorID: "person-one",
 			Token:   conformanceToken,

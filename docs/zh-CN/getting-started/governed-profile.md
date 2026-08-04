@@ -33,6 +33,15 @@ export MODARY_OPERATOR_TOKEN='development-bearer-token-000000000001'
 export MODARY_ALLOW_INSECURE_COOKIE=true
 ```
 
+运行 Action、API 或 Worker 前，先独立执行已选择的前向迁移：
+
+```bash
+go run ./cmd/policy-control migrate
+```
+
+Serve 与 Action 命令不会隐式修改 schema。只有明确的本地单进程流程才应设置
+`MODARY_MIGRATE_ON_START=true`。
+
 ## Preview 与 Execute
 
 ```bash

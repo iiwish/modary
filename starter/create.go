@@ -20,7 +20,7 @@ import (
 const (
 	// DefaultModaryVersion is written by the current Starter when a caller does
 	// not select another exact framework version.
-	DefaultModaryVersion = "v0.2.0-alpha.1"
+	DefaultModaryVersion = "v0.3.0-alpha.1"
 )
 
 var (
@@ -56,6 +56,12 @@ const (
 	ComponentTasks Component = "tasks"
 	// ComponentAudit adds scope-bound audit inspection to the Admin Profile.
 	ComponentAudit Component = "audit"
+	// ComponentOIDC replaces the generated local-password login surface with
+	// the official OIDC component and redirect contribution.
+	ComponentOIDC Component = "oidc"
+	// ComponentOTel adds the independently versioned OTLP traces and metrics
+	// adapter without changing the generated Admin product surface.
+	ComponentOTel Component = "otel"
 )
 
 // CreateOptions defines one initial project rendering. ModaryReplace is an
@@ -176,7 +182,7 @@ func normalizeCreateOptions(options CreateOptions) (normalizedCreateOptions, err
 	components := append([]Component(nil), options.Components...)
 	sort.Slice(components, func(left, right int) bool { return components[left] < components[right] })
 	for index, component := range components {
-		if component != ComponentTasks && component != ComponentAudit {
+		if component != ComponentTasks && component != ComponentAudit && component != ComponentOIDC && component != ComponentOTel {
 			return normalizedCreateOptions{}, fmt.Errorf("%w: component %q is unknown", ErrInvalidOptions, component)
 		}
 		if profile != ProfileAdmin {

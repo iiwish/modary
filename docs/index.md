@@ -17,6 +17,7 @@ Profile tutorials:
 
 - [API and first application](getting-started/first-application.md)
 - [Admin Profile](getting-started/admin-profile.md)
+- [OIDC Admin](getting-started/oidc-admin.md)
 - [Governed Profile](getting-started/governed-profile.md)
 
 ## 简体中文
@@ -26,9 +27,12 @@ Profile tutorials:
 - [快速上手](zh-CN/getting-started/quickstart.md)
 - [创建第一个独立应用](zh-CN/getting-started/first-application.md)
 - [Admin Profile 教程](zh-CN/getting-started/admin-profile.md)
+- [OIDC Admin 教程](zh-CN/getting-started/oidc-admin.md)
 - [Governed Profile 教程](zh-CN/getting-started/governed-profile.md)
 - [持久化与任务](zh-CN/concepts/persistence-and-tasks.md)
 - [运行耐久后台任务](zh-CN/how-to/run-background-tasks.md)
+- [部署](zh-CN/operations/deployment.md)
+- [可观测性](zh-CN/operations/observability.md)
 
 ## Concepts
 
@@ -50,6 +54,7 @@ Profile tutorials:
 ## Operations And Security
 
 - [Deployment](operations/deployment.md)
+- [Observability](operations/observability.md)
 - [Security boundaries](operations/security.md)
 - [PostgreSQL backup and restore](operations/postgresql-backup-restore.md)
 - [Known limitations](f0-known-limitations.md)
@@ -63,6 +68,7 @@ Profile tutorials:
 - [Current F0 acceptance report](f0-acceptance-report.md)
 - [Versioning](releases/versioning.md)
 - [Upgrade from Alpha 3](releases/upgrade-guide.md)
+- [Upgrade from v0.2 Alpha 1 to v0.3 Alpha 1](releases/upgrade-v0.2-to-v0.3.md)
 - [Release process](releases/release-process.md)
 
 ## Architecture Decisions

@@ -1296,7 +1296,7 @@ func TestRuntimeRejectsDeniedActorAndInvalidInput(t *testing.T) {
 	}
 }
 
-func TestRuntimeRejectsInvalidOrMismatchedExecutionScope(t *testing.T) {
+func TestRuntimeRejectsInvalidScopeAndDelegatesValidScopeToAuthorization(t *testing.T) {
 	clock := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
 	runtime, _ := newTestRuntime(t, &testHandler{}, &clock)
 
@@ -1308,8 +1308,8 @@ func TestRuntimeRejectsInvalidOrMismatchedExecutionScope(t *testing.T) {
 
 	mismatched := testRequest()
 	mismatched.Scope = scope.Must("tenant", "other")
-	if _, err := runtime.Preview(context.Background(), mismatched); ErrorCode(err) != CodeAuthzDenied {
-		t.Fatalf("mismatched scope error = %v", err)
+	if _, err := runtime.Preview(context.Background(), mismatched); err != nil {
+		t.Fatalf("valid independently resolved scope error = %v", err)
 	}
 }
 
@@ -2185,7 +2185,7 @@ func testRequest() Request {
 	executionScope := scope.Must("tenant", "test")
 	return Request{
 		RequestID: "req_test",
-		Actor:     identity.Actor{ID: "user_1", Type: "user", Scope: executionScope},
+		Actor:     identity.Actor{ID: "user_1", Type: "user"},
 		Channel:   ChannelHTTP,
 		ActionID:  "test.execute",
 		Scope:     executionScope,

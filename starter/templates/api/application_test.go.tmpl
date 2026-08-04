@@ -17,12 +17,16 @@ func TestDatabaseFreeApplication(t *testing.T) {
 	if application.core.Runtime() != nil || application.core.Tasks() != nil || len(application.core.Catalog()) != 0 {
 		t.Fatalf("unexpected optional surfaces: runtime=%v tasks=%v catalog=%v", application.core.Runtime(), application.core.Tasks(), application.core.Catalog())
 	}
+	if err := application.Process().MarkReady(); err != nil {
+		t.Fatal(err)
+	}
 
 	for _, test := range []struct {
 		path string
 		body string
 	}{
-		{path: "/healthz", body: `"status":"ready"`},
+		{path: "/livez", body: `"status":"live"`},
+		{path: "/readyz", body: `"status":"ready"`},
 		{path: "/api/ping", body: `"message":"pong"`},
 	} {
 		request := httptest.NewRequest(http.MethodGet, test.path, nil)
@@ -37,11 +41,11 @@ func TestDatabaseFreeApplication(t *testing.T) {
 	if err := application.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	request := httptest.NewRequest(http.MethodGet, "/livez", nil)
 	request.Header.Set("Accept", "application/json")
 	response := httptest.NewRecorder()
 	application.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusServiceUnavailable {
-		t.Fatalf("health after shutdown = %d", response.Code)
+		t.Fatalf("liveness after shutdown = %d", response.Code)
 	}
 }

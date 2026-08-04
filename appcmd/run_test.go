@@ -181,7 +181,7 @@ func TestExplicitTypedNilIOFailsClosedAcrossCommandEntrypoints(t *testing.T) {
 		{
 			name: "RunAction stdin",
 			run: func(definition appkit.Definition) error {
-				return RunAction(context.Background(), []string{"run", "example.echo", "--token-file", "token", "--input", "-"}, definition, Options{Stdin: typedNil, Stdout: io.Discard})
+				return RunAction(context.Background(), []string{"run", "example.echo", "--token-file", "token", "--input", "-", "--scope-kind", "tenant", "--scope-id", "acme"}, definition, Options{Stdin: typedNil, Stdout: io.Discard})
 			},
 		},
 		{

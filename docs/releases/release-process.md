@@ -21,20 +21,20 @@ One person may hold several roles, but owner publication approval is explicit.
 4. `origin` is the canonical repository.
 5. The candidate worktree is clean and all intended changes are committed.
 6. The proposed version is an unused semantic prerelease such as
-   `v0.2.0-alpha.1`.
+   `v0.3.0-alpha.1`.
 7. English and Chinese onboarding, examples, support matrix, security,
    limitations, and release notes describe the same candidate.
 8. Every copied-out Profile and the Admin frontend pipeline pass from the exact
    commit.
-9. The T041 source digest matches the complete candidate. Finalizing the
-   changelog or changing any candidate file requires refreshing T041 evidence.
+9. The T047 source digest matches the complete candidate. Finalizing the
+   changelog or changing any candidate file requires refreshing T047 evidence.
 
 ## Candidate Validation
 
 Set but do not create the intended tag:
 
 ```bash
-VERSION=v0.2.0-alpha.1
+VERSION=v0.3.0-alpha.1
 make bootstrap
 make acceptance
 make ci
@@ -43,7 +43,7 @@ make release-readiness VERSION="$VERSION"
 
 Candidate mode must state that no release is claimed. Record the commit ID,
 toolchain versions, PostgreSQL version, Profile results, frontend lockfile
-result, and immutable Alpha 3 tag identity.
+result, source-container result, and intended Alpha 1 tag identity.
 
 ## Review And Approval
 
@@ -62,18 +62,22 @@ The owner then gives explicit approval to publish that exact commit and version.
 
 ## Tag And Publish
 
-The root module and both published component modules use one version and one
-commit. Go resolves nested modules through subdirectory tags, so all three
+The root module and four published component modules use one version and one
+commit. Go resolves nested modules through subdirectory tags, so all five
 annotated tags are mandatory:
 
 ```bash
 git tag -a "$VERSION" -m "Modary $VERSION"
 git tag -a "components/postgres/$VERSION" -m "Modary PostgreSQL $VERSION"
 git tag -a "components/governedpostgres/$VERSION" -m "Modary Governed PostgreSQL $VERSION"
+git tag -a "components/oidc/$VERSION" -m "Modary OIDC $VERSION"
+git tag -a "components/otel/$VERSION" -m "Modary OpenTelemetry $VERSION"
 git push origin \
   "$VERSION" \
   "components/postgres/$VERSION" \
-  "components/governedpostgres/$VERSION"
+  "components/governedpostgres/$VERSION" \
+  "components/oidc/$VERSION" \
+  "components/otel/$VERSION"
 ```
 
 Push the release train together, then wait for root-tag CI. The release
@@ -86,16 +90,27 @@ Verify normal Go module resolution without a source-checkout replacement:
 
 ```bash
 make remote-consumer VERSION="$VERSION"
+make released-container-acceptance VERSION="$VERSION"
 go list -m "github.com/iiwish/modary@$VERSION"
 go list -m "github.com/iiwish/modary/components/postgres@$VERSION"
 go list -m "github.com/iiwish/modary/components/governedpostgres@$VERSION"
+go list -m "github.com/iiwish/modary/components/oidc@$VERSION"
+go list -m "github.com/iiwish/modary/components/otel@$VERSION"
 ```
 
 The remote gate creates a fresh governed consumer outside the repository,
-removes every root and component `replace`, verifies all three module versions,
-and repeats its tests and builds. Copied-out API and Admin verification, including
-the pinned frontend pipeline and deterministic assets, runs from the exact
-candidate before the release train is tagged.
+removes every root and component `replace`, verifies all five module versions,
+and repeats its tests and builds. Released-container acceptance builds and runs
+all three Profile images as non-root, executes migration-only processes, checks
+both probes, verifies the embedded Admin asset, sends SIGTERM, and validates a
+clean exit. Copied-out API, local Admin, telemetry Admin,
+and Governed verification, including the pinned frontend pipeline and
+deterministic assets, runs from the exact candidate before the release train is
+tagged. OIDC protocol and copied-out selection tests run in the candidate gate;
+deployment acceptance additionally exercises a disposable provider.
+Candidate `release-readiness` builds the same three images in source mode with
+temporary local module replacements before any tag exists. Tag CI repeats the
+image gate in released mode with all replacements removed.
 
 Create the repository-host release from the same tag. Release notes include
 scope, breaking changes, supported Profiles and platforms, database and

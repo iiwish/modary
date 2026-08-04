@@ -17,12 +17,13 @@ database, task enqueue and inspection, Identity, browser sessions,
 authorization, and audit. Consumers may define namespaced capabilities such as
 `example.clock`.
 
-Identity resolution and authentication transports are separate dependencies.
-`module.CapabilityIdentity` owns principal lookup and password/token identity;
-`module.CapabilitySessions` owns browser-session authentication. An HTTP or
+Identity resolution, password verification, and authentication transports are
+separate dependencies. `module.CapabilityIdentity` owns principal lookup and
+bearer identity; `module.CapabilityPasswords` owns local password verification;
+`module.CapabilitySessions` owns revocable server-side sessions. An HTTP or
 Admin contribution that authenticates a session declares
-`module.CapabilitySessions` directly. Requiring broad Identity is not a
-substitute and cannot make the contribution pass preflight.
+`module.CapabilitySessions` directly. Password login additionally declares
+`module.CapabilityPasswords`.
 
 A contract package owns one package-level `module.Key[T]`. Provider and
 consumers import that exact key. Recreating the same string and Go type produces

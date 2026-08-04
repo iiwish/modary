@@ -159,6 +159,15 @@ func (plan *Plan) Handler(ctx context.Context, application *appkit.Application) 
 		}
 		routes = append(routes, built...)
 	}
+	observer, err := application.Observability()
+	if err != nil && !errors.Is(err, appkit.ErrObservabilityUnavailable) {
+		return nil, fmt.Errorf("resolve HTTP observability: %w", err)
+	}
+	if err == nil {
+		for index := range routes {
+			routes[index].Handler = observer.WrapHTTP(routes[index].Method, routes[index].Path, routes[index].Handler)
+		}
+	}
 	return NewHandler(routes...)
 }
 

@@ -21,7 +21,7 @@ trap 'rm -f "$paths" "$objects" "$symlinks" "$manifest"' EXIT HUP INT TERM
 
 git -c core.quotePath=false ls-files --cached --others --exclude-standard | LC_ALL=C sort | while IFS= read -r path; do
 	case "$path" in
-		.ai-platform/evidence/T041/*) continue ;;
+		.ai-platform/evidence/T047/*) continue ;;
 	esac
 	if test -L "$path"; then
 		printf '%s\n' "$path" >>"$symlinks"

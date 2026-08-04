@@ -37,9 +37,16 @@ The local Identity Adapter provisions only explicitly configured principals and
 credentials. It is suitable for development and controlled internal scenarios,
 not a complete public-internet identity lifecycle.
 
-Before wider exposure, define SSO/MFA or equivalent requirements, enrollment,
-recovery, revocation, brute-force defense, session policy, account monitoring,
-and incident response. Never ship generated passwords or bearer tokens.
+The optional OIDC component uses discovery and Authorization Code with PKCE,
+state, nonce, exact issuer/audience/time verification, and one-use bounded flow
+state. It maps one exact provider subject to an already provisioned principal.
+Provider claims never grant product roles or Scope. Email and display name are
+not durable identity keys.
+
+Before wider exposure, configure the provider's MFA, enrollment, recovery,
+revocation, brute-force defense, session policy, account monitoring, and
+incident response. Protect client secrets and exact redirect URLs. Never ship
+generated passwords or bearer tokens.
 
 CLI bearer tokens belong in standard input or a supported mode-0400/0600 token
 file. Do not place them in command arguments, source, logs, or shell history.
@@ -75,6 +82,21 @@ rendering, accessibility, and any new dynamic HTML. The F0 UI renders bounded
 JSON fields as text and relies on backend authorization. Building assets is a
 trusted supply-chain step; production serves the checked, embedded bundle.
 
+## Diagnostics And Telemetry
+
+Generated lifecycle and exporter-transition logs use closed events and do not
+copy returned error text. Consumer-owned logging and River failure history still
+treat errors as trusted inputs. Do not include credentials, database URLs,
+session tokens, authorization codes, request bodies, SQL, or task payloads in
+returned errors.
+
+The optional OTel component records only preflighted route templates, closed
+database/task operation names, status class, duration, and active work. It does
+not accept raw paths, query strings, SQL, payloads, actor IDs, or Scope IDs as
+metric dimensions and does not install global providers. Treat exporter headers
+as secrets, use TLS, and apply collector-side redaction, tenancy, sampling, and
+retention policy.
+
 ## Callback Boundary
 
 Handlers, repositories, identity, authorization, audit, lifecycle callbacks,
@@ -90,7 +112,10 @@ cannot stop unsafe memory behavior or interrupt a callback that never returns.
 - No transport calls a raw Action Handler.
 - Example credentials and development Identity are replaced or explicitly
   accepted.
+- OIDC issuer, client, exact redirect, subject mapping, and upstream account
+  policy are reviewed when selected.
 - Secrets are redacted from errors, task history, audit, and logs.
+- Telemetry contains only stable route and closed operation dimensions.
 - TLS, cookie, proxy, host, origin, and rate policy are explicit.
 - Database ownership, backup, restore, and task idempotency are tested.
 - Module and callback paths pass race and cancellation tests.

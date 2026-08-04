@@ -2,11 +2,12 @@ GO ?= go
 RELEASE_MODE ?= candidate
 CONSUMER_DIR := examples/counter
 ADMIN_WEB_DIR := starter/templates/admin/web
-OFFICIAL_MODULE_DIRS := components/postgres components/governedpostgres integration
-PUBLISHED_COMPONENT_DIRS := components/postgres components/governedpostgres
+OFFICIAL_MODULE_DIRS := components/postgres components/governedpostgres components/oidc components/otel integration
+PUBLISHED_COMPONENT_DIRS := components/postgres components/governedpostgres components/oidc components/otel
 GO_COMMAND_ENV := GO111MODULE=on GOTOOLCHAIN=local GOENV=off GOWORK=off GOFLAGS=
 CROSS_BUILD_TARGETS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 REPEAT_TIMEOUT ?= 8m
+FUZZ_SMOKE_EXECUTIONS ?= 1000x
 REPEAT_PACKAGES := \
 	./action \
 	./appcmd \
@@ -36,8 +37,8 @@ REPEAT_CONSUMER_TESTS := ^(TestCustomCapabilityResolverLifetimeAndConcurrency|Te
 .PHONY: bootstrap format-check tidy-check diff-check docs-check react-admin-check admin-frontend verify check-generated neutrality \
 	test test-framework test-consumer vet race repeat fuzz-smoke build \
 	panicnil vulncheck cross-build native-platform copied-admin-acceptance copied-governed-acceptance copied-profile-acceptance acceptance-core acceptance \
-	ci-core-gates ci-gates ci-core ci \
-	release-preflight release-readiness remote-consumer clean
+	provider-acceptance container-acceptance ci-core-gates ci-gates ci-core ci \
+	release-preflight release-readiness remote-consumer released-container-acceptance clean
 
 bootstrap:
 	$(GO_COMMAND_ENV) $(GO) mod download
@@ -106,10 +107,15 @@ vet:
 	cd $(CONSUMER_DIR) && $(GO_COMMAND_ENV) $(GO) vet ./...
 
 vulncheck:
-	$(GO_COMMAND_ENV) $(GO) run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
-	@set -eu; for directory in $(PUBLISHED_COMPONENT_DIRS); do cd "$$directory" && $(GO_COMMAND_ENV) $(GO) run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...; cd - >/dev/null; done
-	cd integration && $(GO_COMMAND_ENV) $(GO) run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
-	cd $(CONSUMER_DIR) && $(GO_COMMAND_ENV) $(GO) run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+	@set -eu; \
+	scanner_directory="$$(mktemp -d /tmp/modary-govulncheck.XXXXXX)"; \
+	trap 'rm -rf "$$scanner_directory"' EXIT HUP INT TERM; \
+	GOBIN="$$scanner_directory" $(GO_COMMAND_ENV) $(GO) install golang.org/x/vuln/cmd/govulncheck@v1.6.0; \
+	scanner="$$scanner_directory/govulncheck"; \
+	"$$scanner" ./...; \
+	for directory in $(PUBLISHED_COMPONENT_DIRS); do (cd "$$directory" && "$$scanner" ./...); done; \
+	(cd integration && "$$scanner" ./...); \
+	(cd $(CONSUMER_DIR) && "$$scanner" ./...)
 
 race:
 	$(GO_COMMAND_ENV) $(GO) test -count=1 -race ./...
@@ -126,7 +132,7 @@ repeat:
 	$(GO_COMMAND_ENV) $(GO) test -timeout=$(REPEAT_TIMEOUT) -shuffle=on -count=20 $$packages
 	$(GO_COMMAND_ENV) $(GO) test -timeout=$(REPEAT_TIMEOUT) -shuffle=on -count=20 ./starter -run='$(REPEAT_STARTER_TESTS)'
 	cd components/postgres && $(GO_COMMAND_ENV) $(GO) test -timeout=$(REPEAT_TIMEOUT) -shuffle=on -count=5 .
-	cd components/postgres && $(GO_COMMAND_ENV) $(GO) test -timeout=$(REPEAT_TIMEOUT) -shuffle=on -count=5 ./localidentity -run='$(REPEAT_IDENTITY_TESTS)'
+	cd components/postgres && $(GO_COMMAND_ENV) $(GO) test -timeout=$(REPEAT_TIMEOUT) -shuffle=on -count=5 ./identitystore -run='$(REPEAT_IDENTITY_TESTS)'
 	cd components/postgres && $(GO_COMMAND_ENV) $(GO) test -timeout=$(REPEAT_TIMEOUT) -shuffle=on -count=5 ./rbac -run='$(REPEAT_RBAC_TESTS)'
 	cd components/postgres && $(GO_COMMAND_ENV) $(GO) test -timeout=$(REPEAT_TIMEOUT) -shuffle=on -count=5 ./sqlaudit -run='$(REPEAT_AUDIT_TESTS)'
 	cd components/governedpostgres && $(GO_COMMAND_ENV) $(GO) test -timeout=$(REPEAT_TIMEOUT) -shuffle=on -count=5 . -run='$(REPEAT_GOVERNED_TESTS)'
@@ -134,13 +140,13 @@ repeat:
 	cd $(CONSUMER_DIR) && MODARY_EXTERNAL_CONSUMER_COPIED_OUT=1 $(GO_COMMAND_ENV) $(GO) test -timeout=$(REPEAT_TIMEOUT) -shuffle=on -count=10 ./... -run='$(REPEAT_CONSUMER_TESTS)'
 
 fuzz-smoke:
-	$(GO_COMMAND_ENV) $(GO) test ./projecttool -run='^$$' -fuzz=FuzzParseManifestFailsClosed -fuzztime=5s -parallel=1
-	$(GO_COMMAND_ENV) $(GO) test ./internal/jsonvalue -run='^$$' -fuzz=FuzzDecodeFailsClosed -fuzztime=5s -parallel=1
-	$(GO_COMMAND_ENV) $(GO) test ./internal/jsonschema -run='^$$' -fuzz=FuzzCompileAndValidateFlagFailsClosed -fuzztime=5s -parallel=1
-	$(GO_COMMAND_ENV) $(GO) test ./transport/httpapi -run='^$$' -fuzz=FuzzProtocolJSONDecodersFailClosed -fuzztime=5s -parallel=1
+	$(GO_COMMAND_ENV) $(GO) test ./projecttool -run='^$$' -fuzz=FuzzParseManifestFailsClosed -fuzztime=$(FUZZ_SMOKE_EXECUTIONS) -parallel=1
+	$(GO_COMMAND_ENV) $(GO) test ./internal/jsonvalue -run='^$$' -fuzz=FuzzDecodeFailsClosed -fuzztime=$(FUZZ_SMOKE_EXECUTIONS) -parallel=1
+	$(GO_COMMAND_ENV) $(GO) test ./internal/jsonschema -run='^$$' -fuzz=FuzzCompileAndValidateFlagFailsClosed -fuzztime=$(FUZZ_SMOKE_EXECUTIONS) -parallel=1
+	$(GO_COMMAND_ENV) $(GO) test ./transport/httpapi -run='^$$' -fuzz=FuzzProtocolJSONDecodersFailClosed -fuzztime=$(FUZZ_SMOKE_EXECUTIONS) -parallel=1
 	@if test "$$($(GO_COMMAND_ENV) $(GO) env GOOS)" = darwin; then \
-		$(GO_COMMAND_ENV) $(GO) test ./internal/filepolicy -run='^$$' -fuzz=FuzzParseExtendedSecurityResponse -fuzztime=5s -parallel=1; \
-		$(GO_COMMAND_ENV) $(GO) test ./internal/filepolicy -run='^$$' -fuzz=FuzzParseKauthFileSecurity -fuzztime=5s -parallel=1; \
+		$(GO_COMMAND_ENV) $(GO) test ./internal/filepolicy -run='^$$' -fuzz=FuzzParseExtendedSecurityResponse -fuzztime=$(FUZZ_SMOKE_EXECUTIONS) -parallel=1; \
+		$(GO_COMMAND_ENV) $(GO) test ./internal/filepolicy -run='^$$' -fuzz=FuzzParseKauthFileSecurity -fuzztime=$(FUZZ_SMOKE_EXECUTIONS) -parallel=1; \
 	fi
 
 build:
@@ -178,6 +184,9 @@ copied-governed-acceptance:
 	MODARY_ACCEPTANCE_GO="$(GO)" $(GO_COMMAND_ENV) $(GO) test -timeout=15m -count=1 -v ./starter -run='^TestCreateGovernedProfileBuildsAndConsumesTransactionalWork$$'
 
 copied-profile-acceptance: copied-admin-acceptance copied-governed-acceptance
+
+provider-acceptance:
+	$(GO_COMMAND_ENV) GO="$(GO)" ./scripts/provider-acceptance.sh
 
 acceptance-core: format-check tidy-check diff-check docs-check react-admin-check admin-frontend test panicnil vet vulncheck verify check-generated neutrality build cross-build
 
@@ -227,10 +236,22 @@ release-preflight: format-check tidy-check diff-check docs-check
 
 release-readiness: release-preflight
 	$(MAKE) ci
+	$(MAKE) provider-acceptance
+	$(MAKE) container-acceptance VERSION="$(VERSION)"
+
+container-acceptance:
+	@test -n "$(VERSION)" || { printf '%s\n' 'VERSION is required'; exit 2; }
+	@test -n "$(MODARY_TEST_DATABASE_URL)" || { printf '%s\n' 'MODARY_TEST_DATABASE_URL is required'; exit 2; }
+	$(GO_COMMAND_ENV) GO="$(GO)" MODARY_TEST_DATABASE_URL="$(MODARY_TEST_DATABASE_URL)" MODARY_CONTAINER_ACCEPTANCE_MODE=source ./scripts/released-container-acceptance.sh "$(VERSION)"
 
 remote-consumer:
 	@test -n "$(VERSION)" || { printf '%s\n' 'VERSION is required'; exit 2; }
 	./scripts/remote-consumer.sh "$(VERSION)"
+
+released-container-acceptance:
+	@test -n "$(VERSION)" || { printf '%s\n' 'VERSION is required'; exit 2; }
+	@test -n "$(MODARY_TEST_DATABASE_URL)" || { printf '%s\n' 'MODARY_TEST_DATABASE_URL is required'; exit 2; }
+	$(GO_COMMAND_ENV) GO="$(GO)" MODARY_TEST_DATABASE_URL="$(MODARY_TEST_DATABASE_URL)" ./scripts/released-container-acceptance.sh "$(VERSION)"
 
 clean:
 	rm -rf $(CONSUMER_DIR)/dist $(CONSUMER_DIR)/data coverage

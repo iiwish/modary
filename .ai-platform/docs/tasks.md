@@ -1,14 +1,21 @@
 # Current Delivery Work Graph
 
-- Version: 9.0
+- Version: 10.0
 - Status: Confirmed
-- Last updated: 2026-08-02
+- Last updated: 2026-08-04
 
 The active work graph is
-`.ai-platform/specs/009-component-boundary-closure/tasks.md`.
+`.ai-platform/specs/010-production-foundation/tasks.md`.
 
 | Task | State | Acceptance object |
 |---|---|---|
+| T042 | Completed | Scope-independent principal and replaceable session contracts |
+| T043 | Completed | Production OIDC component and selected Admin flow |
+| T044 | Completed | Process health, readiness drain, build identity, and migration command |
+| T045 | Completed | Consumer-owned OCI and local Compose deployment baseline |
+| T046 | Completed | Structured logging and optional OpenTelemetry integration |
+| T047 | Completed | Production copied-out, failure, security, and documentation acceptance |
+| T048 | Pending | Coordinated v0.3 release and remote verification |
 | T038 | Completed | PostgreSQL and River module-graph isolation |
 | T039 | Completed | Explicit pre-start HTTP and Admin contribution contracts |
 | T040 | Completed | Permission-aware shared Admin primitives and task/audit UI |

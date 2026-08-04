@@ -3,9 +3,9 @@ module example.com/modary-counter-consumer
 go 1.26.5
 
 require (
-	github.com/iiwish/modary v0.2.0-alpha.1
-	github.com/iiwish/modary/components/governedpostgres v0.2.0-alpha.1
-	github.com/iiwish/modary/components/postgres v0.2.0-alpha.1
+	github.com/iiwish/modary v0.3.0-alpha.1
+	github.com/iiwish/modary/components/governedpostgres v0.3.0-alpha.1
+	github.com/iiwish/modary/components/postgres v0.3.0-alpha.1
 	github.com/jackc/pgx/v5 v5.10.0
 )
 

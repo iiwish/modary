@@ -39,7 +39,7 @@ func (authorizer *authorizer) Authorize(ctx context.Context, request authz.Reque
 		(request.Phase != authz.PhaseIntent && request.Phase != authz.PhaseImpact) ||
 		request.Impact.Rows < 0 ||
 		(request.Phase == authz.PhaseIntent && (request.Impact.Rows != 0 || len(request.Impact.Resources) != 0)) ||
-		request.Scope.Validate() != nil || request.Actor.Scope != request.Scope ||
+		request.Scope.Validate() != nil ||
 		identity.ValidateActor(request.Actor) != nil ||
 		validatePermission(request.Permission) != nil {
 		return authz.Decision{

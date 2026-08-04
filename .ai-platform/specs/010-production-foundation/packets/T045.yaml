@@ -1,0 +1,63 @@
+schema_version: 1
+packet_id: EP-010-T045
+task_id: T045
+feature_id: 010-production-foundation
+mode: execute_one_task
+title: Consumer-Owned OCI Deployment Baseline
+status: Completed
+adapter: direct
+goal: Generate deterministic non-root OCI and local PostgreSQL Compose source and prove it from copied-out applications.
+requirements: [US-004, FR-012, NFR-002, NFR-004, NFR-005]
+depends_on: [T044]
+conflicts_with: [T047, T048]
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  spec: .ai-platform/specs/010-production-foundation/spec.md
+  checklist: .ai-platform/specs/010-production-foundation/checklists/requirements.md
+  plan: .ai-platform/specs/010-production-foundation/plan.md
+  analysis: .ai-platform/specs/010-production-foundation/analysis.md
+  work_graph: .ai-platform/specs/010-production-foundation/tasks.md
+  approval: explicit owner instruction on 2026-08-04
+work_unit:
+  title: Consumer-Owned OCI Deployment Baseline
+  goal: Generate deterministic non-root OCI and local PostgreSQL Compose source and prove it from copied-out applications.
+  requirements: [US-004, FR-012, NFR-002, NFR-004, NFR-005]
+  depends_on: [T044]
+codebase_context:
+  relevant_paths: [starter/templates, starter/templates.go, starter tests, scripts, .github/workflows]
+  preserve: [consumer ownership, embedded Admin assets, no runtime Node, platform neutrality]
+  forbidden: [framework-managed cluster, root container, copied credentials or VCS metadata, latest image tags in acceptance]
+execution_constraints:
+  allowed_files: [starter/**, scripts/**, Makefile, .github/**, docs/**, .ai-platform/specs/010-production-foundation/**, .ai-platform/evidence/T045/**]
+  conflicts_with: [T047, T048]
+  worktree: current owner-approved main worktree after T044
+  delegation: direct execution because subagent delegation was not authorized
+allowed_files: [starter/**, scripts/**, Makefile, .github/**, docs/**, .ai-platform/specs/010-production-foundation/**, .ai-platform/evidence/T045/**]
+tdd:
+  red: Add deterministic source, image content/user, probe, migration, and SIGTERM assertions.
+  green: Add minimal Profile-aware build and Compose artifacts.
+  refactor: Reuse safe fragments without hiding topology or broadening runtime files.
+tdd_plan:
+  red: Add deterministic source, image content/user, probe, migration, and SIGTERM assertions.
+  green: Add minimal Profile-aware build and Compose artifacts.
+  refactor: Reuse safe fragments without hiding topology or broadening runtime files.
+validation_commands: ["go test ./starter", "make container-acceptance VERSION=v0.3.0-alpha.1", "make copied-profile-acceptance", "make cross-build", "git diff --check"]
+validation_loop:
+  commands: [Starter generation tests, local container acceptance, copied profiles, cross-build, hosted Linux container gate, diff check]
+  retry_budget: 3 per failing gate before scope reassessment
+evidence:
+  summary: .ai-platform/evidence/T045/summary.md
+  diff: .ai-platform/evidence/T045/diff.patch
+  tests: .ai-platform/evidence/T045/test-results.md
+  review: .ai-platform/evidence/T045/review.md
+evidence_contract:
+  summary: .ai-platform/evidence/T045/summary.md
+  diff: .ai-platform/evidence/T045/diff.patch
+  test_results: .ai-platform/evidence/T045/test-results.md
+  review: .ai-platform/evidence/T045/review.md
+review_contract:
+  sequence: [spec compliance, engineering quality, container security, deployment acceptance]
+  acceptance: no unresolved P0 through P2 finding
+handoff:
+  next_task: T046
+stop_conditions: [Docker is unavailable for required final acceptance, final image contains source/secrets/Node, generated deployment contradicts Profile topology]

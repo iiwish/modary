@@ -34,6 +34,17 @@ export MODARY_OPERATOR_TOKEN='replace-with-at-least-32-random-characters'
 export MODARY_ALLOW_INSECURE_COOKIE=true # local HTTP only
 ```
 
+Apply the selected forward migrations once before Preview, Execute, serving,
+or worker startup:
+
+```sh
+go run ./cmd/{{.ID}} migrate
+```
+
+Serving and commands do not apply migrations unless
+`MODARY_MIGRATE_ON_START=true` is selected explicitly for a controlled local
+workflow.
+
 ## Preview And Execute
 
 Create `input.json` and a mode-0600 token file:
@@ -46,7 +57,8 @@ Create `input.json` and a mode-0600 token file:
 printf '%s' "$MODARY_OPERATOR_TOKEN" > token
 chmod 600 token
 go run ./cmd/{{.ID}} action run limits.set \
-  --token-file token --input input.json --preview --request-id preview-1
+  --token-file token --input input.json --scope-kind workspace --scope-id default \
+  --preview --request-id preview-1
 ```
 
 The Preview response contains `plan_hash`. Execute the exact input with that
@@ -54,7 +66,8 @@ hash and a stable idempotency key:
 
 ```sh
 go run ./cmd/{{.ID}} action run limits.set \
-  --token-file token --input input.json --plan 'sha256:...' \
+  --token-file token --input input.json --scope-kind workspace --scope-id default \
+  --plan 'sha256:...' \
   --idempotency-key limit-default-v1 --request-id execute-1
 ```
 

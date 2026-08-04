@@ -12,6 +12,7 @@ import (
 	"github.com/iiwish/modary/appkit"
 	"github.com/iiwish/modary/httpkit"
 	"github.com/iiwish/modary/module"
+	"github.com/iiwish/modary/observe"
 )
 
 func TestPlanRejectsMissingContributionCapabilityBeforeModuleStart(t *testing.T) {
@@ -145,6 +146,50 @@ func TestPlanBuildsDeclaredRoutesAfterStartupAndOwnsDescriptors(t *testing.T) {
 	}
 }
 
+func TestPlanInstrumentsOnlyPreflightedMethodAndRouteWhenSelected(t *testing.T) {
+	observer := &recordingObserver{}
+	definition := contributionDefinition("observed-plan", nil)
+	definition.Modules = append(definition.Modules, module.Register(module.Manifest{
+		SchemaVersion: module.SchemaVersion, ID: "observer", Version: "1.0.0", Type: module.ModuleTypeAdapter,
+		Provides: []module.Capability{module.CapabilityObservability},
+	}, func(_ context.Context, scope module.Scope) error {
+		return module.Provide(scope, module.Observability(), observe.Service(observer))
+	}))
+	plan, err := httpkit.NewPlan(definition, appkit.Options{}, httpkit.Contribution{
+		ID: "accounts", Routes: []httpkit.RouteSpec{{Method: http.MethodGet, Path: "/accounts/{accountID}"}},
+		Build: func(context.Context, *appkit.Application) ([]httpkit.Route, error) {
+			return []httpkit.Route{{Method: http.MethodGet, Path: "/accounts/{accountID}", Handler: http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.WriteHeader(http.StatusNoContent)
+			})}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	application, err := appkit.Start(context.Background(), definition, appkit.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer application.Shutdown(context.Background())
+	handler, err := plan.Handler(context.Background(), application)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/accounts/secret-value?token=secret", nil))
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("response = %d", response.Code)
+	}
+	if observer.method != http.MethodGet || observer.route != "/accounts/{accountID}" {
+		t.Fatalf("observer dimensions = %q %q", observer.method, observer.route)
+	}
+	second := httptest.NewRecorder()
+	handler.ServeHTTP(second, httptest.NewRequest(http.MethodGet, "/accounts/another-secret", nil))
+	if second.Code != http.StatusNoContent || observer.wraps != 1 {
+		t.Fatalf("second response = %d, observer wrappers = %d", second.Code, observer.wraps)
+	}
+}
+
 func TestPlanRejectsBuilderRouteDrift(t *testing.T) {
 	definition := contributionDefinition("route-drift", nil)
 	plan, err := httpkit.NewPlan(definition, appkit.Options{}, httpkit.Contribution{
@@ -217,3 +262,22 @@ func contributionDefinition(id string, start module.StartFunc) appkit.Definition
 		}, start)},
 	}
 }
+
+type recordingObserver struct {
+	method string
+	route  string
+	wraps  int
+}
+
+func (observer *recordingObserver) WrapHTTP(method, route string, next http.Handler) http.Handler {
+	observer.method = method
+	observer.route = route
+	observer.wraps++
+	return next
+}
+
+func (*recordingObserver) StartOperation(ctx context.Context, _ observe.Operation) (context.Context, func(observe.Outcome)) {
+	return ctx, func(observe.Outcome) {}
+}
+
+func (*recordingObserver) Ready(context.Context) error { return nil }

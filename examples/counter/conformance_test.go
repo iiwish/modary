@@ -24,11 +24,12 @@ import (
 	"github.com/iiwish/modary/appcmd"
 	"github.com/iiwish/modary/appkit"
 	"github.com/iiwish/modary/components/governedpostgres"
-	"github.com/iiwish/modary/components/postgres/localidentity"
+	"github.com/iiwish/modary/components/postgres/identitystore"
 	"github.com/iiwish/modary/components/postgres/rbac"
 	"github.com/iiwish/modary/components/postgres/sqlaudit"
 	"github.com/iiwish/modary/identity"
 	"github.com/iiwish/modary/module"
+	"github.com/iiwish/modary/processkit"
 	"github.com/iiwish/modary/scope"
 	"github.com/iiwish/modary/task"
 	"github.com/iiwish/modary/transport/httpapi"
@@ -44,8 +45,8 @@ func TestCopiedOutConsumerUsesTransactionalTaskRuntime(t *testing.T) {
 	producer := startApplication(t, definition)
 	actor := resolveActor(t, producer, project.PrimaryActorID)
 	input := counterInput(0, 7)
-	preview := previewCounter(t, producer, actor, "test", "task-preview", input)
-	executeCounter(t, producer, actor, "test", "task-execute", input, preview.PlanHash, "task-once")
+	preview := previewCounter(t, producer, actor, project.PrimaryScope, "test", "task-preview", input)
+	executeCounter(t, producer, actor, project.PrimaryScope, "test", "task-execute", input, preview.PlanHash, "task-once")
 	shutdownApplication(t, producer)
 
 	worker := startApplication(t, definition)
@@ -105,27 +106,27 @@ func TestGovernedCounterAcrossRuntimeCLIHTTPMCPAndRestart(t *testing.T) {
 	secondary := resolveActor(t, application, project.SecondaryActorID)
 
 	firstInput := counterInput(0, 5)
-	firstPreview := previewCounter(t, application, primary, "test", "runtime-preview-1", firstInput)
+	firstPreview := previewCounter(t, application, primary, project.PrimaryScope, "test", "runtime-preview-1", firstInput)
 	firstResult := executeCounter(
-		t, application, primary, "test", "runtime-execute-1", firstInput, firstPreview.PlanHash, "runtime-shared",
+		t, application, primary, project.PrimaryScope, "test", "runtime-execute-1", firstInput, firstPreview.PlanHash, "runtime-shared",
 	)
 	assertCounterState(t, firstResult, counter.State{Value: 5, Version: 1})
 	_, err := application.Runtime().Preview(ctx, action.Request{
 		RequestID: "runtime-version-conflict", Actor: primary, Channel: "test",
-		ActionID: counter.ActionID, Scope: primary.Scope, Input: counterInput(0, 1),
+		ActionID: counter.ActionID, Scope: project.PrimaryScope, Input: counterInput(0, 1),
 	})
 	assertCounterConflictError(t, err, 1, 0, "runtime-version-conflict")
 	replayed := executeCounter(
-		t, application, primary, "test", "runtime-replay-1", firstInput, firstPreview.PlanHash, "runtime-shared",
+		t, application, primary, project.PrimaryScope, "test", "runtime-replay-1", firstInput, firstPreview.PlanHash, "runtime-shared",
 	)
 	if !bytes.Equal(firstResult.Data, replayed.Data) || firstResult.Summary != replayed.Summary {
 		t.Fatalf("idempotent replay = %#v, want %#v", replayed, firstResult)
 	}
 
 	secondaryInput := counterInput(0, 2)
-	secondaryPreview := previewCounter(t, application, secondary, "test", "runtime-preview-scope", secondaryInput)
+	secondaryPreview := previewCounter(t, application, secondary, project.SecondaryScope, "test", "runtime-preview-scope", secondaryInput)
 	secondaryResult := executeCounter(
-		t, application, secondary, "test", "runtime-execute-scope",
+		t, application, secondary, project.SecondaryScope, "test", "runtime-execute-scope",
 		secondaryInput, secondaryPreview.PlanHash, "runtime-shared",
 	)
 	assertCounterState(t, secondaryResult, counter.State{Value: 2, Version: 1})
@@ -142,26 +143,23 @@ func TestGovernedCounterAcrossRuntimeCLIHTTPMCPAndRestart(t *testing.T) {
 		t.Fatalf("cross-scope Preview error = %v, want %s", err, action.CodeAuthzDenied)
 	}
 
-	unbound := identity.Actor{
-		ID: "unbound-actor", Type: "user", DisplayName: "Unbound",
-		Scope: project.PrimaryScope,
-	}
+	unbound := identity.Actor{ID: "unbound-actor", Type: "user", DisplayName: "Unbound"}
 	if _, err := application.Runtime().Preview(ctx, action.Request{
 		RequestID: "runtime-default-deny",
 		Actor:     unbound,
 		Channel:   "test",
 		ActionID:  counter.ActionID,
-		Scope:     unbound.Scope,
+		Scope:     project.PrimaryScope,
 		Input:     counterInput(1, 1),
 	}); !action.IsCode(err, action.CodeAuthzDenied) {
 		t.Fatalf("default-deny Preview error = %v, want %s", err, action.CodeAuthzDenied)
 	}
 
 	staleInput := counterInput(1, 1)
-	staleFirst := previewCounter(t, application, primary, "test", "runtime-stale-preview-1", staleInput)
-	staleSecond := previewCounter(t, application, primary, "test", "runtime-stale-preview-2", staleInput)
+	staleFirst := previewCounter(t, application, primary, project.PrimaryScope, "test", "runtime-stale-preview-1", staleInput)
+	staleSecond := previewCounter(t, application, primary, project.PrimaryScope, "test", "runtime-stale-preview-2", staleInput)
 	staleWinner := executeCounter(
-		t, application, primary, "test", "runtime-stale-winner",
+		t, application, primary, project.PrimaryScope, "test", "runtime-stale-winner",
 		staleInput, staleFirst.PlanHash, "runtime-stale-winner",
 	)
 	assertCounterState(t, staleWinner, counter.State{Value: 6, Version: 2})
@@ -170,7 +168,7 @@ func TestGovernedCounterAcrossRuntimeCLIHTTPMCPAndRestart(t *testing.T) {
 		Actor:          primary,
 		Channel:        "test",
 		ActionID:       counter.ActionID,
-		Scope:          primary.Scope,
+		Scope:          project.PrimaryScope,
 		Input:          staleInput,
 		PlanHash:       staleSecond.PlanHash,
 		IdempotencyKey: "runtime-stale-loser",
@@ -185,7 +183,14 @@ func TestGovernedCounterAcrossRuntimeCLIHTTPMCPAndRestart(t *testing.T) {
 	runCLIConformance(t, definition, 2, 4)
 
 	application = startApplication(t, definition)
-	handler, err := project.NewHTTPHandler(context.Background(), application)
+	process, err := processkit.New(processkit.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := process.MarkReady(); err != nil {
+		t.Fatal(err)
+	}
+	handler, err := project.NewHTTPHandler(context.Background(), application, process)
 	if err != nil {
 		t.Fatalf("NewHTTPHandler() error = %v", err)
 	}
@@ -197,7 +202,7 @@ func TestGovernedCounterAcrossRuntimeCLIHTTPMCPAndRestart(t *testing.T) {
 	application = startApplication(t, definition)
 	primary = resolveActor(t, application, project.PrimaryActorID)
 	restartPreview := previewCounter(
-		t, application, primary, "test", "restart-preview", counterInput(5, 1),
+		t, application, primary, project.PrimaryScope, "test", "restart-preview", counterInput(5, 1),
 	)
 	var summary struct {
 		CurrentValue   int64 `json:"current_value"`
@@ -225,7 +230,7 @@ func TestOfficialAdaptersHaveEmptyProvisioningByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	identityModule, err := localidentity.Module(localidentity.Options{})
+	identityModule, err := identitystore.Module(identitystore.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +287,10 @@ func TestConsumerApplicationCommandServesAndDrains(t *testing.T) {
 	defer listener.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	options := project.CommandOptions()
+	options, err := project.CommandOptions()
+	if err != nil {
+		t.Fatal(err)
+	}
 	options.ListenAddress = listener.Addr().String()
 	options.Stdout = io.Discard
 	options.Stderr = io.Discard
@@ -298,13 +306,19 @@ func TestConsumerApplicationCommandServesAndDrains(t *testing.T) {
 	}()
 
 	client := &http.Client{Timeout: time.Second}
-	healthURL := "http://" + listener.Addr().String() + "/healthz"
+	healthURL := "http://" + listener.Addr().String() + "/readyz"
 	readyDeadline := time.Now().Add(20 * time.Second)
-	var response *http.Response
+	var status int
+	var body []byte
 	for {
-		response, err = client.Get(healthURL)
-		if err == nil {
-			break
+		response, requestErr := client.Get(healthURL)
+		if requestErr == nil {
+			body, requestErr = io.ReadAll(response.Body)
+			requestErr = errors.Join(requestErr, response.Body.Close())
+			status = response.StatusCode
+			if requestErr == nil && status == http.StatusOK && bytes.Contains(body, []byte(`"status":"ready"`)) {
+				break
+			}
 		}
 		select {
 		case runErr := <-result:
@@ -314,21 +328,9 @@ func TestConsumerApplicationCommandServesAndDrains(t *testing.T) {
 		if time.Now().After(readyDeadline) {
 			cancel()
 			<-result
-			t.Fatalf("served health request before readiness deadline: %v", err)
+			t.Fatalf("served readiness did not converge: status=%d body=%s error=%v", status, body, requestErr)
 		}
 		time.Sleep(25 * time.Millisecond)
-	}
-	body, readErr := io.ReadAll(response.Body)
-	closeErr := response.Body.Close()
-	if readErr != nil || closeErr != nil {
-		cancel()
-		<-result
-		t.Fatalf("read served health response: %v", errors.Join(readErr, closeErr))
-	}
-	if response.StatusCode != http.StatusOK || !bytes.Contains(body, []byte(`"counter-console"`)) {
-		cancel()
-		<-result
-		t.Fatalf("served health = %d %s", response.StatusCode, body)
 	}
 	cancel()
 	select {
@@ -363,6 +365,8 @@ func runCLIConformance(t *testing.T, definition appkit.Definition, expectedVersi
 		"run", counter.ActionID,
 		"--token-file", tokenPath,
 		"--input", conflictPath,
+		"--scope-kind", project.PrimaryScope.Kind,
+		"--scope-id", project.PrimaryScope.ID,
 		"--preview",
 		"--request-id", "cli-version-conflict",
 	}, definition, appcmd.Options{Stdout: &conflictOutput, Stderr: io.Discard})
@@ -380,6 +384,8 @@ func runCLIConformance(t *testing.T, definition appkit.Definition, expectedVersi
 		"run", counter.ActionID,
 		"--token-file", tokenPath,
 		"--input", inputPath,
+		"--scope-kind", project.PrimaryScope.Kind,
+		"--scope-id", project.PrimaryScope.ID,
 		"--preview",
 		"--request-id", "cli-preview",
 	}, definition, appcmd.Options{Stdout: &previewOutput, Stderr: io.Discard}); err != nil {
@@ -397,6 +403,8 @@ func runCLIConformance(t *testing.T, definition appkit.Definition, expectedVersi
 		"run", counter.ActionID,
 		"--token-file", tokenPath,
 		"--input", inputPath,
+		"--scope-kind", project.PrimaryScope.Kind,
+		"--scope-id", project.PrimaryScope.ID,
 		"--plan", preview.PlanHash,
 		"--idempotency-key", "cli-once",
 		"--request-id", "cli-execute",
@@ -433,11 +441,9 @@ func runHTTPConformance(t *testing.T, handler http.Handler, expectedVersion, amo
 	if root.Code != http.StatusOK || !strings.Contains(root.Body.String(), "Counter Console") {
 		t.Fatalf("static UI = %d %s", root.Code, root.Body.String())
 	}
-	health := httpRequest(t, handler, http.MethodGet, "/healthz", "", nil, map[string]string{
-		"Accept": "application/json",
-	})
-	if health.Code != http.StatusOK || !strings.Contains(health.Body.String(), `"id":"counter-console"`) {
-		t.Fatalf("health = %d %s", health.Code, health.Body.String())
+	ready := httpRequest(t, handler, http.MethodGet, "/readyz", "", nil, nil)
+	if ready.Code != http.StatusOK || !strings.Contains(ready.Body.String(), `"status":"ready"`) {
+		t.Fatalf("readiness = %d %s", ready.Code, ready.Body.String())
 	}
 	login := httpRequest(
 		t, handler, http.MethodPost, "/api/auth/login",
@@ -705,14 +711,17 @@ func runMCPConformance(t *testing.T, handler http.Handler, expectedVersion, amou
 	assertCounterData(t, resultEnvelope.Result.Structured.Result, counter.State{Value: 15, Version: 5})
 }
 
-func runExplicitMountConformance(t *testing.T, application *appkit.Application) {
+func runExplicitMountConformance(t *testing.T, _ *appkit.Application) {
 	t.Helper()
-	health, err := httpapi.NewHealth(application)
+	process, err := processkit.New(processkit.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := process.MarkReady(); err != nil {
+		t.Fatal(err)
+	}
 	mux := http.NewServeMux()
-	mux.Handle("/healthz", health)
+	mux.Handle("/readyz", process.ReadinessHandler())
 	for _, path := range []string{"/", "/api/actions", "/mcp"} {
 		response := httpRequest(t, mux, http.MethodGet, path, "", nil, nil)
 		if response.Code != http.StatusNotFound {
@@ -902,6 +911,7 @@ func previewCounter(
 	t *testing.T,
 	application *appkit.Application,
 	actor identity.Actor,
+	executionScope scope.Execution,
 	channel action.Channel,
 	requestID string,
 	input json.RawMessage,
@@ -912,7 +922,7 @@ func previewCounter(
 		Actor:     actor,
 		Channel:   channel,
 		ActionID:  counter.ActionID,
-		Scope:     actor.Scope,
+		Scope:     executionScope,
 		Input:     input,
 	})
 	if err != nil {
@@ -925,6 +935,7 @@ func executeCounter(
 	t *testing.T,
 	application *appkit.Application,
 	actor identity.Actor,
+	executionScope scope.Execution,
 	channel action.Channel,
 	requestID string,
 	input json.RawMessage,
@@ -936,7 +947,7 @@ func executeCounter(
 		Actor:          actor,
 		Channel:        channel,
 		ActionID:       counter.ActionID,
-		Scope:          actor.Scope,
+		Scope:          executionScope,
 		Input:          input,
 		PlanHash:       planHash,
 		IdempotencyKey: idempotencyKey,
@@ -1050,7 +1061,11 @@ func httpRequest(
 	headers map[string]string,
 ) *httptest.ResponseRecorder {
 	t.Helper()
-	request := httptest.NewRequest(method, target, strings.NewReader(body))
+	var input io.Reader
+	if body != "" {
+		input = strings.NewReader(body)
+	}
+	request := httptest.NewRequest(method, target, input)
 	for _, cookie := range cookies {
 		request.AddCookie(cookie)
 	}

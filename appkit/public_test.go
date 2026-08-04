@@ -124,7 +124,7 @@ func (externalAllowAll) Authorize(context.Context, authz.Request) (authz.Decisio
 type externalProbeHandler struct{}
 
 func externalActor(executionScope scope.Execution) identity.Actor {
-	return identity.Actor{ID: "external-user", Type: "user", DisplayName: "External User", Scope: executionScope}
+	return identity.Actor{ID: "external-user", Type: "user", DisplayName: "External User"}
 }
 
 func (externalProbeHandler) Plan(context.Context, action.Request) (action.PlanData, error) {

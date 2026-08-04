@@ -102,6 +102,88 @@ func TestHostReleasesStartupReferencesAfterTerminalStartAttempts(t *testing.T) {
 	})
 }
 
+func TestMigrateStartsOnlyDatabaseBoundaryAndNeverBindsFeatures(t *testing.T) {
+	var validations, databaseStarts, databaseStops, featureStarts, handlerFactories atomic.Int32
+	control, err := databasecontrol.New(startupReferenceBackend{validations: &validations})
+	if err != nil {
+		t.Fatal(err)
+	}
+	databaseModule := Registration{
+		Definition: Definition{Manifest: Manifest{
+			SchemaVersion: SchemaVersion, ID: "migration-database", Version: "0.1.0", Type: ModuleTypeAdapter,
+			Provides: []Capability{CapabilityDatabase},
+		}, Migrations: []MigrationSource{{Driver: "memory", Files: fstest.MapFS{"0001_database.sql": {Data: []byte("SELECT 1")}}}}},
+		Start: func(_ context.Context, scope Scope) error {
+			databaseStarts.Add(1)
+			if err := OnStop(scope, func(context.Context) error { databaseStops.Add(1); return nil }); err != nil {
+				return err
+			}
+			return Provide(scope, startupReferenceDatabaseKey, control)
+		},
+	}
+	featureModule := Registration{
+		Definition: Definition{Manifest: Manifest{
+			SchemaVersion: SchemaVersion, ID: "migration-feature", Version: "0.1.0", Type: ModuleTypeFeature,
+			Requires: []Capability{CapabilityDatabase},
+		}, Migrations: []MigrationSource{{Driver: "memory", Files: fstest.MapFS{"0001_feature.sql": {Data: []byte("SELECT 1")}}}}, Actions: []ActionBinding{{
+			Descriptor: testActionDescriptor("migration-feature.run"),
+			NewHandler: func(context.Context, Resolver) (action.Handler, error) {
+				handlerFactories.Add(1)
+				return inertActionHandler{}, nil
+			},
+		}}},
+		Start: func(context.Context, Scope) error { featureStarts.Add(1); return nil },
+	}
+	host := NewHost()
+	if err := host.Register(featureModule, databaseModule); err != nil {
+		t.Fatal(err)
+	}
+	if err := host.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if databaseStarts.Load() != 1 || databaseStops.Load() != 1 || validations.Load() != 2 {
+		t.Fatalf("database starts=%d stops=%d migration validations=%d", databaseStarts.Load(), databaseStops.Load(), validations.Load())
+	}
+	if featureStarts.Load() != 0 || handlerFactories.Load() != 0 {
+		t.Fatalf("migration-only started feature=%d or bound handler=%d", featureStarts.Load(), handlerFactories.Load())
+	}
+	if host.State() != StateStopped {
+		t.Fatalf("state = %s", host.State())
+	}
+	if err := host.Start(context.Background()); !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("Start after Migrate error = %v", err)
+	}
+}
+
+func TestSkipMigrationsStartsSelectedModulesWithoutApplyingSources(t *testing.T) {
+	var validations atomic.Int32
+	control, err := databasecontrol.New(startupReferenceBackend{validations: &validations})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registration := startupReferenceRegistration("skip-migrations", fstest.MapFS{
+		"0001_test.sql": {Data: []byte("SELECT 1")},
+	}, func(_ context.Context, scope Scope) error {
+		return Provide(scope, startupReferenceDatabaseKey, control)
+	})
+	host, err := NewHostWithOptions(HostOptions{SkipMigrations: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := host.Register(registration); err != nil {
+		t.Fatal(err)
+	}
+	if err := host.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if validations.Load() != 0 {
+		t.Fatalf("skip-on-start validated %d migrations", validations.Load())
+	}
+	if err := host.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestNilAndZeroValueHostPublicMethodsFailClosed(t *testing.T) {
 	initialized := NewHost()
 	hosts := []struct {
@@ -134,6 +216,7 @@ func TestNilAndZeroValueHostPublicMethodsFailClosed(t *testing.T) {
 			}{
 				{name: "Register", call: func() error { return fixture.host.Register() }},
 				{name: "Start", call: func() error { return fixture.host.Start(context.Background()) }},
+				{name: "Migrate", call: func() error { return fixture.host.Migrate(context.Background()) }},
 				{name: "Shutdown", call: func() error { return fixture.host.Shutdown(context.Background()) }},
 				{name: "Catalog", call: func() error {
 					_, err := fixture.host.Catalog()
@@ -159,6 +242,9 @@ func TestNilAndZeroValueHostPublicMethodsFailClosed(t *testing.T) {
 
 			if err := fixture.host.Start(nil); !errors.Is(err, ErrContextRequired) {
 				t.Fatalf("Start(nil) error = %v", err)
+			}
+			if err := fixture.host.Migrate(nil); !errors.Is(err, ErrContextRequired) {
+				t.Fatalf("Migrate(nil) error = %v", err)
 			}
 			if err := fixture.host.Shutdown(nil); !errors.Is(err, ErrContextRequired) {
 				t.Fatalf("Shutdown(nil) error = %v", err)

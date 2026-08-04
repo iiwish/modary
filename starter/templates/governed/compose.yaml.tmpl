@@ -1,0 +1,54 @@
+name: {{.ID}}
+services:
+  database:
+    image: postgres:17.10-alpine
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - database-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  migrate:
+    build: {context: .}
+    command: ["migrate"]
+    depends_on:
+      database: {condition: service_healthy}
+    environment: &database-environment
+      DATABASE_URL: postgres://app:${POSTGRES_PASSWORD}@database:5432/app?sslmode=disable
+      MODARY_APPLICATION_SCHEMA: {{.SchemaID}}
+      MODARY_QUEUE_SCHEMA: {{.QueueSchemaID}}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+
+  application:
+    build: {context: .}
+    command: ["serve", "--listen", "0.0.0.0:8080"]
+    depends_on:
+      database: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
+    environment:
+      <<: *database-environment
+      MODARY_OPERATOR_USERNAME: ${MODARY_OPERATOR_USERNAME:-operator}
+      MODARY_OPERATOR_PASSWORD: ${MODARY_OPERATOR_PASSWORD:?set MODARY_OPERATOR_PASSWORD}
+      MODARY_OPERATOR_TOKEN: ${MODARY_OPERATOR_TOKEN:?set MODARY_OPERATOR_TOKEN}
+    ports:
+      - "${MODARY_HTTP_PORT:-8080}:8080"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    init: true
+    restart: unless-stopped
+
+volumes:
+  database-data:

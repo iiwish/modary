@@ -37,13 +37,25 @@ already own infrastructure choices.
 Initial graph:
 
 ```text
-postgresdb + localidentity + rbac + sessionhttp + records + React Admin
+postgresdb + identitystore + rbac + sessionhttp + records + React Admin
 ```
 
 The business database uses PostgreSQL through `database.Store`. Mutations run
 inside a synchronous callback transaction owned by the repository path. Admin
 does not install River, Action plan/idempotency tables, SQL Audit, task workers,
 or MCP.
+
+Admin accepts four explicit additions at creation time:
+
+| Selection | Effect |
+|---|---|
+| `--with tasks` | Governed PostgreSQL plus River task execution and task UI |
+| `--with audit` | SQL Audit plus permission-aware audit UI |
+| `--with oidc` | Replaces local password login with OIDC redirect login |
+| `--with otel` | Adds the optional OTLP/HTTP traces and metrics component |
+
+Repeat `--with` to combine selections. Omitted selections contribute no route,
+configuration, migration, frontend surface, exporter, or heavy dependency.
 
 Use Admin for operational tools and business back offices where ordinary CRUD
 is appropriate. Replace local Identity for production-facing deployments.
@@ -53,7 +65,7 @@ is appropriate. Replace local Identity for production-facing deployments.
 Initial graph:
 
 ```text
-postgres + River + localidentity + rbac + sqlaudit
+postgres + River + identitystore + rbac + sqlaudit
 + limits.set Action + CLI/HTTP/MCP + worker
 ```
 

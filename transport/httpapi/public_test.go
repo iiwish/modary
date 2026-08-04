@@ -20,9 +20,6 @@ func TestExternalConsumerCanConstructPublicTransportSurface(t *testing.T) {
 	}
 	var _ http.Handler = spa
 
-	if handler, err := httpapi.NewHealth(nil); err == nil || handler != nil {
-		t.Fatalf("NewHealth(nil) = %#v, %v", handler, err)
-	}
 	if handler, err := httpapi.NewAPI(nil, httpapi.APIOptions{Timeout: time.Second}); err == nil || handler != nil {
 		t.Fatalf("NewAPI(nil) = %#v, %v", handler, err)
 	}

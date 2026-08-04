@@ -43,6 +43,8 @@ var publicProductionPackages = map[string]architectureLayer{
 	modaryImportPath + "/database":                          layerKernel,
 	modaryImportPath + "/identity":                          layerKernel,
 	modaryImportPath + "/module":                            layerKernel,
+	modaryImportPath + "/observe":                           layerKernel,
+	modaryImportPath + "/processkit":                        layerKernel,
 	modaryImportPath + "/scope":                             layerKernel,
 	modaryImportPath + "/task":                              layerKernel,
 	modaryImportPath + "/appkit":                            layerAppKit,
@@ -50,10 +52,13 @@ var publicProductionPackages = map[string]architectureLayer{
 	modaryImportPath + "/transport/httpapi":                 layerTransport,
 	modaryImportPath + "/transport/sessionhttp":             layerTransport,
 	modaryImportPath + "/components/postgres":               layerAdapter,
-	modaryImportPath + "/components/postgres/localidentity": layerAdapter,
+	modaryImportPath + "/components/postgres/identitystore": layerAdapter,
 	modaryImportPath + "/components/postgres/rbac":          layerAdapter,
 	modaryImportPath + "/components/postgres/sqlaudit":      layerAdapter,
 	modaryImportPath + "/components/governedpostgres":       layerAdapter,
+	modaryImportPath + "/components/oidc":                   layerAdapter,
+	modaryImportPath + "/components/oidc/oidchttp":          layerTransport,
+	modaryImportPath + "/components/otel":                   layerAdapter,
 	modaryImportPath + "/projecttool":                       layerProjectTool,
 	modaryImportPath + "/starter":                           layerProjectTool,
 	modaryImportPath + "/cmd/modary":                        layerProjectTool,
@@ -70,7 +75,7 @@ var privilegedInternalImporters = map[string]map[string]bool{
 	modaryImportPath + "/internal/databasecontrol": {
 		modaryImportPath + "/module":                            true,
 		modaryImportPath + "/components/postgres":               true,
-		modaryImportPath + "/components/postgres/localidentity": true,
+		modaryImportPath + "/components/postgres/identitystore": true,
 		modaryImportPath + "/components/postgres/rbac":          true,
 		modaryImportPath + "/components/postgres/sqlaudit":      true,
 		modaryImportPath + "/components/governedpostgres":       true,
@@ -89,7 +94,7 @@ var privilegedInternalImporters = map[string]map[string]bool{
 	},
 	modaryImportPath + "/internal/moduleassembly": {
 		modaryImportPath + "/components/postgres":               true,
-		modaryImportPath + "/components/postgres/localidentity": true,
+		modaryImportPath + "/components/postgres/identitystore": true,
 		modaryImportPath + "/components/postgres/rbac":          true,
 		modaryImportPath + "/components/postgres/sqlaudit":      true,
 		modaryImportPath + "/components/governedpostgres":       true,
@@ -437,7 +442,7 @@ func isOfficialComponentModule(root, name string) bool {
 		return false
 	}
 	relative = filepath.ToSlash(relative)
-	return relative == "components/postgres" || relative == "components/governedpostgres"
+	return relative == "components/postgres" || relative == "components/governedpostgres" || relative == "components/oidc" || relative == "components/otel"
 }
 
 func TestNestedGoModuleDirectoryDetection(t *testing.T) {

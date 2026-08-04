@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"time"
-
-	"github.com/iiwish/modary/scope"
 )
 
 var (
@@ -20,13 +18,19 @@ var (
 	ErrSessionInvalid = errors.New("identity session is invalid or expired")
 )
 
+// Authentication method identifiers used by official components.
+const (
+	AuthenticationMethodPassword = "password"
+	AuthenticationMethodOIDC     = "oidc"
+)
+
 // Actor is the validated principal envelope passed to authorization and Action
-// execution. Scope is identity context, not authorization policy.
+// execution. Product scope and authorization grants deliberately live outside
+// identity so one principal can participate in zero, one, or many scopes.
 type Actor struct {
-	ID          string          `json:"id"`
-	Type        string          `json:"type"`
-	DisplayName string          `json:"display_name"`
-	Scope       scope.Execution `json:"scope"`
+	ID          string `json:"id"`
+	Type        string `json:"type"`
+	DisplayName string `json:"display_name"`
 }
 
 // Resolver loads current active actor state by stable identifier. The same
@@ -48,15 +52,33 @@ type Session struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
-// Authenticator manages password login and revocable server-side sessions. Its
-// methods share Resolver's concurrency and context contract.
-type Authenticator interface {
-	Resolver
-	// Login returns ErrAuthenticationFailed for rejected credentials.
-	Login(context.Context, string, string) (Session, error)
-	Logout(context.Context, string) error
-	// Session returns ErrSessionInvalid for unknown, expired, or revoked tokens.
-	Session(context.Context, string) (Session, error)
+// Authentication is the validated result of one upstream authentication
+// ceremony. CredentialVersion is an opaque, non-secret freshness token used by
+// a cooperating session store to reject stale password verification after
+// credential rotation. Transports must treat it as sensitive process data.
+type Authentication struct {
+	Actor             Actor  `json:"actor"`
+	Method            string `json:"method"`
+	CredentialVersion string `json:"-"`
+}
+
+// PasswordAuthenticator verifies a password credential and returns the current
+// principal. It does not create a browser session or own HTTP login ceremony.
+type PasswordAuthenticator interface {
+	// AuthenticatePassword returns ErrAuthenticationFailed for rejected
+	// credentials without distinguishing unknown accounts from wrong secrets.
+	AuthenticatePassword(context.Context, string, string) (Authentication, error)
+}
+
+// SessionManager creates, resolves, and revokes server-side application
+// sessions. It is independent of the upstream authentication ceremony so local
+// passwords and OIDC can share the same protected-session contract.
+type SessionManager interface {
+	CreateSession(context.Context, Authentication) (Session, error)
+	RevokeSession(context.Context, string) error
+	// ResolveSession returns ErrSessionInvalid for unknown, expired, or revoked
+	// tokens.
+	ResolveSession(context.Context, string) (Session, error)
 }
 
 // TokenAuthenticator resolves a bearer credential to an authenticated Actor.

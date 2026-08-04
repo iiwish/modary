@@ -1,0 +1,33 @@
+# syntax=docker/dockerfile:1.19
+ARG GO_VERSION=1.26.5
+FROM golang:${GO_VERSION}-bookworm AS build
+WORKDIR /src
+ENV GOTOOLCHAIN=local GOWORK=off
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY . .
+ARG TARGETOS=linux
+ARG TARGETARCH
+ARG VERSION=dev
+ARG REVISION=unknown
+ARG CREATED=unknown
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -mod=readonly -trimpath \
+    -ldflags="-s -w -X main.version=${VERSION} -X main.revision=${REVISION} -X main.created=${CREATED}" \
+    -o /out/application ./cmd/{{.ID}}
+
+FROM scratch
+ARG VERSION=dev
+ARG REVISION=unknown
+ARG CREATED=unknown
+LABEL org.opencontainers.image.title={{quote .Name}} \
+      org.opencontainers.image.version=${VERSION} \
+      org.opencontainers.image.revision=${REVISION} \
+      org.opencontainers.image.created=${CREATED}
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build /out/application /application
+USER 65532:65532
+EXPOSE 8080
+ENTRYPOINT ["/application"]
+CMD ["serve"]

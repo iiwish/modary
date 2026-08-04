@@ -19,25 +19,57 @@ type Config struct {
 	OperatorPassword  string
 	OperatorToken     string
 	InsecureCookie    bool
+	MigrateOnStart    bool
+}
+
+// DatabaseConfig is the migration-only configuration and contains no operator
+// credential.
+type DatabaseConfig struct {
+	DatabaseURL string
+	ApplicationSchema string
+	QueueSchema string
+}
+
+func LoadDatabase() (DatabaseConfig, error) {
+	config := DatabaseConfig{
+		DatabaseURL: os.Getenv("DATABASE_URL"),
+		ApplicationSchema: os.Getenv("MODARY_APPLICATION_SCHEMA"),
+		QueueSchema: os.Getenv("MODARY_QUEUE_SCHEMA"),
+	}
+	if config.ApplicationSchema == "" { config.ApplicationSchema = {{quote .SchemaID}} }
+	if config.QueueSchema == "" { config.QueueSchema = {{quote .QueueSchemaID}} }
+	if err := config.Validate(); err != nil { return DatabaseConfig{}, err }
+	return config, nil
+}
+
+func (config DatabaseConfig) Validate() error {
+	if config.DatabaseURL == "" || len(config.DatabaseURL) > 8192 || !utf8.ValidString(config.DatabaseURL) || strings.TrimSpace(config.DatabaseURL) != config.DatabaseURL || strings.ContainsFunc(config.DatabaseURL, unicode.IsControl) {
+		return fmt.Errorf("DATABASE_URL is required and must not contain surrounding whitespace or control characters")
+	}
+	if config.ApplicationSchema == config.QueueSchema {
+		return fmt.Errorf("application and queue schemas must be distinct")
+	}
+	return nil
+}
+
+func (config Config) DatabaseConfig() DatabaseConfig {
+	return DatabaseConfig{DatabaseURL: config.DatabaseURL, ApplicationSchema: config.ApplicationSchema, QueueSchema: config.QueueSchema}
 }
 
 // Load reads and validates process environment without applying hidden
 // database or credential defaults.
 func Load() (Config, error) {
+	databaseConfig, err := LoadDatabase()
+	if err != nil { return Config{}, err }
 	config := Config{
-		DatabaseURL:        os.Getenv("DATABASE_URL"),
-		ApplicationSchema: os.Getenv("MODARY_APPLICATION_SCHEMA"),
-		QueueSchema:       os.Getenv("MODARY_QUEUE_SCHEMA"),
+		DatabaseURL:        databaseConfig.DatabaseURL,
+		ApplicationSchema: databaseConfig.ApplicationSchema,
+		QueueSchema:       databaseConfig.QueueSchema,
 		OperatorUsername:  os.Getenv("MODARY_OPERATOR_USERNAME"),
 		OperatorPassword:  os.Getenv("MODARY_OPERATOR_PASSWORD"),
 		OperatorToken:     os.Getenv("MODARY_OPERATOR_TOKEN"),
 		InsecureCookie:    os.Getenv("MODARY_ALLOW_INSECURE_COOKIE") == "true",
-	}
-	if config.ApplicationSchema == "" {
-		config.ApplicationSchema = {{quote .SchemaID}}
-	}
-	if config.QueueSchema == "" {
-		config.QueueSchema = {{quote .QueueSchemaID}}
+		MigrateOnStart:    os.Getenv("MODARY_MIGRATE_ON_START") == "true",
 	}
 	if err := config.Validate(); err != nil {
 		return Config{}, err
@@ -48,9 +80,7 @@ func Load() (Config, error) {
 // Validate rejects incomplete or ambiguous process configuration before
 // framework composition.
 func (config Config) Validate() error {
-	if config.DatabaseURL == "" || !utf8.ValidString(config.DatabaseURL) || strings.TrimSpace(config.DatabaseURL) != config.DatabaseURL {
-		return fmt.Errorf("DATABASE_URL is required and must not contain surrounding whitespace")
-	}
+	if err := config.DatabaseConfig().Validate(); err != nil { return err }
 	if invalidCredential(config.OperatorUsername, 256) {
 		return fmt.Errorf("MODARY_OPERATOR_USERNAME is required and must be a bounded value")
 	}
@@ -60,9 +90,6 @@ func (config Config) Validate() error {
 	}
 	if invalidToken(config.OperatorToken) {
 		return fmt.Errorf("MODARY_OPERATOR_TOKEN must contain 32 to 4096 bytes without whitespace or control characters")
-	}
-	if config.ApplicationSchema == config.QueueSchema {
-		return fmt.Errorf("application and queue schemas must be distinct")
 	}
 	return nil
 }

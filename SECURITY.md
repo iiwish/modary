@@ -4,10 +4,9 @@
 
 ## Supported Versions
 
-`v0.1.0-alpha.3` is the immutable published Alpha baseline. The current branch
-targets `v0.2.0-alpha.1` and has source-level F0 acceptance but is not a
-published support line. Pre-v1 fixes may be delivered as a new exact prerelease;
-indefinite backports are not promised.
+`v0.3.0-alpha.1` is the current published Alpha line. `v0.2.0-alpha.1` and
+`v0.1.0-alpha.3` remain immutable historical baselines. Pre-v1 fixes are
+delivered as a new exact prerelease; indefinite backports are not promised.
 
 ## Report A Vulnerability
 
@@ -31,6 +30,9 @@ line is published.
   and generated consumer-owned React assets.
 - Governed adds Preview/Execute, idempotency, SQL Audit, PostgreSQL transaction
   ownership, River tasks, CLI/HTTP, and MCP.
+- Optional OIDC is a relying party and never treats identity claims as scope or
+  role grants. Optional OpenTelemetry exports bounded signals without global
+  providers or raw request, SQL, task, actor, or scope data.
 
 Modary is not an operating-system sandbox, public-internet IAM system,
 distributed transaction coordinator, database operator, or deployment security

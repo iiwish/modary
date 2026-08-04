@@ -78,6 +78,9 @@ type ShutdownPolicy struct {
 type HostOptions struct {
 	Shutdown ShutdownPolicy
 	Runtime  action.RuntimePolicy
+	// SkipMigrations disables the default apply-before-start behavior. It is
+	// intended for serving processes paired with an explicit Migrate invocation.
+	SkipMigrations bool
 }
 
 // CallbackPanicError reports a recovered lifecycle callback panic without a
@@ -176,6 +179,7 @@ type Host struct {
 	persistenceOwner  string
 	shutdownPolicy    ShutdownPolicy
 	runtimePolicy     action.RuntimePolicy
+	skipMigrations    bool
 	facades           *assemblyGate
 	assembly          *Assembly
 	assemblyErr       error
@@ -220,6 +224,7 @@ func NewHostWithOptions(options HostOptions) (*Host, error) {
 		registry:       registry,
 		shutdownPolicy: options.Shutdown,
 		runtimePolicy:  options.Runtime,
+		skipMigrations: options.SkipMigrations,
 		facades:        newAssemblyGate(),
 		shutdownDone:   make(chan struct{}),
 	}
@@ -360,6 +365,133 @@ func (host *Host) applyMigrationsUnchecked(ctx context.Context, definition Defin
 	return fmt.Errorf("module %s has no migrations for database driver %s", definition.Manifest.ID, driver)
 }
 
+// Migrate applies every selected forward migration without starting feature
+// Modules or binding Action handlers. It starts only the database provider and
+// its transitive dependencies, then cleans those resources before returning.
+// Like Start, it is a one-shot Host lifecycle operation.
+func (host *Host) Migrate(ctx context.Context) error {
+	if ctx == nil {
+		return ErrContextRequired
+	}
+	if !host.available() {
+		return ErrHostUnavailable
+	}
+	host.mu.Lock()
+	if host.state != StateNew {
+		state := host.state
+		host.mu.Unlock()
+		return &StateError{Operation: "migrate", State: state}
+	}
+	host.state = StateStarting
+	migrateCtx, cancel := context.WithCancel(ctx)
+	host.startCancel = cancel
+	host.startDone = make(chan struct{})
+	host.stopRequested = false
+	registrations := make(map[string]Registration, len(host.registrations))
+	for id, registration := range host.registrations {
+		registrations[id] = registration
+	}
+	prepared := make(map[string]action.PreparedDescriptor, len(host.prepared))
+	for actionID, contract := range host.prepared {
+		prepared[actionID] = contract
+	}
+	host.mu.Unlock()
+	defer host.finishStart()
+
+	graph, _, err := validateRegistrations(registrations, prepared)
+	if err != nil {
+		host.completeStartFailure(nil)
+		return err
+	}
+	host.mu.Lock()
+	host.graph = graph
+	host.mu.Unlock()
+
+	hasMigrations := false
+	for _, registration := range registrations {
+		if len(registration.Definition.Migrations) > 0 {
+			hasMigrations = true
+			break
+		}
+	}
+	if !hasMigrations {
+		host.completeMigration(nil)
+		return nil
+	}
+	databaseOwner, ok := graph.Provides[CapabilityDatabase]
+	if !ok {
+		host.completeStartFailure(nil)
+		return fmt.Errorf("migration graph has no database provider")
+	}
+	startupSet := map[string]bool{databaseOwner: true}
+	for changed := true; changed; {
+		changed = false
+		for _, edge := range graph.Edges {
+			if startupSet[edge.From] && !startupSet[edge.To] {
+				startupSet[edge.To] = true
+				changed = true
+			}
+		}
+	}
+
+	for _, id := range graph.Order {
+		if !startupSet[id] {
+			continue
+		}
+		if err := migrateCtx.Err(); err != nil {
+			return host.startFailure(migrateCtx, fmt.Errorf("migrate modules: %w", err), nil)
+		}
+		registration := registrations[id]
+		runtime := &moduleRuntime{id: id, active: true, mutable: true}
+		install := &installScope{host: host, manifest: registration.Definition.Manifest, runtime: runtime, active: true}
+		var startErr error
+		if registration.Start != nil {
+			startErr = invokeStart(registration.Start, migrateCtx, install)
+		}
+		install.expire()
+		if startErr != nil {
+			return host.startFailure(migrateCtx, fmt.Errorf("start migration dependency %s: %w", id, startErr), runtime)
+		}
+		runtime.deactivate()
+		host.mu.Lock()
+		host.runtimes = append(host.runtimes, runtime)
+		host.started = append(host.started, id)
+		host.mu.Unlock()
+	}
+	for _, id := range graph.Order {
+		definition := registrations[id].Definition
+		if len(definition.Migrations) == 0 {
+			continue
+		}
+		if err := host.applyMigrations(migrateCtx, definition); err != nil {
+			return host.startFailure(migrateCtx, fmt.Errorf("apply migrations for module %s: %w", id, err), nil)
+		}
+	}
+	host.mu.RLock()
+	started := append([]*moduleRuntime(nil), host.runtimes...)
+	host.mu.RUnlock()
+	cleanupErr := host.cleanup(migrateCtx, started)
+	host.completeMigration(cleanupErr)
+	return cleanupErr
+}
+
+func (host *Host) completeMigration(cleanupErr error) {
+	host.mu.Lock()
+	if cleanupErr != nil {
+		host.state = StateFailed
+	} else {
+		host.state = StateStopped
+	}
+	host.shutdownErr = cleanupErr
+	host.releaseStartupReferencesLocked()
+	select {
+	case <-host.shutdownDone:
+	default:
+		close(host.shutdownDone)
+	}
+	host.mu.Unlock()
+}
+
 // Start validates, migrates, and starts Modules in dependency order.
 func (host *Host) Start(ctx context.Context) error {
 	if ctx == nil {
@@ -412,7 +544,7 @@ func (host *Host) Start(ctx context.Context) error {
 			host: host, manifest: registration.Definition.Manifest, runtime: runtime, active: true,
 		}
 		providesDatabase := contains(registration.Definition.Manifest.Provides, CapabilityDatabase)
-		if !providesDatabase {
+		if !providesDatabase && !host.skipMigrations {
 			if err := host.applyMigrations(startCtx, registration.Definition); err != nil {
 				install.expire()
 				return host.startFailure(startCtx, fmt.Errorf("apply migrations for module %s: %w", id, err), runtime)
@@ -429,7 +561,7 @@ func (host *Host) Start(ctx context.Context) error {
 		if err := startCtx.Err(); err != nil {
 			return host.startFailure(startCtx, fmt.Errorf("start module %s: %w", id, err), runtime)
 		}
-		if providesDatabase {
+		if providesDatabase && !host.skipMigrations {
 			if err := host.applyMigrations(startCtx, registration.Definition); err != nil {
 				return host.startFailure(startCtx, fmt.Errorf("apply migrations for module %s: %w", id, err), runtime)
 			}

@@ -2,6 +2,7 @@ package appcmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -63,6 +64,24 @@ func Run(ctx context.Context, args []string, provider DefinitionProvider, option
 			return err
 		}
 		return serve(ctx, definition, normalized)
+	case "migrate":
+		if len(args) != 1 {
+			return usageError("migrate accepts no arguments")
+		}
+		normalized, err := normalizeOptions(prepared)
+		if err != nil {
+			return err
+		}
+		definition, err := definitionForCommand(ctx, provider, prepared.Metadata)
+		if err != nil {
+			return err
+		}
+		normalized.Logger.InfoContext(ctx, "database migration started", "event", "database.migration.started")
+		if err := appkit.Migrate(ctx, definition, normalized.App); err != nil {
+			return errors.Join(err, loggerOutputError(normalized))
+		}
+		normalized.Logger.InfoContext(ctx, "database migration completed", "event", "database.migration.completed")
+		return loggerOutputError(normalized)
 	case "action":
 		command, help, err := parseActionCommand(args[1:])
 		if err != nil {
@@ -86,6 +105,13 @@ func Run(ctx context.Context, args []string, provider DefinitionProvider, option
 	default:
 		return usageError("unknown command %q", args[0])
 	}
+}
+
+func loggerOutputError(options normalizedOptions) error {
+	if options.loggerOutput == nil {
+		return nil
+	}
+	return options.loggerOutput.Err()
 }
 
 func commandName(metadata appkit.Metadata) string {
@@ -146,10 +172,11 @@ func invokeDefinitionProvider(provider DefinitionProvider) (definition appkit.De
 func writeHelp(writer io.Writer, name string) error {
 	return writeString(writer, fmt.Sprintf(`Usage:
   %s serve [--listen address]
+  %s migrate
   %s action run <action-id> --token-file <path|-> --input <path|-> [--preview] [--plan <hash>] [--idempotency-key <key>] [--request-id <id>]
   %s version
   %s help
-`, name, name, name, name))
+`, name, name, name, name, name))
 }
 
 func writeString(writer io.Writer, value string) (err error) {

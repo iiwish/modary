@@ -23,8 +23,8 @@ import (
 	"github.com/iiwish/modary/appkit"
 	"github.com/iiwish/modary/database"
 	"github.com/iiwish/modary/httpkit"
-	"github.com/iiwish/modary/identity"
 	"github.com/iiwish/modary/module"
+	"github.com/iiwish/modary/scope"
 	"github.com/iiwish/modary/transport/sessionhttp"
 )
 
@@ -58,7 +58,7 @@ func Registration() module.Registration {
 
 // Contribution declares every records transport dependency and route before
 // application startup. The builder resolves only the preflighted facades.
-func Contribution(insecureCookie bool) httpkit.Contribution {
+func Contribution(insecureCookie bool, executionScope scope.Execution) httpkit.Contribution {
 	return httpkit.Contribution{
 		ID: "records",
 		Requires: []module.Capability{
@@ -88,7 +88,7 @@ func Contribution(insecureCookie bool) httpkit.Contribution {
 			if err != nil {
 				return nil, err
 			}
-			return routes(store, authorizer, sessions)
+			return routes(store, authorizer, sessions, executionScope)
 		},
 	}
 }
@@ -116,13 +116,14 @@ type updateRequest struct {
 type handler struct {
 	store      database.Store
 	authorizer authz.Authorizer
+	scope      scope.Execution
 }
 
-func routes(store database.Store, authorizer authz.Authorizer, sessions *sessionhttp.API) ([]httpkit.Route, error) {
+func routes(store database.Store, authorizer authz.Authorizer, sessions *sessionhttp.API, executionScope scope.Execution) ([]httpkit.Route, error) {
 	if store == nil || authorizer == nil || sessions == nil {
 		return nil, fmt.Errorf("records routes require Store, Authorizer, and session HTTP")
 	}
-	handler := &handler{store: store, authorizer: authorizer}
+	handler := &handler{store: store, authorizer: authorizer, scope: executionScope}
 	list, err := sessions.Authenticate(http.HandlerFunc(handler.list))
 	if err != nil {
 		return nil, err
@@ -148,7 +149,7 @@ func routes(store database.Store, authorizer authz.Authorizer, sessions *session
 }
 
 func (handler *handler) list(writer http.ResponseWriter, request *http.Request) {
-	actor, decision, ok := handler.authorize(writer, request, permissionList)
+	decision, ok := handler.authorize(writer, request, permissionList)
 	if !ok {
 		return
 	}
@@ -159,7 +160,7 @@ func (handler *handler) list(writer http.ResponseWriter, request *http.Request) 
 	rows, err := handler.store.QueryContext(request.Context(), `
 		SELECT record_id, title, status, version, created_at, updated_at
 		FROM records WHERE scope_kind = $1 AND scope_id = $2
-		ORDER BY updated_at DESC, record_id LIMIT $3`, actor.Scope.Kind, actor.Scope.ID, limit)
+		ORDER BY updated_at DESC, record_id LIMIT $3`, handler.scope.Kind, handler.scope.ID, limit)
 	if err != nil {
 		writeError(writer, request, http.StatusInternalServerError, "INTERNAL", "could not list records")
 		return
@@ -184,7 +185,7 @@ func (handler *handler) list(writer http.ResponseWriter, request *http.Request) 
 }
 
 func (handler *handler) create(writer http.ResponseWriter, request *http.Request) {
-	actor, _, ok := handler.authorize(writer, request, permissionCreate)
+	_, ok := handler.authorize(writer, request, permissionCreate)
 	if !ok {
 		return
 	}
@@ -203,7 +204,7 @@ func (handler *handler) create(writer http.ResponseWriter, request *http.Request
 	err = handler.store.WithinTransaction(request.Context(), func(txCtx context.Context) error {
 		_, err := handler.store.ExecContext(txCtx, `INSERT INTO records
 			(record_id, scope_kind, scope_id, title, status, version, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, record.ID, actor.Scope.Kind, actor.Scope.ID,
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, record.ID, handler.scope.Kind, handler.scope.ID,
 			record.Title, record.Status, record.Version, record.CreatedAt, record.UpdatedAt)
 		return err
 	})
@@ -215,7 +216,7 @@ func (handler *handler) create(writer http.ResponseWriter, request *http.Request
 }
 
 func (handler *handler) update(writer http.ResponseWriter, request *http.Request) {
-	actor, _, ok := handler.authorize(writer, request, permissionUpdate)
+	_, ok := handler.authorize(writer, request, permissionUpdate)
 	if !ok {
 		return
 	}
@@ -232,7 +233,7 @@ func (handler *handler) update(writer http.ResponseWriter, request *http.Request
 	err := handler.store.WithinTransaction(request.Context(), func(txCtx context.Context) error {
 		result, err := handler.store.ExecContext(txCtx, `UPDATE records SET title=$1, status=$2, version=version+1, updated_at=$3
 			WHERE record_id=$4 AND scope_kind=$5 AND scope_id=$6 AND version=$7`, input.Title, input.Status,
-			updatedAt, id, actor.Scope.Kind, actor.Scope.ID, input.Version)
+			updatedAt, id, handler.scope.Kind, handler.scope.ID, input.Version)
 		if err != nil {
 			return err
 		}
@@ -243,7 +244,7 @@ func (handler *handler) update(writer http.ResponseWriter, request *http.Request
 		return handler.store.QueryRowContext(txCtx, `
 			SELECT record_id, title, status, version, created_at, updated_at
 			FROM records WHERE record_id=$1 AND scope_kind=$2 AND scope_id=$3`,
-			id, actor.Scope.Kind, actor.Scope.ID).Scan(&updated.ID, &updated.Title, &updated.Status,
+			id, handler.scope.Kind, handler.scope.ID).Scan(&updated.ID, &updated.Title, &updated.Status,
 			&updated.Version, &updated.CreatedAt, &updated.UpdatedAt)
 	})
 	if err != nil {
@@ -258,7 +259,7 @@ func (handler *handler) update(writer http.ResponseWriter, request *http.Request
 }
 
 func (handler *handler) remove(writer http.ResponseWriter, request *http.Request) {
-	actor, _, ok := handler.authorize(writer, request, permissionDelete)
+	_, ok := handler.authorize(writer, request, permissionDelete)
 	if !ok {
 		return
 	}
@@ -270,7 +271,7 @@ func (handler *handler) remove(writer http.ResponseWriter, request *http.Request
 	var affected int64
 	err := handler.store.WithinTransaction(request.Context(), func(txCtx context.Context) error {
 		result, err := handler.store.ExecContext(txCtx, `DELETE FROM records WHERE record_id=$1 AND scope_kind=$2 AND scope_id=$3`,
-			id, actor.Scope.Kind, actor.Scope.ID)
+			id, handler.scope.Kind, handler.scope.ID)
 		if err != nil {
 			return err
 		}
@@ -288,23 +289,23 @@ func (handler *handler) remove(writer http.ResponseWriter, request *http.Request
 	writer.WriteHeader(http.StatusNoContent)
 }
 
-func (handler *handler) authorize(writer http.ResponseWriter, request *http.Request, permission string) (identity.Actor, authz.Decision, bool) {
+func (handler *handler) authorize(writer http.ResponseWriter, request *http.Request, permission string) (authz.Decision, bool) {
 	actor, ok := sessionhttp.Actor(request.Context())
 	if !ok {
 		writeError(writer, request, http.StatusUnauthorized, "AUTHENTICATION_REQUIRED", "authentication is required")
-		return identity.Actor{}, authz.Decision{}, false
+		return authz.Decision{}, false
 	}
 	decision, err := handler.authorizer.Authorize(request.Context(), authz.Request{Actor: actor, OperationID: permission,
-		Permission: permission, Scope: actor.Scope, Phase: authz.PhaseIntent})
+		Permission: permission, Scope: handler.scope, Phase: authz.PhaseIntent})
 	if err != nil {
 		writeError(writer, request, http.StatusInternalServerError, "INTERNAL", "authorization is unavailable")
-		return identity.Actor{}, authz.Decision{}, false
+		return authz.Decision{}, false
 	}
 	if !decision.Allowed {
 		writeError(writer, request, http.StatusForbidden, "AUTHORIZATION_DENIED", "permission is not granted")
-		return identity.Actor{}, decision, false
+		return decision, false
 	}
-	return actor, decision, true
+	return decision, true
 }
 
 func validateFields(title, status string) error {

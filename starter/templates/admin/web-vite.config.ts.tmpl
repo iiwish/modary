@@ -8,7 +8,7 @@ const active = fileURLToPath(new URL('./src/modules/active.ts', import.meta.url)
 export default defineConfig({
   plugins: [react()],
   resolve: { alias: [{ find: '@/modules/active', replacement: active }, { find: '@', replacement: source }] },
-  server: { proxy: { '/api': 'http://127.0.0.1:8080', '/healthz': 'http://127.0.0.1:8080' } },
+  server: { proxy: { '/api': 'http://127.0.0.1:8080', '/livez': 'http://127.0.0.1:8080', '/readyz': 'http://127.0.0.1:8080' } },
   test: { environment: 'happy-dom', setupFiles: ['./src/test/setup.ts'], restoreMocks: true, testTimeout: 15_000 },
   build: {
     outDir: '../internal/web/dist',

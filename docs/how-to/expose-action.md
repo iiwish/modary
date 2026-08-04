@@ -57,7 +57,7 @@ runtime, or define application branding.
 
 When the SPA shares a server with API or health endpoints, set
 `SPAOptions.FallbackExcludedPaths` to their canonical namespace roots, such as
-`/api` and `/healthz`. Requests under those roots never fall back to the SPA,
+`/api` and `/readyz`. Requests under those roots never fall back to the SPA,
 regardless of the `Accept` header, so unknown backend paths retain their HTTP
 404 semantics.
 

@@ -16,6 +16,7 @@ import (
 	"github.com/iiwish/modary/database"
 	"github.com/iiwish/modary/identity"
 	"github.com/iiwish/modary/module"
+	"github.com/iiwish/modary/observe"
 	"github.com/iiwish/modary/task"
 )
 
@@ -30,8 +31,12 @@ var (
 	ErrApplicationUnavailable = module.ErrApplicationUnavailable
 	// ErrIdentitiesUnavailable reports that no identity resolver was installed.
 	ErrIdentitiesUnavailable = errors.New("identity resolver is unavailable")
-	// ErrSessionsUnavailable reports that no session authenticator was installed.
-	ErrSessionsUnavailable = errors.New("session authenticator is unavailable")
+	// ErrPasswordsUnavailable reports that no password authenticator was installed.
+	ErrPasswordsUnavailable = errors.New("password authenticator is unavailable")
+	// ErrBrowserAuthenticationUnavailable reports that no redirect authenticator was installed.
+	ErrBrowserAuthenticationUnavailable = errors.New("browser authenticator is unavailable")
+	// ErrSessionsUnavailable reports that no session manager was installed.
+	ErrSessionsUnavailable = errors.New("session manager is unavailable")
 	// ErrTokensUnavailable reports that no token authenticator was installed.
 	ErrTokensUnavailable = errors.New("token authenticator is unavailable")
 	// ErrDatabaseUnavailable reports that no business-data Store was installed.
@@ -42,6 +47,8 @@ var (
 	ErrTaskInspectorUnavailable = errors.New("task inspector is unavailable")
 	// ErrAuditReaderUnavailable reports that audit inspection was not selected.
 	ErrAuditReaderUnavailable = errors.New("audit reader is unavailable")
+	// ErrObservabilityUnavailable reports that telemetry was not selected.
+	ErrObservabilityUnavailable = errors.New("observability is unavailable")
 )
 
 // Definition is the consumer-owned application composition source. Inspecting
@@ -73,8 +80,11 @@ type RuntimeOptions = action.RuntimePolicy
 // long Start waits for cleanup after a post-start assembly failure; Host cleanup
 // continues under its own callback policy if that wait expires.
 type Options struct {
-	Shutdown        module.ShutdownPolicy
-	Runtime         RuntimeOptions
+	Shutdown module.ShutdownPolicy
+	Runtime  RuntimeOptions
+	// SkipMigrations disables apply-on-start for a serve process paired with an
+	// explicit Migrate command.
+	SkipMigrations  bool
 	RollbackTimeout time.Duration
 }
 
@@ -134,7 +144,10 @@ type Application struct {
 	runtime             Runtime
 	database            database.Store
 	identities          identity.Resolver
-	sessions            identity.Authenticator
+	passwords           identity.PasswordAuthenticator
+	browserAuth         identity.BrowserAuthenticator
+	observability       observe.Service
+	sessions            identity.SessionManager
 	tokens              identity.TokenAuthenticator
 	tasks               task.Service
 	taskInspector       task.Inspector
@@ -179,6 +192,9 @@ func Start(ctx context.Context, definition Definition, options Options) (*Applic
 	runtime := assembly.Runtime()
 	store := assembly.Database()
 	identities := assembly.Identities()
+	passwords := assembly.Passwords()
+	browserAuth := assembly.BrowserAuthentication()
+	observability := assembly.Observability()
 	sessions := assembly.Sessions()
 	tokens := assembly.Tokens()
 	tasks := assembly.Tasks()
@@ -195,6 +211,9 @@ func Start(ctx context.Context, definition Definition, options Options) (*Applic
 		runtime:             runtime,
 		database:            store,
 		identities:          identities,
+		passwords:           passwords,
+		browserAuth:         browserAuth,
+		observability:       observability,
 		sessions:            sessions,
 		tokens:              tokens,
 		tasks:               tasks,
@@ -208,6 +227,22 @@ func Start(ctx context.Context, definition Definition, options Options) (*Applic
 	return application, nil
 }
 
+// Migrate validates the complete application graph and applies its selected
+// forward migrations without starting feature Modules or binding handlers.
+func Migrate(ctx context.Context, definition Definition, options Options) error {
+	if ctx == nil {
+		return ErrContextRequired
+	}
+	host, _, _, err := prepare(definition, options)
+	if err != nil {
+		return err
+	}
+	if err := host.Migrate(ctx); err != nil {
+		return fmt.Errorf("migrate application: %w", err)
+	}
+	return nil
+}
+
 func prepare(definition Definition, options Options) (*module.Host, Contract, time.Duration, error) {
 	rollbackTimeout, err := validateStartOptions(options)
 	if err != nil {
@@ -219,7 +254,7 @@ func prepare(definition Definition, options Options) (*module.Host, Contract, ti
 	if len(definition.Modules) == 0 {
 		return nil, Contract{}, 0, fmt.Errorf("application Definition must contain at least one Module")
 	}
-	host, err := module.NewHostWithOptions(module.HostOptions{Shutdown: options.Shutdown, Runtime: options.Runtime})
+	host, err := module.NewHostWithOptions(module.HostOptions{Shutdown: options.Shutdown, Runtime: options.Runtime, SkipMigrations: options.SkipMigrations})
 	if err != nil {
 		return nil, Contract{}, 0, fmt.Errorf("create Module Host: %w", err)
 	}

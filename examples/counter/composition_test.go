@@ -28,7 +28,10 @@ func TestApplicationCommandsDeferCompositionUntilRuntimeCommands(t *testing.T) {
 		calls.Add(1)
 		panic("pure command invoked the composition provider")
 	}
-	options := project.CommandOptions()
+	options, err := project.CommandOptions()
+	if err != nil {
+		t.Fatal(err)
+	}
 	options.Stdout = io.Discard
 	options.Stderr = io.Discard
 
@@ -49,7 +52,10 @@ func TestApplicationCommandsDeferCompositionUntilRuntimeCommands(t *testing.T) {
 }
 
 func TestApplicationCommandPreservesCompositionErrors(t *testing.T) {
-	options := project.CommandOptions()
+	options, err := project.CommandOptions()
+	if err != nil {
+		t.Fatal(err)
+	}
 	options.Stdout = io.Discard
 	options.Stderr = io.Discard
 

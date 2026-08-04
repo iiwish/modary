@@ -10,7 +10,6 @@ import (
 
 	"github.com/iiwish/modary/identity"
 	"github.com/iiwish/modary/module"
-	"github.com/iiwish/modary/scope"
 )
 
 func TestApplicationShutdownCancelsAndDrainsIdentityFacadesBeforeCleanup(t *testing.T) {
@@ -296,35 +295,35 @@ func TestEveryIdentityFacadeMethodHoldsApplicationLease(t *testing.T) {
 			_, err = resolver.ResolveByID(context.Background(), "actor")
 			return err
 		}},
-		{name: "authenticator resolver", invoke: func(application *Application) error {
-			authenticator, err := application.Sessions()
+		{name: "password", invoke: func(application *Application) error {
+			authenticator, err := application.Passwords()
 			if err != nil {
 				return err
 			}
-			_, err = authenticator.ResolveByID(context.Background(), "actor")
+			_, err = authenticator.AuthenticatePassword(context.Background(), "user", "password")
 			return err
 		}},
-		{name: "login", invoke: func(application *Application) error {
+		{name: "create session", invoke: func(application *Application) error {
 			authenticator, err := application.Sessions()
 			if err != nil {
 				return err
 			}
-			_, err = authenticator.Login(context.Background(), "user", "password")
+			_, err = authenticator.CreateSession(context.Background(), identity.Authentication{Actor: lifecycleTestActor(), Method: identity.AuthenticationMethodOIDC})
 			return err
 		}},
-		{name: "logout", invoke: func(application *Application) error {
+		{name: "revoke session", invoke: func(application *Application) error {
 			authenticator, err := application.Sessions()
 			if err != nil {
 				return err
 			}
-			return authenticator.Logout(context.Background(), "session")
+			return authenticator.RevokeSession(context.Background(), "session")
 		}},
 		{name: "session", invoke: func(application *Application) error {
 			authenticator, err := application.Sessions()
 			if err != nil {
 				return err
 			}
-			_, err = authenticator.Session(context.Background(), "session")
+			_, err = authenticator.ResolveSession(context.Background(), "session")
 			return err
 		}},
 		{name: "token", invoke: func(application *Application) error {
@@ -427,18 +426,25 @@ func (service *blockingIdentity) ResolveByID(ctx context.Context, _ string) (ide
 	return lifecycleTestActor(), nil
 }
 
-func (service *blockingIdentity) Login(ctx context.Context, _, _ string) (identity.Session, error) {
+func (service *blockingIdentity) AuthenticatePassword(ctx context.Context, _, _ string) (identity.Authentication, error) {
+	if err := service.wait(ctx); err != nil {
+		return identity.Authentication{}, err
+	}
+	return identity.Authentication{Actor: lifecycleTestActor(), Method: identity.AuthenticationMethodPassword, CredentialVersion: "version"}, nil
+}
+
+func (service *blockingIdentity) CreateSession(ctx context.Context, _ identity.Authentication) (identity.Session, error) {
 	if err := service.wait(ctx); err != nil {
 		return identity.Session{}, err
 	}
 	return identity.Session{Actor: lifecycleTestActor()}, nil
 }
 
-func (service *blockingIdentity) Logout(ctx context.Context, _ string) error {
+func (service *blockingIdentity) RevokeSession(ctx context.Context, _ string) error {
 	return service.wait(ctx)
 }
 
-func (service *blockingIdentity) Session(ctx context.Context, _ string) (identity.Session, error) {
+func (service *blockingIdentity) ResolveSession(ctx context.Context, _ string) (identity.Session, error) {
 	if err := service.wait(ctx); err != nil {
 		return identity.Session{}, err
 	}
@@ -446,5 +452,5 @@ func (service *blockingIdentity) Session(ctx context.Context, _ string) (identit
 }
 
 func lifecycleTestActor() identity.Actor {
-	return identity.Actor{ID: "actor", Type: "user", DisplayName: "Actor", Scope: scope.Must("tenant", "one")}
+	return identity.Actor{ID: "actor", Type: "user", DisplayName: "Actor"}
 }

@@ -85,7 +85,7 @@ func TestCreateAPIProfileIsDeterministicAndBuildsOutsideWorkspace(t *testing.T) 
 	dependencies := runGoOutput(t, first, "list", "-deps", "./...")
 	for _, forbidden := range []string{
 		"github.com/iiwish/modary/components/governedpostgres",
-		"github.com/iiwish/modary/components/postgres/localidentity",
+		"github.com/iiwish/modary/components/postgres/identitystore",
 		"github.com/iiwish/modary/components/postgres/rbac",
 		"github.com/iiwish/modary/components/postgres/sqlaudit",
 		"github.com/riverqueue/river",
@@ -312,6 +312,207 @@ func TestCreateAdminOperationalComponentsAreExplicitAndBuild(t *testing.T) {
 	runGo(t, destination, "build", "./cmd/operations-admin")
 }
 
+func TestCreateAdminOIDCSelectsOneAuthenticationSurface(t *testing.T) {
+	destination := filepath.Join(t.TempDir(), "oidc-admin")
+	result, err := starter.Create(context.Background(), starter.CreateOptions{
+		Destination: destination, ModulePath: "example.com/acme/oidc-admin", Name: "OIDC Admin",
+		Profile: starter.ProfileAdmin, Components: []starter.Component{starter.ComponentOIDC},
+		ModaryVersion: "v0.1.0-alpha.3", ModaryReplace: repositoryRoot(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(result.Components, []starter.Component{starter.ComponentOIDC}) {
+		t.Fatalf("components = %v", result.Components)
+	}
+	for name, required := range map[string][]string{
+		"internal/app/application.go": {
+			"components/oidc", "oidchttp.Contribution", "SubjectMappings",
+		},
+		"internal/config/config.go": {
+			"MODARY_OIDC_ISSUER_URL", "MODARY_OIDC_CLIENT_ID", "MODARY_OIDC_REDIRECT_URL", "MODARY_OIDC_SUBJECT",
+		},
+		"web/src/views/LoginView.tsx": {"/api/auth/oidc/login", "使用企业账号登录"},
+	} {
+		source, readErr := os.ReadFile(filepath.Join(destination, name))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		for _, value := range required {
+			if !bytes.Contains(source, []byte(value)) {
+				t.Errorf("%s is missing %q", name, value)
+			}
+		}
+	}
+	for name, forbidden := range map[string][]string{
+		"internal/app/application.go": {"CapabilityPasswords", "PasswordCredentials", `Path: "/api/auth/login"`},
+		"internal/config/config.go":   {"MODARY_ADMIN_USERNAME", "MODARY_ADMIN_PASSWORD", "AdminPassword"},
+		"web/src/views/LoginView.tsx": {`type="password"`, "用户名"},
+		"web/src/stores/auth.tsx":     {"/api/auth/login", "login:"},
+	} {
+		source, readErr := os.ReadFile(filepath.Join(destination, name))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		for _, value := range forbidden {
+			if bytes.Contains(source, []byte(value)) {
+				t.Errorf("%s contains unselected password surface %q", name, value)
+			}
+		}
+	}
+	runGo(t, destination, "mod", "tidy")
+	modules := runGoOutput(t, destination, "list", "-m", "all")
+	if !strings.Contains(modules, "github.com/iiwish/modary/components/oidc") {
+		t.Fatal("OIDC Admin module graph does not contain the selected OIDC component")
+	}
+	runGo(t, destination, "test", "./...")
+	runGo(t, destination, "build", "./cmd/oidc-admin")
+}
+
+func TestCreateAdminOTelSelectsTelemetryWithoutChangingProductSurface(t *testing.T) {
+	destination := filepath.Join(t.TempDir(), "telemetry-admin")
+	result, err := starter.Create(context.Background(), starter.CreateOptions{
+		Destination: destination, ModulePath: "example.com/acme/telemetry-admin", Name: "Telemetry Admin",
+		Profile: starter.ProfileAdmin, Components: []starter.Component{starter.ComponentOTel},
+		ModaryVersion: "v0.1.0-alpha.3", ModaryReplace: repositoryRoot(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(result.Components, []starter.Component{starter.ComponentOTel}) {
+		t.Fatalf("components = %v", result.Components)
+	}
+	for name, required := range map[string][]string{
+		"go.mod": {"github.com/iiwish/modary/components/otel"},
+		"internal/app/application.go": {
+			"otelcomponent.Module", "core.Observability()", `Name: "telemetry"`,
+		},
+		"internal/config/config.go": {
+			"MODARY_OTEL_ENDPOINT", "MODARY_OTEL_HEADERS_JSON", "MODARY_OTEL_ENVIRONMENT", "MODARY_OTEL_INSECURE",
+		},
+	} {
+		source, readErr := os.ReadFile(filepath.Join(destination, name))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		for _, value := range required {
+			if !bytes.Contains(source, []byte(value)) {
+				t.Errorf("%s is missing %q", name, value)
+			}
+		}
+	}
+	login, err := os.ReadFile(filepath.Join(destination, "web/src/views/LoginView.tsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(login, []byte(`type="password"`)) || bytes.Contains(login, []byte("/api/auth/oidc/login")) {
+		t.Fatal("telemetry selection changed the local password login surface")
+	}
+	runGo(t, destination, "mod", "tidy")
+	modules := runGoOutput(t, destination, "list", "-m", "all")
+	if !strings.Contains(modules, "github.com/iiwish/modary/components/otel") {
+		t.Fatal("telemetry Admin module graph does not contain the selected OTel component")
+	}
+	runGo(t, destination, "test", "./...")
+}
+
+func TestGeneratedDeploymentSourceIsExplicitNonRootAndProfileAware(t *testing.T) {
+	root := t.TempDir()
+	profiles := []struct {
+		id      string
+		profile starter.Profile
+		compose bool
+	}{
+		{id: "deploy-api", profile: starter.ProfileAPI},
+		{id: "deploy-admin", profile: starter.ProfileAdmin, compose: true},
+		{id: "deploy-governed", profile: starter.ProfileGoverned, compose: true},
+	}
+	for _, profile := range profiles {
+		t.Run(profile.id, func(t *testing.T) {
+			destination := filepath.Join(root, profile.id)
+			_, err := starter.Create(context.Background(), starter.CreateOptions{
+				Destination: destination, ModulePath: "example.com/acme/" + profile.id,
+				Profile: profile.profile, ModaryVersion: "v0.1.0-alpha.3", ModaryReplace: repositoryRoot(t),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			mainSource, err := os.ReadFile(filepath.Join(destination, "cmd", profile.id, "main.go"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, required := range []string{"process.started", "database.migration.started", "database.migration.completed", "process.failed"} {
+				if !bytes.Contains(mainSource, []byte(required)) {
+					t.Errorf("generated process main is missing structured event %q", required)
+				}
+			}
+			if bytes.Contains(mainSource, []byte("err.Error()")) {
+				t.Fatal("generated process logs an unbounded error value")
+			}
+			dockerfile, err := os.ReadFile(filepath.Join(destination, "Dockerfile"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, required := range []string{
+				"golang:${GO_VERSION}-bookworm AS build", "GOTOOLCHAIN=local GOWORK=off", "COPY go.mod go.sum ./", "CGO_ENABLED=0", "GOARCH=${TARGETARCH}",
+				"FROM scratch", "USER 65532:65532", `ENTRYPOINT ["/application"]`, `CMD ["serve"]`,
+			} {
+				if !bytes.Contains(dockerfile, []byte(required)) {
+					t.Errorf("Dockerfile missing %q", required)
+				}
+			}
+			for _, forbidden := range []string{"node:", "latest", "PASSWORD=", "DATABASE_URL="} {
+				if bytes.Contains(dockerfile, []byte(forbidden)) {
+					t.Errorf("Dockerfile contains %q", forbidden)
+				}
+			}
+			dockerignore, err := os.ReadFile(filepath.Join(destination, ".dockerignore"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, required := range []string{".git", ".env", "*.pem", "node_modules"} {
+				if !bytes.Contains(dockerignore, []byte(required)) {
+					t.Errorf(".dockerignore missing %q", required)
+				}
+			}
+			_, composeErr := os.Stat(filepath.Join(destination, "compose.yaml"))
+			if !profile.compose {
+				if !errors.Is(composeErr, fs.ErrNotExist) {
+					t.Fatalf("API compose file error = %v", composeErr)
+				}
+				return
+			}
+			if composeErr != nil {
+				t.Fatal(composeErr)
+			}
+			compose, err := os.ReadFile(filepath.Join(destination, "compose.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, required := range []string{
+				"postgres:17.10-alpine", `command: ["migrate"]`, "service_completed_successfully",
+				"read_only: true", "cap_drop: [ALL]", `security_opt: ["no-new-privileges:true"]`,
+			} {
+				if !bytes.Contains(compose, []byte(required)) {
+					t.Errorf("compose.yaml missing %q", required)
+				}
+			}
+			if bytes.Contains(compose, []byte(":latest")) {
+				t.Fatal("compose.yaml uses a moving latest image")
+			}
+			sections := bytes.SplitN(compose, []byte("\n  application:"), 2)
+			if len(sections) != 2 {
+				t.Fatal("compose.yaml does not separate migration and application services")
+			}
+			for _, credential := range []string{"MODARY_ADMIN_PASSWORD", "MODARY_OIDC_CLIENT_SECRET", "MODARY_OTEL_HEADERS_JSON", "MODARY_OPERATOR_PASSWORD", "MODARY_OPERATOR_TOKEN"} {
+				if bytes.Contains(sections[0], []byte(credential)) {
+					t.Errorf("migration service receives application credential %q", credential)
+				}
+			}
+		})
+	}
+}
+
 func TestCreateGovernedProfileBuildsAndConsumesTransactionalWork(t *testing.T) {
 	destination := filepath.Join(t.TempDir(), "sample-governed")
 	result, err := starter.Create(context.Background(), starter.CreateOptions{
@@ -344,7 +545,7 @@ func TestCreateGovernedProfileBuildsAndConsumesTransactionalWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, selected := range []string{
-		"components/governedpostgres", "components/postgres/localidentity",
+		"components/governedpostgres", "components/postgres/identitystore",
 		"components/postgres/rbac", "components/postgres/sqlaudit",
 		"transport/httpapi", "NewMCP", "limits.Module",
 	} {
@@ -590,8 +791,15 @@ func runGeneratedGovernedProfileTests(t *testing.T, directory string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
 	defer cancel()
+	goTool := acceptanceTool("MODARY_ACCEPTANCE_GO", "go")
+	executable := filepath.Join(t.TempDir(), "generated-governed")
+	runAcceptanceCommand(t, ctx, directory, nil, goTool, "build", "-o", executable, "./cmd/sample-governed")
+	migrationEnvironment := append(append([]string(nil), environment...),
+		"MODARY_OPERATOR_USERNAME=", "MODARY_OPERATOR_PASSWORD=", "MODARY_OPERATOR_TOKEN=",
+	)
+	runAcceptanceCommand(t, ctx, directory, migrationEnvironment, executable, "migrate")
 	runRequiredGeneratedProfileTest(t, ctx, directory, environment,
-		acceptanceTool("MODARY_ACCEPTANCE_GO", "go"),
+		goTool,
 		"TestGovernedProfileCommitsAndConsumesDurableWork", "Governed")
 }
 
@@ -629,7 +837,7 @@ func runGeneratedAPI(t *testing.T, directory, name string) {
 	client := &http.Client{Timeout: 200 * time.Millisecond}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		request, requestErr := http.NewRequest(http.MethodGet, "http://"+address+"/healthz", nil)
+		request, requestErr := http.NewRequest(http.MethodGet, "http://"+address+"/readyz", nil)
 		if requestErr != nil {
 			t.Fatal(requestErr)
 		}

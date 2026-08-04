@@ -3,7 +3,7 @@ module github.com/iiwish/modary/components/postgres
 go 1.26.5
 
 require (
-	github.com/iiwish/modary v0.2.0-alpha.1
+	github.com/iiwish/modary v0.3.0-alpha.1
 	github.com/jackc/pgx/v5 v5.10.0
 	golang.org/x/crypto v0.54.0
 	golang.org/x/mod v0.38.0

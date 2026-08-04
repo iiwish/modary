@@ -452,7 +452,8 @@ func TestFrameworkServiceNamesRejectForgedKeysWithoutStatePollution(t *testing.T
 		{name: Database().Name(), capability: Database().Capability()},
 		{name: ActionDatabase().Name(), capability: ActionDatabase().Capability()},
 		{name: IdentityResolver().Name(), capability: IdentityResolver().Capability()},
-		{name: SessionAuthenticator().Name(), capability: SessionAuthenticator().Capability()},
+		{name: PasswordAuthenticator().Name(), capability: PasswordAuthenticator().Capability()},
+		{name: SessionManager().Name(), capability: SessionManager().Capability()},
 		{name: TokenAuthenticator().Name(), capability: TokenAuthenticator().Capability()},
 		{name: Authorizer().Name(), capability: Authorizer().Capability()},
 		{name: AuditHook().Name(), capability: AuditHook().Capability()},
@@ -1073,7 +1074,7 @@ func TestCanceledShutdownRevokesRuntimeBeforeReturning(t *testing.T) {
 	}
 	executionScope := scope.Must("tenant", "revoke")
 	_, executionErr := runtime.Execute(context.Background(), action.Request{
-		Actor: identity.Actor{ID: "user", Type: "user", Scope: executionScope}, Channel: action.ChannelHTTP,
+		Actor: identity.Actor{ID: "user", Type: "user"}, Channel: action.ChannelHTTP,
 		ActionID: "revoke.run", Scope: executionScope, Input: []byte(`{}`),
 	})
 	if !action.IsCode(executionErr, action.CodeUnavailable) {

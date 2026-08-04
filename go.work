@@ -3,6 +3,8 @@ go 1.26.5
 use (
 	.
 	./components/governedpostgres
+	./components/oidc
+	./components/otel
 	./components/postgres
 	./examples/counter
 	./integration

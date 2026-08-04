@@ -2,10 +2,12 @@ package appcmd
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -20,7 +22,45 @@ import (
 	"github.com/iiwish/modary/internal/moduleassembly"
 	"github.com/iiwish/modary/internal/testsupport"
 	"github.com/iiwish/modary/module"
+	"github.com/iiwish/modary/processkit"
 )
+
+func TestServeEmitsStructuredHTTPLifecycle(t *testing.T) {
+	manager, err := processkit.New(processkit.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	address := make(chan string, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	options := lifecycleOptions(lifecycleHandlerFactory, func(context.Context, string, string) (net.Listener, error) {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err == nil {
+			address <- listener.Addr().String()
+		}
+		return listener, err
+	})
+	options.Process = manager
+	options.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
+	go func() { result <- Serve(ctx, newLifecycleFixture().definition(), options) }()
+	select {
+	case <-address:
+	case err := <-result:
+		t.Fatalf("Serve() stopped before listening: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("Serve() did not listen")
+	}
+	cancel()
+	if err := waitForError(t, result, "Serve"); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []string{"process.ready", "http.server.started", "process.draining", "http.server.draining", "http.server.stopped", "process.stopped"} {
+		if !strings.Contains(logs.String(), `"event":"`+event+`"`) {
+			t.Errorf("structured logs missing %s: %s", event, logs.String())
+		}
+	}
+}
 
 func TestServeFailureBoundariesAlwaysCleanupExactlyOnce(t *testing.T) {
 	handlerErr := errors.New("handler failed")

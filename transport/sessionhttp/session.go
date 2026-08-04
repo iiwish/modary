@@ -64,6 +64,9 @@ var (
 // Options controls the bounded session protocol and cookie policy.
 type Options struct {
 	CookieName string
+	// EnablePasswordLogin explicitly contributes /api/auth/login. OIDC-only
+	// applications leave it false and contribute their own redirect flow.
+	EnablePasswordLogin bool
 	// AllowInsecureCookie is intended only for an explicitly HTTP-only local
 	// development environment. Production should retain secure cookies.
 	AllowInsecureCookie bool
@@ -74,7 +77,8 @@ type Options struct {
 // API serves login, current-session, and logout routes and constructs
 // lifecycle-safe session middleware for consumer-owned handlers.
 type API struct {
-	sessions     identity.Authenticator
+	passwords    identity.PasswordAuthenticator
+	sessions     identity.SessionManager
 	cookieName   string
 	secureCookie bool
 	maxBodyBytes int64
@@ -115,8 +119,8 @@ type errorResponse struct {
 	RequestID string `json:"request_id"`
 }
 
-// New assembles a session HTTP API from an application's optional session
-// authenticator facade.
+// New assembles protected-session HTTP from an application's session manager.
+// Password login is resolved only when explicitly selected.
 func New(application *appkit.Application, options Options) (*API, error) {
 	if application == nil || !application.Ready() {
 		return nil, fmt.Errorf("session HTTP application: %w", appkit.ErrApplicationUnavailable)
@@ -130,9 +134,19 @@ func New(application *appkit.Application, options Options) (*API, error) {
 		return nil, fmt.Errorf("session HTTP authenticator: %w", err)
 	}
 	if typedNil(sessions) {
-		return nil, fmt.Errorf("session HTTP authenticator is required")
+		return nil, fmt.Errorf("session HTTP manager is required")
 	}
-	api := &API{sessions: sessions, cookieName: normalized.CookieName,
+	var passwords identity.PasswordAuthenticator
+	if normalized.EnablePasswordLogin {
+		passwords, err = application.Passwords()
+		if err != nil {
+			return nil, fmt.Errorf("session HTTP password authenticator: %w", err)
+		}
+		if typedNil(passwords) {
+			return nil, fmt.Errorf("session HTTP password authenticator is required")
+		}
+	}
+	api := &API{passwords: passwords, sessions: sessions, cookieName: normalized.CookieName,
 		secureCookie: !normalized.AllowInsecureCookie, maxBodyBytes: normalized.MaxBodyBytes,
 		timeout: normalized.Timeout}
 	if !application.Ready() {
@@ -205,6 +219,28 @@ func (api *API) Mutate(next http.Handler) (http.Handler, error) {
 	return api.protected(next, true), nil
 }
 
+// Establish creates a revocable application session for a completed upstream
+// authentication and writes the configured host-only cookie. Redirect-based
+// login contributions use this instead of duplicating cookie policy.
+func (api *API) Establish(ctx context.Context, writer http.ResponseWriter, authentication identity.Authentication) (identity.Session, error) {
+	if api == nil || typedNil(api.sessions) || ctx == nil || writer == nil {
+		return identity.Session{}, fmt.Errorf("session HTTP API is unavailable")
+	}
+	if err := identity.ValidateAuthentication(authentication); err != nil {
+		return identity.Session{}, fmt.Errorf("session authentication is invalid: %w", err)
+	}
+	session, err := api.sessions.CreateSession(ctx, authentication)
+	if err != nil {
+		return identity.Session{}, err
+	}
+	if validateSession(session, true) != nil || !session.ExpiresAt.After(time.Now()) {
+		return identity.Session{}, fmt.Errorf("session manager returned an invalid session")
+	}
+	http.SetCookie(writer, &http.Cookie{Name: api.cookieName, Value: session.Token, Path: "/",
+		Expires: session.ExpiresAt, HttpOnly: true, Secure: api.secureCookie, SameSite: http.SameSiteStrictMode})
+	return session, nil
+}
+
 func (api *API) protected(next http.Handler, mutation bool) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		api.boundary(writer, request, func(writer http.ResponseWriter, request *http.Request, requestID string) {
@@ -256,6 +292,10 @@ func (api *API) boundary(writer http.ResponseWriter, request *http.Request, next
 func (api *API) serve(writer http.ResponseWriter, request *http.Request, requestID string) {
 	switch request.URL.Path {
 	case "/api/auth/login":
+		if typedNil(api.passwords) {
+			writeError(writer, http.StatusNotFound, requestID, CodeNotFound, "session route was not found")
+			return
+		}
 		if !validateMethod(writer, request, requestID, http.MethodPost) {
 			return
 		}
@@ -319,7 +359,7 @@ func (api *API) login(writer http.ResponseWriter, request *http.Request, request
 		writeError(writer, http.StatusBadRequest, requestID, CodeValidationFailed, "invalid login request")
 		return
 	}
-	session, err := api.sessions.Login(request.Context(), input.Username, input.Password)
+	authentication, err := api.passwords.AuthenticatePassword(request.Context(), input.Username, input.Password)
 	if err != nil {
 		if errors.Is(request.Context().Err(), context.DeadlineExceeded) || safeerr.Is(err, context.DeadlineExceeded) {
 			writeError(writer, http.StatusServiceUnavailable, requestID, CodeUnavailable, "request timed out")
@@ -332,12 +372,19 @@ func (api *API) login(writer http.ResponseWriter, request *http.Request, request
 		writeError(writer, http.StatusInternalServerError, requestID, CodeInternal, "internal server error")
 		return
 	}
+	session, err := api.Establish(request.Context(), writer, authentication)
+	if err != nil {
+		if errors.Is(request.Context().Err(), context.DeadlineExceeded) || safeerr.Is(err, context.DeadlineExceeded) {
+			writeError(writer, http.StatusServiceUnavailable, requestID, CodeUnavailable, "request timed out")
+			return
+		}
+		writeError(writer, http.StatusInternalServerError, requestID, CodeInternal, "internal server error")
+		return
+	}
 	if validateSession(session, true) != nil || !session.ExpiresAt.After(time.Now()) {
 		writeError(writer, http.StatusInternalServerError, requestID, CodeInternal, "internal server error")
 		return
 	}
-	http.SetCookie(writer, &http.Cookie{Name: api.cookieName, Value: session.Token, Path: "/",
-		Expires: session.ExpiresAt, HttpOnly: true, Secure: api.secureCookie, SameSite: http.SameSiteStrictMode})
 	api.writeSession(writer, session, requestID)
 }
 
@@ -347,7 +394,7 @@ func (api *API) authenticate(writer http.ResponseWriter, request *http.Request, 
 		writeError(writer, http.StatusUnauthorized, requestID, CodeAuthenticationNeeded, "authentication is required")
 		return authenticatedSession{}, false
 	}
-	session, err := api.sessions.Session(request.Context(), token)
+	session, err := api.sessions.ResolveSession(request.Context(), token)
 	if err != nil {
 		if safeerr.Is(err, identity.ErrSessionInvalid) {
 			api.clearCookie(writer)
@@ -371,7 +418,7 @@ func (api *API) logout(writer http.ResponseWriter, request *http.Request, reques
 		writeError(writer, http.StatusBadRequest, requestID, CodeValidationFailed, "invalid logout request")
 		return
 	}
-	if err := api.sessions.Logout(request.Context(), authenticated.token); err != nil {
+	if err := api.sessions.RevokeSession(request.Context(), authenticated.token); err != nil {
 		writeError(writer, http.StatusInternalServerError, requestID, CodeInternal, "internal server error")
 		return
 	}

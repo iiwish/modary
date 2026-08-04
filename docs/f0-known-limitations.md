@@ -1,4 +1,4 @@
-# Modary v0.2 F0 Known Limitations
+# Modary v0.3 F0 Known Limitations
 
 These boundaries are part of the contract rather than an informal backlog.
 
@@ -46,61 +46,75 @@ These boundaries are part of the contract rather than an informal backlog.
 
 ## Identity And Security
 
-13. Local Identity is for development and bounded private deployments. It is
-    not a complete internet-facing IAM system: OAuth/OIDC, SSO, MFA, recovery,
-    breached-password screening, centralized revocation, and abuse controls are
-    not included.
-14. RBAC supports explicit scoped roles, permissions, and row limits. It is not
+13. Local Identity is for development and bounded private deployments. The
+    optional generic OIDC component is a relying party, not an IAM system. MFA,
+    enrollment, recovery, directory sync, breached-password screening,
+    provider account policy, and abuse controls are not included.
+14. Pending OIDC redirect ceremonies are memory-bounded and process-local in
+    this Alpha. The callback must return to the instance that began the flow;
+    use one login instance or ingress session affinity. Application sessions
+    remain PostgreSQL-backed and revocable. A shared OIDC flow store is not
+    included.
+15. RBAC supports explicit scoped roles, permissions, and row limits. It is not
     a general policy language and does not model delegation, hierarchy, or
     distributed attribute policy.
-15. TLS termination, trusted-proxy rules, security headers, WAF, rate limiting,
+16. TLS termination, trusted-proxy rules, security headers, WAF, rate limiting,
     secrets delivery, and deployment monitoring remain application or
     infrastructure responsibilities.
-16. Consumer callbacks, handlers, repositories, SQL, task consumers,
+17. Consumer callbacks, handlers, repositories, SQL, task consumers,
     configuration providers, and output writers are trusted process code.
     Modary is not a hostile plugin, source, or compiler sandbox.
 
 ## Governed Runtime
 
-17. Preview plans have a five-minute default TTL and in-process cleanup. F0 has
+18. Preview plans have a five-minute default TTL and in-process cleanup. F0 has
     no retention scheduler, archival service, or operator UI for plans.
-18. Audit provides bounded structured events and transactional success records.
+19. Audit provides bounded structured events and transactional success records.
     The optional Admin Audit log is a bounded, scope-bound metadata view.
     Retention, export, signing, external immutability, SIEM delivery, and audit
     administration are product or future-component work.
-19. MCP implements bounded initialization, Action discovery, and tool calls.
+20. MCP implements bounded initialization, Action discovery, and tool calls.
     Resources, prompts, streaming, resumability, and broader protocol surfaces
     are outside F0.
-20. Action JSON, schema, envelope, collection, pattern, numeric-work, and
+21. Action JSON, schema, envelope, collection, pattern, numeric-work, and
     evaluation limits are enforced. Large documents or schemas must be split;
     increasing an HTTP envelope budget does not increase Action document
     limits. Draft 7 support excludes remote references, URI bases, anchors, and
     external resource retrieval.
-21. Governed Access cannot begin a transaction. External databases or APIs are
+22. Governed Access cannot begin a transaction. External databases or APIs are
     outside the local atomic unit and require product-level idempotency and
     integration design.
 
 ## Lifecycle And Tooling
 
-22. Shutdown cancels active facade leases, but Go cannot forcibly terminate a
+23. `/livez` is local-only. `/readyz` may include PostgreSQL and, when selected,
+    Collector connectivity. A readiness failure is not a liveness failure and
+    does not restart the process.
+24. OpenTelemetry is optional and OTLP/HTTP-only. Collector deployment,
+    sampling, retention, dashboards, alerts, log shipping, and telemetry
+    tenancy are operator responsibilities.
+25. Generated Dockerfiles and Compose are secure reference source, not a
+    managed platform, Kubernetes distribution, PostgreSQL operator, TLS
+    provisioner, secret manager, or backup service.
+26. Shutdown cancels active facade leases, but Go cannot forcibly terminate a
     trusted callback that ignores cancellation. Cleanup order is guaranteed by
     invocation, not by completion of non-cooperative callbacks.
-23. Generation installs each output with a sibling rename. A complete multi-file
+27. Generation installs each output with a sibling rename. A complete multi-file
     set is not filesystem-wide or crash atomic. Cross-process serialization is
     a consumer CI responsibility.
-24. The optional `projecttool build` has validated native filesystem and process
+28. The optional `projecttool build` has validated native filesystem and process
     behavior only on Linux and Darwin. Other listed platforms are compile-only.
     It executes trusted Go source and a trusted local toolchain; it is not a
     strong sandbox or a byte-reproducible build service.
-25. CLI token-path hardening is supported on Linux and Darwin. Other operating
+29. CLI token-path hardening is supported on Linux and Darwin. Other operating
     systems accept token input through standard input only.
-26. Node.js and pnpm are required to modify or rebuild Admin frontend source.
+30. Node.js and pnpm are required to modify or rebuild Admin frontend source.
     They are not required by the API or Governed Profiles, or to run the
     prebuilt Admin Go binary.
 
 ## Distribution
 
-27. The v0.2 F0 source is technically accepted but not yet released. Normal
-    remote module resolution remains a release gate. The immutable published
-    baseline is `v0.1.0-alpha.3` and has a different Governed-first onboarding
-    contract.
+31. `v0.3.0-alpha.1` remains a pre-v1 Alpha contract. Pin the root and selected
+    component modules exactly. Generated source is consumer-owned and has no
+    automatic patch or upgrade command. The immutable baseline is
+    `v0.2.0-alpha.1`.

@@ -358,7 +358,7 @@ func TestApplicationFacadeIsDefensiveAndRuntimeIsRevokedOnShutdown(t *testing.T)
 	if got, accessErr := application.Identities(); accessErr != nil || got == nil || got == identity.Resolver(services) {
 		t.Fatalf("Identities() = %#v, %v", got, accessErr)
 	}
-	if got, accessErr := application.Sessions(); accessErr != nil || got == nil || got == identity.Authenticator(services) {
+	if got, accessErr := application.Sessions(); accessErr != nil || got == nil || got == identity.SessionManager(services) {
 		t.Fatalf("Sessions() = %#v, %v", got, accessErr)
 	}
 	if got, accessErr := application.Tokens(); accessErr != nil || got == nil || got == identity.TokenAuthenticator(services) {
@@ -367,7 +367,7 @@ func TestApplicationFacadeIsDefensiveAndRuntimeIsRevokedOnShutdown(t *testing.T)
 
 	executionScope := scope.Must("tenant", "acme")
 	result, err := application.Runtime().Execute(context.Background(), action.Request{
-		Actor:    identity.Actor{ID: "actor", Type: "user", Scope: executionScope},
+		Actor:    identity.Actor{ID: "actor", Type: "user"},
 		Channel:  action.ChannelCLI,
 		ActionID: "example.echo",
 		Scope:    executionScope,
@@ -387,7 +387,7 @@ func TestApplicationFacadeIsDefensiveAndRuntimeIsRevokedOnShutdown(t *testing.T)
 		t.Fatalf("cleanup calls = %d, want 1", cleanup.Load())
 	}
 	_, err = application.Runtime().Execute(context.Background(), action.Request{
-		Actor: identity.Actor{ID: "actor", Type: "user", Scope: executionScope}, Channel: action.ChannelCLI,
+		Actor: identity.Actor{ID: "actor", Type: "user"}, Channel: action.ChannelCLI,
 		ActionID: "example.echo", Scope: executionScope, Input: json.RawMessage(`{"message":"hello"}`),
 	})
 	if !action.IsCode(err, action.CodeUnavailable) {
@@ -423,7 +423,7 @@ func TestRuntimeOptionsAreForwardedAfterPreflight(t *testing.T) {
 
 	executionScope := scope.Must("tenant", "acme")
 	preview, err := application.Runtime().Preview(context.Background(), action.Request{
-		Actor:    identity.Actor{ID: "actor", Type: "user", Scope: executionScope},
+		Actor:    identity.Actor{ID: "actor", Type: "user"},
 		Channel:  action.ChannelCLI,
 		ActionID: "example.echo",
 		Scope:    executionScope,
@@ -658,7 +658,9 @@ type runtimeRegistrationOptions struct {
 }
 
 type completeIdentity interface {
-	identity.Authenticator
+	identity.Resolver
+	identity.PasswordAuthenticator
+	identity.SessionManager
 	identity.TokenAuthenticator
 }
 
@@ -685,7 +687,7 @@ func runtimeRegistration(options runtimeRegistrationOptions) module.Registration
 		module.CapabilityDatabase,
 	}
 	if options.withIdentity {
-		manifest.Provides = append(manifest.Provides, module.CapabilityIdentity, module.CapabilitySessions)
+		manifest.Provides = append(manifest.Provides, module.CapabilityIdentity, module.CapabilityBearers, module.CapabilityPasswords, module.CapabilitySessions)
 	}
 	definition := module.Definition{Manifest: manifest}
 	if options.withAction {
@@ -741,7 +743,10 @@ func runtimeRegistration(options runtimeRegistrationOptions) module.Registration
 				if err := module.Provide(install, module.IdentityResolver(), identity.Resolver(service)); err != nil {
 					return err
 				}
-				if err := module.Provide(install, module.SessionAuthenticator(), identity.Authenticator(service)); err != nil {
+				if err := module.Provide(install, module.PasswordAuthenticator(), identity.PasswordAuthenticator(service)); err != nil {
+					return err
+				}
+				if err := module.Provide(install, module.SessionManager(), identity.SessionManager(service)); err != nil {
 					return err
 				}
 				if err := module.Provide(install, module.TokenAuthenticator(), identity.TokenAuthenticator(service)); err != nil {
@@ -811,20 +816,24 @@ type testIdentity struct {
 }
 
 func newTestIdentity() *testIdentity {
-	return &testIdentity{actor: identity.Actor{ID: "actor", Type: "user", Scope: scope.Must("tenant", "acme")}}
+	return &testIdentity{actor: identity.Actor{ID: "actor", Type: "user"}}
 }
 
 func (service *testIdentity) ResolveByID(context.Context, string) (identity.Actor, error) {
 	return service.actor, nil
 }
 
-func (service *testIdentity) Login(context.Context, string, string) (identity.Session, error) {
+func (service *testIdentity) AuthenticatePassword(context.Context, string, string) (identity.Authentication, error) {
+	return identity.Authentication{Actor: service.actor, Method: identity.AuthenticationMethodPassword, CredentialVersion: "version"}, nil
+}
+
+func (service *testIdentity) CreateSession(context.Context, identity.Authentication) (identity.Session, error) {
 	return identity.Session{Token: "session", CSRFToken: "csrf", Actor: service.actor}, nil
 }
 
-func (*testIdentity) Logout(context.Context, string) error { return nil }
+func (*testIdentity) RevokeSession(context.Context, string) error { return nil }
 
-func (service *testIdentity) Session(context.Context, string) (identity.Session, error) {
+func (service *testIdentity) ResolveSession(context.Context, string) (identity.Session, error) {
 	return identity.Session{Token: "session", CSRFToken: "csrf", Actor: service.actor}, nil
 }
 

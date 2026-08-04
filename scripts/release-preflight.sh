@@ -94,6 +94,8 @@ validate_component_module() {
 
 validate_component_module components/postgres github.com/iiwish/modary/components/postgres
 validate_component_module components/governedpostgres github.com/iiwish/modary/components/governedpostgres
+validate_component_module components/oidc github.com/iiwish/modary/components/oidc
+validate_component_module components/otel github.com/iiwish/modary/components/otel
 
 license=
 for candidate in LICENSE LICENSE.txt; do
@@ -144,9 +146,9 @@ if test ! -f docs/f0-acceptance-report.md ||
 	printf '%s\n' 'release requires accepted F0 technical evidence' >&2
 	exit 1
 fi
-if ! grep -q -F '.ai-platform/specs/009-component-boundary-closure/spec.md' docs/f0-acceptance-report.md ||
-	! grep -q -F '.ai-platform/evidence/T041/' docs/f0-acceptance-report.md; then
-	printf '%s\n' 'release acceptance report does not cover the current component-boundary closure' >&2
+if ! grep -q -F '.ai-platform/specs/010-production-foundation/spec.md' docs/f0-acceptance-report.md ||
+	! grep -q -F '.ai-platform/evidence/T047/' docs/f0-acceptance-report.md; then
+	printf '%s\n' 'release acceptance report does not cover the current production foundation' >&2
 	exit 1
 fi
 
@@ -194,6 +196,8 @@ validate_release_tag() {
 validate_release_tag "$version" 'release tag'
 validate_release_tag "components/postgres/$version" 'component release tag'
 validate_release_tag "components/governedpostgres/$version" 'component release tag'
+validate_release_tag "components/oidc/$version" 'component release tag'
+validate_release_tag "components/otel/$version" 'component release tag'
 
-printf 'release preflight passed: version=%s mode=%s commit=%s modules=3 license=%s origin=%s\n' \
+printf 'release preflight passed: version=%s mode=%s commit=%s modules=5 license=%s origin=%s\n' \
 	"$version" "$mode" "$head" "$license" "$origin"

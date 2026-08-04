@@ -1,0 +1,63 @@
+schema_version: 1
+packet_id: EP-010-T046
+task_id: T046
+feature_id: 010-production-foundation
+mode: execute_one_task
+title: Structured Operations And Optional OpenTelemetry
+status: Completed
+adapter: direct
+goal: Deliver secret-safe structured diagnostics and explicit optional OTLP traces and metrics without changing unselected graphs.
+requirements: [US-005, FR-013, FR-014, FR-015, FR-016, FR-017, NFR-003, NFR-005, NFR-006]
+depends_on: [T044]
+conflicts_with: [T047, T048]
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  spec: .ai-platform/specs/010-production-foundation/spec.md
+  checklist: .ai-platform/specs/010-production-foundation/checklists/requirements.md
+  plan: .ai-platform/specs/010-production-foundation/plan.md
+  analysis: .ai-platform/specs/010-production-foundation/analysis.md
+  work_graph: .ai-platform/specs/010-production-foundation/tasks.md
+  approval: explicit owner instruction on 2026-08-04
+work_unit:
+  title: Structured Operations And Optional OpenTelemetry
+  goal: Deliver secret-safe structured diagnostics and explicit optional OTLP traces and metrics without changing unselected graphs.
+  requirements: [US-005, FR-013, FR-014, FR-015, FR-016, FR-017, NFR-003, NFR-005, NFR-006]
+  depends_on: [T044]
+codebase_context:
+  relevant_paths: [processkit, transport, components/otel, components/postgres, components/governedpostgres, starter]
+  preserve: [root standard-library dependency boundary, explicit lifecycle, task/audit provider-neutral contracts]
+  forbidden: [hidden global provider, raw paths/queries/actor/scope metric labels, request bodies or secrets, OTel logs in F0]
+execution_constraints:
+  allowed_files: [processkit/**, transport/**, components/otel/**, components/postgres/**, components/governedpostgres/**, starter/**, scripts/**, Makefile, go.work, .github/**, docs/**, .ai-platform/specs/010-production-foundation/**, .ai-platform/evidence/T046/**]
+  conflicts_with: [T047, T048]
+  worktree: current owner-approved main worktree after T044
+  delegation: direct execution because subagent delegation was not authorized
+allowed_files: [processkit/**, transport/**, components/otel/**, components/postgres/**, components/governedpostgres/**, starter/**, scripts/**, Makefile, go.work, .github/**, docs/**, .ai-platform/specs/010-production-foundation/**, .ai-platform/evidence/T046/**]
+tdd:
+  red: Add slog/redaction, propagation, bounded semantic, exporter lifecycle, Collector, and absence tests.
+  green: Implement standard-library diagnostics and the separate OTel module.
+  refactor: Consolidate stable semantic fields and explicit selected composition.
+tdd_plan:
+  red: Add slog/redaction, propagation, bounded semantic, exporter lifecycle, Collector, and absence tests.
+  green: Implement standard-library diagnostics and the separate OTel module.
+  refactor: Consolidate stable semantic fields and explicit selected composition.
+validation_commands: ["go test ./processkit ./transport/...", "(cd components/otel && go test -race ./...)", "make copied-profile-acceptance", "git diff --check"]
+validation_loop:
+  commands: [root logging/transport tests, OTel race tests, Collector acceptance, selection/absence, copied profiles, diff check]
+  retry_budget: 3 per failing gate before scope reassessment
+evidence:
+  summary: .ai-platform/evidence/T046/summary.md
+  diff: .ai-platform/evidence/T046/diff.patch
+  tests: .ai-platform/evidence/T046/test-results.md
+  review: .ai-platform/evidence/T046/review.md
+evidence_contract:
+  summary: .ai-platform/evidence/T046/summary.md
+  diff: .ai-platform/evidence/T046/diff.patch
+  test_results: .ai-platform/evidence/T046/test-results.md
+  review: .ai-platform/evidence/T046/review.md
+review_contract:
+  sequence: [spec compliance, secret and cardinality safety, engineering quality, Collector acceptance]
+  acceptance: no unresolved P0 through P2 finding
+handoff:
+  next_task: T047
+stop_conditions: [unselected module graph gains OTel, labels admit unbounded product values, exporter lifecycle relies on mutable framework globals]

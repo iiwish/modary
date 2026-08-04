@@ -65,6 +65,21 @@ func TestCopiedOutAdminProfiles(t *testing.T) {
 			},
 		},
 		{
+			name:       "telemetry-admin",
+			id:         "telemetry-admin",
+			components: []starter.Component{starter.ComponentOTel},
+			required: []string{
+				"github.com/iiwish/modary/components/postgres",
+				"github.com/iiwish/modary/components/otel",
+				"go.opentelemetry.io/otel",
+			},
+			forbidden: []string{
+				"github.com/iiwish/modary/components/governedpostgres",
+				"github.com/riverqueue/river",
+			},
+			backendOnly: true,
+		},
+		{
 			name:                       "long-project-schema-defaults",
 			id:                         strings.Repeat("a", 63),
 			components:                 []starter.Component{starter.ComponentTasks},
@@ -139,6 +154,7 @@ func TestCopiedOutAdminProfiles(t *testing.T) {
 			}
 			runRequiredGeneratedAdminTest(t, ctx, destination, databaseEnvironment, goTool)
 			runAcceptanceCommand(t, ctx, destination, nil, goTool, "build", "./...")
+			assertGeneratedAdminMigratesWithoutRuntimeCredentials(t, ctx, destination, profile.id, databaseEnvironment, goTool)
 			if profile.verifyRuntimeDefaults {
 				assertGeneratedAdminRuntimeDefaults(t, ctx, destination, profile.id, databaseURL, goTool)
 			}
@@ -157,6 +173,24 @@ func TestCopiedOutAdminProfiles(t *testing.T) {
 			runAcceptanceCommand(t, ctx, web, frontendEnvironment, pnpmTool, "assets:check")
 		})
 	}
+}
+
+func assertGeneratedAdminMigratesWithoutRuntimeCredentials(t *testing.T, ctx context.Context, directory, id string, databaseEnvironment []string, goTool string) {
+	t.Helper()
+	executable := filepath.Join(t.TempDir(), "generated-admin")
+	runAcceptanceCommand(t, ctx, directory, nil, goTool, "build", "-o", executable, "./cmd/"+id)
+	environment := append(append([]string(nil), databaseEnvironment...),
+		"MODARY_ADMIN_USERNAME=",
+		"MODARY_ADMIN_PASSWORD=",
+		"MODARY_OIDC_ISSUER_URL=",
+		"MODARY_OIDC_CLIENT_ID=",
+		"MODARY_OIDC_CLIENT_SECRET=",
+		"MODARY_OIDC_REDIRECT_URL=",
+		"MODARY_OIDC_SUBJECT=",
+		"MODARY_OTEL_ENDPOINT=",
+		"MODARY_OTEL_HEADERS=",
+	)
+	runAcceptanceCommand(t, ctx, directory, environment, executable, "migrate")
 }
 
 func assertGeneratedAdminRuntimeDefaults(t *testing.T, ctx context.Context, directory, id, databaseURL, goTool string) {
@@ -209,7 +243,7 @@ func assertGeneratedAdminRuntimeDefaults(t *testing.T, ctx context.Context, dire
 			<-wait
 			t.Fatalf("generated Admin did not become ready with default schemas\n%s", output.String())
 		case <-ticker.C:
-			response, err := client.Get("http://" + address + "/healthz")
+			response, err := client.Get("http://" + address + "/readyz")
 			if err != nil {
 				continue
 			}

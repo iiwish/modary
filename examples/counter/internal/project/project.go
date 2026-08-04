@@ -14,10 +14,12 @@ import (
 	"github.com/iiwish/modary/appcmd"
 	"github.com/iiwish/modary/appkit"
 	"github.com/iiwish/modary/components/governedpostgres"
-	"github.com/iiwish/modary/components/postgres/localidentity"
+	"github.com/iiwish/modary/components/postgres/identitystore"
 	"github.com/iiwish/modary/components/postgres/rbac"
 	"github.com/iiwish/modary/components/postgres/sqlaudit"
+	"github.com/iiwish/modary/identity"
 	"github.com/iiwish/modary/module"
+	"github.com/iiwish/modary/processkit"
 	"github.com/iiwish/modary/scope"
 	"github.com/iiwish/modary/transport/httpapi"
 )
@@ -90,22 +92,20 @@ func NewDefinition(config Config) (appkit.Definition, error) {
 	if err != nil {
 		return appkit.Definition{}, fmt.Errorf("configure PostgreSQL: %w", err)
 	}
-	identityModule, err := localidentity.Module(localidentity.Options{
-		Principals: []localidentity.Principal{
+	identityModule, err := identitystore.Module(identitystore.Options{
+		Principals: []identitystore.Principal{
 			{
 				ActorID: PrimaryActorID, ActorType: "user", DisplayName: "Counter Operator",
-				Scope: PrimaryScope,
 			},
 			{
 				ActorID: SecondaryActorID, ActorType: "user", DisplayName: "Counter Reviewer",
-				Scope: SecondaryScope,
 			},
 		},
-		PasswordCredentials: []localidentity.PasswordCredential{
+		PasswordCredentials: []identitystore.PasswordCredential{
 			{ActorID: PrimaryActorID, Username: PrimaryUsername, Password: PrimaryPassword},
 			{ActorID: SecondaryActorID, Username: SecondaryUsername, Password: SecondaryPassword},
 		},
-		BearerTokens: []localidentity.BearerToken{
+		BearerTokens: []identitystore.BearerToken{
 			{TokenID: "primary-cli", ActorID: PrimaryActorID, Token: PrimaryBearerToken},
 			{TokenID: "secondary-cli", ActorID: SecondaryActorID, Token: SecondaryBearerToken},
 		},
@@ -152,22 +152,33 @@ func NewDefinition(config Config) (appkit.Definition, error) {
 
 // NewHTTPHandler constructs every route explicitly from public framework
 // handlers and consumer-owned assets.
-func NewHTTPHandler(ctx context.Context, application *appkit.Application) (http.Handler, error) {
+func NewHTTPHandler(ctx context.Context, application *appkit.Application, process *processkit.Manager) (http.Handler, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("construct HTTP handler: context is required")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	health, err := httpapi.NewHealth(application)
-	if err != nil {
-		return nil, fmt.Errorf("construct health handler: %w", err)
+	if process == nil {
+		return nil, fmt.Errorf("construct HTTP handler: process manager is required")
 	}
-	api, err := httpapi.NewAPI(application, httpapi.APIOptions{AllowInsecureCookie: true})
+	resolveScope := func(_ *http.Request, actor identity.Actor) (scope.Execution, error) {
+		switch actor.ID {
+		case PrimaryActorID:
+			return PrimaryScope, nil
+		case SecondaryActorID:
+			return SecondaryScope, nil
+		default:
+			return scope.Execution{}, fmt.Errorf("actor has no configured execution scope")
+		}
+	}
+	api, err := httpapi.NewAPI(application, httpapi.APIOptions{
+		AllowInsecureCookie: true, EnablePasswordLogin: true, ResolveScope: resolveScope,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("construct Action API: %w", err)
 	}
-	mcp, err := httpapi.NewMCP(application, httpapi.MCPOptions{})
+	mcp, err := httpapi.NewMCP(application, httpapi.MCPOptions{ResolveScope: resolveScope})
 	if err != nil {
 		return nil, fmt.Errorf("construct MCP handler: %w", err)
 	}
@@ -177,7 +188,8 @@ func NewHTTPHandler(ctx context.Context, application *appkit.Application) (http.
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/healthz", health)
+	mux.Handle("/livez", process.LivenessHandler())
+	mux.Handle("/readyz", process.ReadinessHandler())
 	mux.Handle("/api/", api)
 	mux.Handle("/mcp", mcp)
 	mux.Handle("/", spa)
@@ -188,9 +200,31 @@ func NewHTTPHandler(ctx context.Context, application *appkit.Application) (http.
 }
 
 // CommandOptions installs the consumer-owned HTTP composition into appcmd.
-func CommandOptions() appcmd.Options {
+func CommandOptions() (appcmd.Options, error) {
+	var application *appkit.Application
+	process, err := processkit.New(processkit.Options{Checks: []processkit.Check{{
+		Name: "database",
+		Run: func(ctx context.Context) error {
+			if application == nil || !application.Ready() {
+				return appkit.ErrApplicationUnavailable
+			}
+			store, err := application.Database()
+			if err != nil {
+				return err
+			}
+			var value int
+			return store.QueryRowContext(ctx, "SELECT 1").Scan(&value)
+		},
+	}}})
+	if err != nil {
+		return appcmd.Options{}, fmt.Errorf("configure process manager: %w", err)
+	}
 	return appcmd.Options{
 		Metadata: ApplicationMetadata(),
-		Handler:  NewHTTPHandler,
-	}
+		Process:  process,
+		Handler: func(ctx context.Context, started *appkit.Application) (http.Handler, error) {
+			application = started
+			return NewHTTPHandler(ctx, started, process)
+		},
+	}, nil
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/iiwish/modary/authz"
 	"github.com/iiwish/modary/identity"
+	"github.com/iiwish/modary/scope"
 	"github.com/iiwish/modary/transport/sessionhttp"
 )
 
@@ -21,14 +22,14 @@ var (
 	ErrActorUnavailable = errors.New("authenticated actor is unavailable")
 )
 
-func Authorize(ctx context.Context, authorizer authz.Authorizer, permission string) (identity.Actor, error) {
+func Authorize(ctx context.Context, authorizer authz.Authorizer, executionScope scope.Execution, permission string) (identity.Actor, error) {
 	actor, ok := sessionhttp.Actor(ctx)
 	if !ok {
 		return identity.Actor{}, ErrActorUnavailable
 	}
 	decision, err := authorizer.Authorize(ctx, authz.Request{
 		Actor: actor, OperationID: permission, Permission: permission,
-		Scope: actor.Scope, Phase: authz.PhaseIntent,
+		Scope: executionScope, Phase: authz.PhaseIntent,
 	})
 	if err != nil {
 		return identity.Actor{}, fmt.Errorf("authorize %s: %w", permission, err)

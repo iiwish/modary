@@ -1,0 +1,3 @@
+T046 implementation is contained in observe, appkit/module facades, httpkit
+route instrumentation, database/task wrappers, components/otel, and selected
+Starter composition.

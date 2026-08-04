@@ -92,6 +92,36 @@ func TestExactActorScopePermissionAndRowConstraints(t *testing.T) {
 	}
 }
 
+func TestOneActorCanBeAuthorizedInSeveralExactScopes(t *testing.T) {
+	first := scope.Must("workspace", "first")
+	second := scope.Must("workspace", "second")
+	actor := identity.Actor{ID: "person-one", Type: "human", DisplayName: "Person One"}
+	_, authorizer := openAuthorizer(t, Options{
+		Roles: []Role{{ID: "reader", Permissions: []string{"records.read"}}},
+		Bindings: []Binding{
+			{ActorID: actor.ID, ActorType: actor.Type, Scope: first, RoleID: "reader"},
+			{ActorID: actor.ID, ActorType: actor.Type, Scope: second, RoleID: "reader"},
+		},
+	})
+	for _, executionScope := range []scope.Execution{first, second} {
+		decision, err := authorizer.Authorize(context.Background(), authz.Request{
+			Actor: actor, OperationID: "records.read", Permission: "records.read",
+			Scope: executionScope, Phase: authz.PhaseIntent,
+		})
+		if err != nil || !decision.Allowed {
+			t.Fatalf("scope %s decision = %#v, %v", executionScope, decision, err)
+		}
+	}
+	unbound := scope.Must("workspace", "unbound")
+	decision, err := authorizer.Authorize(context.Background(), authz.Request{
+		Actor: actor, OperationID: "records.read", Permission: "records.read",
+		Scope: unbound, Phase: authz.PhaseIntent,
+	})
+	if err != nil || decision.Allowed {
+		t.Fatalf("unbound scope decision = %#v, %v", decision, err)
+	}
+}
+
 func TestRequestEnvelopeAndImpactLimitsFailClosed(t *testing.T) {
 	_, authorizer := openAuthorizer(t, Options{
 		Roles:    []Role{{ID: "writer", Permissions: []string{"counter.write"}, MaxRows: 10}},
@@ -142,7 +172,6 @@ func TestOpaqueActorIdentifiersFollowTheKernelContract(t *testing.T) {
 		ID:          "01JABCDEF|user@example.test",
 		Type:        "外部身份/service",
 		DisplayName: "External User",
-		Scope:       executionScope,
 	}
 	_, authorizer := openAuthorizer(t, Options{
 		Roles: []Role{{ID: "writer", Permissions: []string{"counter.write"}}},
@@ -486,7 +515,7 @@ func binding(roleID string) Binding {
 func policyRequest(permission string) authz.Request {
 	execution := testScope()
 	return authz.Request{
-		Actor:       identity.Actor{ID: "person-one", Type: "human", DisplayName: "Person One", Scope: execution},
+		Actor:       identity.Actor{ID: "person-one", Type: "human", DisplayName: "Person One"},
 		OperationID: "counter.write", Permission: permission, Scope: execution, Phase: authz.PhaseIntent,
 	}
 }

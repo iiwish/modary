@@ -28,6 +28,8 @@
       ],
       "provides": [
         "identity",
+        "identity.bearers",
+        "identity.passwords",
         "identity.sessions"
       ],
       "migrations": [
@@ -132,6 +134,8 @@
     "counter.clock": "system-clock",
     "database": "postgres",
     "identity": "local-identity",
+    "identity.bearers": "local-identity",
+    "identity.passwords": "local-identity",
     "identity.sessions": "local-identity",
     "tasks": "postgres",
     "tasks.read": "postgres"

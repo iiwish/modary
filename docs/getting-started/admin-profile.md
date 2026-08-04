@@ -63,8 +63,13 @@ Secure cookie default and terminates TLS before the application.
 
 ```bash
 DATABASE_URL="$DATABASE_URL" go test ./...
-go run ./cmd/operations-admin
+go run ./cmd/operations-admin migrate
+go run ./cmd/operations-admin serve
 ```
+
+`migrate` applies the selected forward migrations and exits. `serve` starts
+without hidden schema changes; set `MODARY_MIGRATE_ON_START=true` only for a
+deliberate local single-process workflow.
 
 Open `http://127.0.0.1:8080` and sign in with the configured development
 credential. The records work surface supports loading, filtering, create,
@@ -76,7 +81,7 @@ button is never treated as authorization.
 `internal/app/application.go` selects:
 
 - `components/postgres` for the provider-neutral `database.Store`;
-- `components/postgres/localidentity` for explicit development principals;
+- `components/postgres/identitystore` for explicit development principals;
 - `components/postgres/rbac` for backend policy;
 - `transport/sessionhttp` for login/current/logout and mutation middleware;
 - the consumer-owned records Module and routes.
@@ -108,7 +113,7 @@ authorizes the request. Unselected task, audit, Action, MCP, and marketplace
 surfaces contribute no route, navigation item, source module, production bundle
 code, state provider, or dependency.
 
-The generated shell reserves `/api` and `/healthz` from SPA fallback. Unknown
+The generated shell reserves `/api` and `/readyz` from SPA fallback. Unknown
 backend paths therefore return HTTP 404 for every `Accept` header instead of
 being masked by `index.html`.
 

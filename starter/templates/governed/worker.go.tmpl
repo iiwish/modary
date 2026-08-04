@@ -4,29 +4,30 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/iiwish/modary/appkit"
+	"github.com/iiwish/modary/task"
 	"{{.ModulePath}}/internal/config"
 	"{{.ModulePath}}/internal/limits"
 	"{{.ModulePath}}/internal/project"
-	"github.com/iiwish/modary/appkit"
-	"github.com/iiwish/modary/task"
 )
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		_, _ = fmt.Fprintln(os.Stderr, err)
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	if err := run(ctx, logger); err != nil && !errors.Is(err, context.Canceled) {
+		logger.Error("worker failed", "event", "worker.failed")
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context) error {
+func run(ctx context.Context, logger *slog.Logger) error {
 	runtimeConfig, err := config.Load()
 	if err != nil {
 		return err
@@ -35,13 +36,19 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	application, err := appkit.Start(ctx, definition, appkit.Options{})
+	if runtimeConfig.MigrateOnStart {
+		logger.InfoContext(ctx, "database migration started", "event", "database.migration.started")
+	}
+	application, err := appkit.Start(ctx, definition, appkit.Options{SkipMigrations: !runtimeConfig.MigrateOnStart})
 	if err != nil {
 		return fmt.Errorf("start worker application: %w", err)
 	}
+	if runtimeConfig.MigrateOnStart {
+		logger.InfoContext(ctx, "database migration completed", "event", "database.migration.completed")
+	}
 	handler, err := limits.NewTaskHandler(func(_ context.Context, event limits.ChangeEvent) error {
 		// Replace this idempotent callback with the product's downstream effect.
-		log.Printf("processed %s for %s at version %d", limits.TaskKind, event.Scope, event.Version)
+		logger.InfoContext(ctx, "task processed", "event", "task.processed", "task_kind", limits.TaskKind, "version", event.Version)
 		return nil
 	})
 	if err != nil {
@@ -55,7 +62,7 @@ func run(ctx context.Context) error {
 		Queues: []task.Queue{
 			{Name: task.DefaultQueue, MaxWorkers: 4},
 		},
-		JobTimeout: 30 * time.Second,
+		JobTimeout:      30 * time.Second,
 		SoftStopTimeout: 10 * time.Second,
 	})
 	if err != nil {
@@ -64,7 +71,7 @@ func run(ctx context.Context) error {
 	if err := runner.Start(context.Background()); err != nil {
 		return errors.Join(err, stopApplication(application))
 	}
-	log.Printf("worker started for queue %q", task.DefaultQueue)
+	logger.Info("worker started", "event", "worker.started", "queue", task.DefaultQueue)
 	select {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

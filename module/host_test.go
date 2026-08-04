@@ -679,7 +679,7 @@ func TestShutdownRevokesHeldRuntimeBeforeCleanup(t *testing.T) {
 				executionScope := executionscope.Must("tenant", "one")
 				_, executionErr = runtime.Execute(context.Background(), action.Request{
 					RequestID: "during-cleanup",
-					Actor:     identity.Actor{ID: "user", Type: "user", Scope: executionScope},
+					Actor:     identity.Actor{ID: "user", Type: "user"},
 					Channel:   action.ChannelHTTP,
 					ActionID:  "feature.run",
 					Scope:     executionScope,
@@ -767,7 +767,7 @@ func TestShutdownCancelsAndDrainsInFlightRuntimeBeforeCleanup(t *testing.T) {
 	go func() {
 		_, previewErr := runtime.Preview(context.Background(), action.Request{
 			RequestID: "in-flight",
-			Actor:     identity.Actor{ID: "user", Type: "user", Scope: executionScope},
+			Actor:     identity.Actor{ID: "user", Type: "user"},
 			Channel:   action.ChannelHTTP,
 			ActionID:  "feature.preview",
 			Scope:     executionScope,
@@ -827,7 +827,7 @@ func TestShutdownDeadlineLeavesBackgroundDrainSafeAndObservable(t *testing.T) {
 	previewResult := make(chan error, 1)
 	go func() {
 		_, previewErr := runtime.Preview(context.Background(), action.Request{
-			RequestID: "delayed", Actor: identity.Actor{ID: "user", Type: "user", Scope: executionScope},
+			RequestID: "delayed", Actor: identity.Actor{ID: "user", Type: "user"},
 			Channel: action.ChannelHTTP, ActionID: "feature.delayed", Scope: executionScope, Input: []byte(`{}`),
 		})
 		previewResult <- previewErr

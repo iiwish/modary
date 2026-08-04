@@ -11,7 +11,7 @@ import (
 
 	"github.com/iiwish/modary/appkit"
 	"github.com/iiwish/modary/module"
-	"github.com/iiwish/modary/transport/httpapi"
+	"github.com/iiwish/modary/processkit"
 )
 
 func TestExternalConsumerCanStartDatabaseFreeHTTPApplication(t *testing.T) {
@@ -48,23 +48,26 @@ func TestExternalConsumerCanStartDatabaseFreeHTTPApplication(t *testing.T) {
 		t.Fatalf("Identities() error = %v", err)
 	}
 
-	health, err := httpapi.NewHealth(application)
+	process, err := processkit.New(processkit.Options{})
 	if err != nil {
-		t.Fatalf("NewHealth() error = %v", err)
+		t.Fatalf("processkit.New() error = %v", err)
+	}
+	if err := process.MarkReady(); err != nil {
+		t.Fatalf("MarkReady() error = %v", err)
 	}
 	mux := http.NewServeMux()
-	mux.Handle("GET /healthz", health)
+	mux.Handle("GET /livez", process.LivenessHandler())
+	mux.Handle("GET /readyz", process.ReadinessHandler())
 	mux.HandleFunc("GET /api/ping", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		_, _ = writer.Write([]byte(`{"message":"pong"}`))
 	})
 
-	healthRequest := httptest.NewRequest(http.MethodGet, "/healthz", nil)
-	healthRequest.Header.Set("Accept", "application/json")
+	healthRequest := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	healthResponse := httptest.NewRecorder()
 	mux.ServeHTTP(healthResponse, healthRequest)
 	if healthResponse.Code != http.StatusOK || !strings.Contains(healthResponse.Body.String(), `"status":"ready"`) {
-		t.Fatalf("GET /healthz = %d %s", healthResponse.Code, healthResponse.Body.String())
+		t.Fatalf("GET /readyz = %d %s", healthResponse.Code, healthResponse.Body.String())
 	}
 
 	pingResponse := httptest.NewRecorder()
@@ -79,9 +82,13 @@ func TestExternalConsumerCanStartDatabaseFreeHTTPApplication(t *testing.T) {
 	if application.Ready() || stops.Load() != 1 {
 		t.Fatalf("ready=%v stops=%d after shutdown", application.Ready(), stops.Load())
 	}
+	process.BeginDrain()
+	if err := process.MarkStopped(); err != nil {
+		t.Fatalf("MarkStopped() error = %v", err)
+	}
 	healthResponse = httptest.NewRecorder()
 	mux.ServeHTTP(healthResponse, healthRequest)
 	if healthResponse.Code != http.StatusServiceUnavailable {
-		t.Fatalf("GET /healthz after shutdown = %d, want %d", healthResponse.Code, http.StatusServiceUnavailable)
+		t.Fatalf("GET /readyz after shutdown = %d, want %d", healthResponse.Code, http.StatusServiceUnavailable)
 	}
 }

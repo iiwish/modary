@@ -19,6 +19,7 @@ import (
 	"github.com/iiwish/modary/appkit"
 	"github.com/iiwish/modary/identity"
 	"github.com/iiwish/modary/internal/safeerr"
+	"github.com/iiwish/modary/scope"
 )
 
 const (
@@ -40,6 +41,8 @@ type actionCommand struct {
 	planHash       string
 	idempotencyKey string
 	requestID      string
+	scopeKind      string
+	scopeID        string
 }
 
 type actionFlagState struct {
@@ -49,6 +52,8 @@ type actionFlagState struct {
 	plan        bool
 	idempotency bool
 	requestID   bool
+	scopeKind   bool
+	scopeID     bool
 }
 
 // RunAction executes the Action subcommand with the same arguments accepted
@@ -170,6 +175,22 @@ func parseActionCommand(args []string) (actionCommand, bool, error) {
 			seen.requestID = true
 			command.requestID = value
 			index = next
+		case "scope-kind":
+			value, next, err := actionFlagValue(name, inlineValue, hasInlineValue, args, index, seen.scopeKind)
+			if err != nil {
+				return actionCommand{}, false, err
+			}
+			seen.scopeKind = true
+			command.scopeKind = value
+			index = next
+		case "scope-id":
+			value, next, err := actionFlagValue(name, inlineValue, hasInlineValue, args, index, seen.scopeID)
+			if err != nil {
+				return actionCommand{}, false, err
+			}
+			seen.scopeID = true
+			command.scopeID = value
+			index = next
 		default:
 			return actionCommand{}, false, usageError("action run flag --%s is not recognized", name)
 		}
@@ -180,6 +201,9 @@ func parseActionCommand(args []string) (actionCommand, bool, error) {
 	}
 	if !seen.input {
 		return actionCommand{}, false, usageError("action run requires --input")
+	}
+	if !seen.scopeKind || !seen.scopeID {
+		return actionCommand{}, false, usageError("action run requires --scope-kind and --scope-id")
 	}
 	if err := validateActionCommand(command, seen); err != nil {
 		return actionCommand{}, false, err
@@ -247,6 +271,9 @@ func validateActionCommand(command actionCommand, seen actionFlagState) error {
 	if command.preview && (seen.plan || seen.idempotency) {
 		return usageError("action preview cannot use --plan or --idempotency-key")
 	}
+	if _, err := scope.New(command.scopeKind, command.scopeID); err != nil {
+		return usageError("action execution scope is invalid: %v", err)
+	}
 	return nil
 }
 
@@ -267,7 +294,7 @@ func validateActionPath(label, value string) error {
 
 func writeActionHelp(writer io.Writer, name string) error {
 	return writeString(writer, fmt.Sprintf(
-		"Usage:\n  %s action run <action-id> --token-file <path|-> --input <path|-> [--preview] [--plan <hash>] [--idempotency-key <key>] [--request-id <id>]\n",
+		"Usage:\n  %s action run <action-id> --token-file <path|-> --input <path|-> --scope-kind <kind> --scope-id <id> [--preview] [--plan <hash>] [--idempotency-key <key>] [--request-id <id>]\n",
 		name,
 	))
 }
@@ -547,7 +574,7 @@ func callStartedActionUnchecked(ctx context.Context, command actionCommand, toke
 		Actor:          actor,
 		Channel:        action.ChannelCLI,
 		ActionID:       command.actionID,
-		Scope:          actor.Scope,
+		Scope:          scope.Must(command.scopeKind, command.scopeID),
 		Input:          append(json.RawMessage(nil), input...),
 		IdempotencyKey: command.idempotencyKey,
 		PlanHash:       command.planHash,

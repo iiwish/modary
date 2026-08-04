@@ -9,6 +9,7 @@ import (
 	"github.com/iiwish/modary/authz"
 	"github.com/iiwish/modary/database"
 	"github.com/iiwish/modary/identity"
+	"github.com/iiwish/modary/observe"
 	"github.com/iiwish/modary/task"
 )
 
@@ -159,16 +160,19 @@ func isNilValue(value any) bool {
 }
 
 var (
-	databaseStoreKey        = MustKey[database.Store]("database.store", CapabilityDatabase)
-	actionDatabaseKey       = MustKey[database.Access]("database.governed-access", CapabilityDatabase)
-	identityResolverKey     = MustKey[identity.Resolver]("identity.resolver", CapabilityIdentity)
-	sessionAuthenticatorKey = MustKey[identity.Authenticator]("identity.session-authenticator", CapabilitySessions)
-	tokenAuthKey            = MustKey[identity.TokenAuthenticator]("identity.token-authenticator", CapabilityIdentity)
-	authorizerKey           = MustKey[authz.Authorizer]("authorization.authorizer", CapabilityAuthorization)
-	auditHookKey            = MustKey[audit.Hook]("audit.hook", CapabilityAudit)
-	auditReaderKey          = MustKey[audit.Reader]("audit.reader", CapabilityAuditInspection)
-	taskServiceKey          = MustKey[task.Service]("tasks.service", CapabilityTasks)
-	taskInspectorKey        = MustKey[task.Inspector]("tasks.inspector", CapabilityTaskInspection)
+	databaseStoreKey    = MustKey[database.Store]("database.store", CapabilityDatabase)
+	actionDatabaseKey   = MustKey[database.Access]("database.governed-access", CapabilityDatabase)
+	identityResolverKey = MustKey[identity.Resolver]("identity.resolver", CapabilityIdentity)
+	passwordAuthKey     = MustKey[identity.PasswordAuthenticator]("identity.password-authenticator", CapabilityPasswords)
+	browserAuthKey      = MustKey[identity.BrowserAuthenticator]("identity.browser-authenticator", CapabilityBrowserAuthentication)
+	sessionManagerKey   = MustKey[identity.SessionManager]("identity.session-manager", CapabilitySessions)
+	tokenAuthKey        = MustKey[identity.TokenAuthenticator]("identity.token-authenticator", CapabilityBearers)
+	authorizerKey       = MustKey[authz.Authorizer]("authorization.authorizer", CapabilityAuthorization)
+	auditHookKey        = MustKey[audit.Hook]("audit.hook", CapabilityAudit)
+	auditReaderKey      = MustKey[audit.Reader]("audit.reader", CapabilityAuditInspection)
+	taskServiceKey      = MustKey[task.Service]("tasks.service", CapabilityTasks)
+	taskInspectorKey    = MustKey[task.Inspector]("tasks.inspector", CapabilityTaskInspection)
+	observabilityKey    = MustKey[observe.Service]("observability.service", CapabilityObservability)
 )
 
 func canonicalServiceIdentity(name string) *keyIdentity {
@@ -179,8 +183,12 @@ func canonicalServiceIdentity(name string) *keyIdentity {
 		return actionDatabaseKey.spec.identity
 	case identityResolverKey.Name():
 		return identityResolverKey.spec.identity
-	case sessionAuthenticatorKey.Name():
-		return sessionAuthenticatorKey.spec.identity
+	case passwordAuthKey.Name():
+		return passwordAuthKey.spec.identity
+	case browserAuthKey.Name():
+		return browserAuthKey.spec.identity
+	case sessionManagerKey.Name():
+		return sessionManagerKey.spec.identity
 	case tokenAuthKey.Name():
 		return tokenAuthKey.spec.identity
 	case authorizerKey.Name():
@@ -193,6 +201,8 @@ func canonicalServiceIdentity(name string) *keyIdentity {
 		return taskServiceKey.spec.identity
 	case taskInspectorKey.Name():
 		return taskInspectorKey.spec.identity
+	case observabilityKey.Name():
+		return observabilityKey.spec.identity
 	default:
 		return nil
 	}
@@ -212,8 +222,14 @@ func ActionDatabase() Key[database.Access] { return actionDatabaseKey }
 // IdentityResolver returns the canonical identity-resolver service key.
 func IdentityResolver() Key[identity.Resolver] { return identityResolverKey }
 
-// SessionAuthenticator returns the canonical browser-session authenticator key.
-func SessionAuthenticator() Key[identity.Authenticator] { return sessionAuthenticatorKey }
+// PasswordAuthenticator returns the canonical password-verifier service key.
+func PasswordAuthenticator() Key[identity.PasswordAuthenticator] { return passwordAuthKey }
+
+// BrowserAuthenticator returns the canonical redirect-login service key.
+func BrowserAuthenticator() Key[identity.BrowserAuthenticator] { return browserAuthKey }
+
+// SessionManager returns the canonical server-side session service key.
+func SessionManager() Key[identity.SessionManager] { return sessionManagerKey }
 
 // TokenAuthenticator returns the canonical bearer-token authenticator key.
 func TokenAuthenticator() Key[identity.TokenAuthenticator] { return tokenAuthKey }
@@ -232,3 +248,6 @@ func Tasks() Key[task.Service] { return taskServiceKey }
 
 // TaskInspector returns the canonical bounded task Inspector key.
 func TaskInspector() Key[task.Inspector] { return taskInspectorKey }
+
+// Observability returns the canonical bounded HTTP observability key.
+func Observability() Key[observe.Service] { return observabilityKey }

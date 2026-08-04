@@ -1,0 +1,65 @@
+schema_version: 1
+packet_id: EP-010-T044
+task_id: T044
+feature_id: 010-production-foundation
+mode: execute_one_task
+title: Process Runtime, Probes, Drain, And Migrations
+status: Completed
+adapter: direct
+goal: >-
+  Establish deterministic process lifecycle, distinct probes, readiness drain,
+  build identity, structured lifecycle logs, and migration-only operation.
+requirements: [US-003, US-004, FR-008, FR-009, FR-010, FR-011, FR-013, NFR-002, NFR-003, NFR-006]
+depends_on: [T042]
+conflicts_with: [T045, T046, T047, T048]
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  spec: .ai-platform/specs/010-production-foundation/spec.md
+  checklist: .ai-platform/specs/010-production-foundation/checklists/requirements.md
+  plan: .ai-platform/specs/010-production-foundation/plan.md
+  analysis: .ai-platform/specs/010-production-foundation/analysis.md
+  work_graph: .ai-platform/specs/010-production-foundation/tasks.md
+  approval: explicit owner instruction on 2026-08-04
+work_unit:
+  title: Process Runtime, Probes, Drain, And Migrations
+  goal: Establish deterministic process lifecycle, probes, readiness drain, build identity, logs, and migration-only operation.
+  requirements: [US-003, US-004, FR-008, FR-009, FR-010, FR-011, FR-013, NFR-002, NFR-003, NFR-006]
+  depends_on: [T042]
+codebase_context:
+  relevant_paths: [appkit, module, transport/httpapi, components/postgres, components/governedpostgres, starter/templates]
+  preserve: [exactly-once host shutdown, forward-only migrations, provider dependency order]
+  forbidden: [remote-dependent liveness, public secret diagnostics, automatic reverse migration, unbounded shutdown]
+execution_constraints:
+  allowed_files: [processkit/**, appkit/**, module/**, transport/httpapi/**, components/postgres/**, components/governedpostgres/**, starter/**, scripts/**, Makefile, docs/**, .ai-platform/specs/010-production-foundation/**, .ai-platform/evidence/T044/**]
+  conflicts_with: [T045, T046, T047, T048]
+  worktree: current owner-approved main worktree after T042
+  delegation: direct execution because subagent delegation was not authorized
+allowed_files: [processkit/**, appkit/**, module/**, transport/httpapi/**, components/postgres/**, components/governedpostgres/**, starter/**, scripts/**, Makefile, docs/**, .ai-platform/specs/010-production-foundation/**, .ai-platform/evidence/T044/**]
+tdd:
+  red: Add probe, dependency timeout, drain race, active request, signal, and migration-mode tests.
+  green: Implement standard-library process runtime and explicit migration path.
+  refactor: Share lifecycle code across Profiles while keeping topology explicit.
+tdd_plan:
+  red: Add probe, dependency timeout, drain race, active request, signal, and migration-mode tests.
+  green: Implement standard-library process runtime and explicit migration path.
+  refactor: Share lifecycle code across Profiles while keeping topology explicit.
+validation_commands: ["go test ./processkit ./transport/httpapi ./appkit ./module", "make copied-profile-acceptance", "make race", "git diff --check"]
+validation_loop:
+  commands: [focused process/health tests, migration integration, copied profiles, race, diff check]
+  retry_budget: 3 per failing gate before scope reassessment
+evidence:
+  summary: .ai-platform/evidence/T044/summary.md
+  diff: .ai-platform/evidence/T044/diff.patch
+  tests: .ai-platform/evidence/T044/test-results.md
+  review: .ai-platform/evidence/T044/review.md
+evidence_contract:
+  summary: .ai-platform/evidence/T044/summary.md
+  diff: .ai-platform/evidence/T044/diff.patch
+  test_results: .ai-platform/evidence/T044/test-results.md
+  review: .ai-platform/evidence/T044/review.md
+review_contract:
+  sequence: [spec compliance, engineering quality, concurrency, process acceptance]
+  acceptance: no unresolved P0 through P2 finding
+handoff:
+  next_task: T045
+stop_conditions: [readiness can remain true after drain begins, migration operation diverges from serving graph, shutdown can lose accepted work without bounded error]

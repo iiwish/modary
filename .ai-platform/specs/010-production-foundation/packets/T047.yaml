@@ -1,0 +1,63 @@
+schema_version: 1
+packet_id: EP-010-T047
+task_id: T047
+feature_id: 010-production-foundation
+mode: execute_one_task
+title: External Production Acceptance And Documentation
+status: Completed
+adapter: direct
+goal: Prove every v0.3 selected and absent production boundary from copied-out consumers and disposable infrastructure.
+requirements: [US-006, FR-017, FR-018, NFR-001, NFR-002, NFR-003, NFR-004, NFR-005, NFR-006, NFR-007, NFR-008, SC-001, SC-002, SC-003, SC-004, SC-005, SC-006]
+depends_on: [T043, T045, T046]
+conflicts_with: [all implementation tasks, T048]
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  spec: .ai-platform/specs/010-production-foundation/spec.md
+  checklist: .ai-platform/specs/010-production-foundation/checklists/requirements.md
+  plan: .ai-platform/specs/010-production-foundation/plan.md
+  analysis: .ai-platform/specs/010-production-foundation/analysis.md
+  work_graph: .ai-platform/specs/010-production-foundation/tasks.md
+  approval: explicit owner instruction on 2026-08-04
+work_unit:
+  title: External Production Acceptance And Documentation
+  goal: Prove every v0.3 selected and absent production boundary from copied-out consumers and disposable infrastructure.
+  requirements: [US-006, FR-017, FR-018, NFR-001, NFR-002, NFR-003, NFR-004, NFR-005, NFR-006, NFR-007, NFR-008, SC-001, SC-002, SC-003, SC-004, SC-005, SC-006]
+  depends_on: [T043, T045, T046]
+codebase_context:
+  relevant_paths: [scripts, starter acceptance, docs, .github/workflows, release automation]
+  preserve: [all v0.2 accepted component boundaries, required real integrations, source digest]
+  forbidden: [skipped required integration, test downgrade, Rulary code, compatibility wrapper, undocumented residual risk]
+execution_constraints:
+  allowed_files: [scripts/**, starter/**, docs/**, README.md, CHANGELOG.md, Makefile, .github/**, .ai-platform/**, narrow reviewed fixes under affected production packages]
+  conflicts_with: [T042, T043, T044, T045, T046, T048]
+  worktree: current owner-approved main worktree after all implementation tasks
+  delegation: direct execution because subagent delegation was not authorized
+allowed_files: [scripts/**, starter/**, docs/**, README.md, CHANGELOG.md, Makefile, .github/**, .ai-platform/**, narrow reviewed fixes under affected production packages]
+tdd:
+  red: Add missing external, absence, failure, browser, container, and release-fixture assertions.
+  green: Close only evidenced gaps and complete canonical documentation.
+  refactor: Make acceptance deterministic and preserve meaningful time budgets.
+tdd_plan:
+  red: Add missing external, absence, failure, browser, container, and release-fixture assertions.
+  green: Close only evidenced gaps and complete canonical documentation.
+  refactor: Make acceptance deterministic and preserve meaningful time budgets.
+validation_commands: ["make ci", "make release-readiness VERSION=v0.3.0-alpha.1", "git diff --check"]
+validation_loop:
+  commands: [complete CI, candidate release-readiness, strict artifacts, source digest, browser/container/provider/collector acceptance, diff check]
+  retry_budget: 3 per failing gate before scope reassessment
+evidence:
+  summary: .ai-platform/evidence/T047/summary.md
+  diff: .ai-platform/evidence/T047/diff.patch
+  tests: .ai-platform/evidence/T047/test-results.md
+  review: .ai-platform/evidence/T047/review.md
+evidence_contract:
+  summary: .ai-platform/evidence/T047/summary.md
+  diff: .ai-platform/evidence/T047/diff.patch
+  test_results: .ai-platform/evidence/T047/test-results.md
+  review: .ai-platform/evidence/T047/review.md
+review_contract:
+  sequence: [spec compliance, engineering quality, security and operations, release readiness]
+  acceptance: no unresolved P0 through P2 finding
+handoff:
+  next_task: T048
+stop_conditions: [required infrastructure is unavailable after bounded retries, source digest changes after acceptance, unresolved P0-P2 finding]

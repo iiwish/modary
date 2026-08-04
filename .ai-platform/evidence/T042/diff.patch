@@ -1,0 +1,4 @@
+T042 implementation is contained in the principal-only identity contract,
+explicit browser/password/session/bearer capabilities, PostgreSQL identitystore
+forward migration, exact multi-scope RBAC, session HTTP boundary, and copied-out
+Admin and Governed composition.

@@ -24,6 +24,7 @@ import (
 	"github.com/iiwish/modary/audit"
 	"github.com/iiwish/modary/identity"
 	"github.com/iiwish/modary/internal/safeerr"
+	"github.com/iiwish/modary/scope"
 )
 
 const (
@@ -48,6 +49,12 @@ var (
 // bounded defaults.
 type APIOptions struct {
 	CookieName string
+	// EnablePasswordLogin explicitly contributes /api/auth/login. Applications
+	// using OIDC leave it false and mount the OIDC contribution instead.
+	EnablePasswordLogin bool
+	// ResolveScope derives the product execution boundary independently from
+	// principal identity. It is required for governed Action requests.
+	ResolveScope ScopeResolver
 	// AllowInsecureCookie disables the Secure attribute for an explicitly
 	// HTTP-only development environment. Production applications should retain
 	// the secure default.
@@ -56,8 +63,14 @@ type APIOptions struct {
 	Timeout             time.Duration
 }
 
+// ScopeResolver derives a validated execution scope for one authenticated
+// request. Implementations should use bounded trusted routing context rather
+// than identity claims that have not been mapped by consumer policy.
+type ScopeResolver func(*http.Request, identity.Actor) (scope.Execution, error)
+
 type apiServer struct {
-	sessions     identity.Authenticator
+	passwords    identity.PasswordAuthenticator
+	sessions     identity.SessionManager
 	runtime      appkit.Runtime
 	catalog      []action.CatalogEntry
 	byActionID   map[string]action.CatalogEntry
@@ -65,6 +78,7 @@ type apiServer struct {
 	secureCookie bool
 	maxBodyBytes int64
 	timeout      time.Duration
+	resolveScope ScopeResolver
 }
 
 type sessionContextKey struct{}
@@ -116,6 +130,16 @@ func NewAPI(application *appkit.Application, options APIOptions) (http.Handler, 
 	if isTypedNil(sessions) {
 		return nil, fmt.Errorf("http API sessions are required")
 	}
+	var passwords identity.PasswordAuthenticator
+	if options.EnablePasswordLogin {
+		passwords, err = application.Passwords()
+		if err != nil {
+			return nil, fmt.Errorf("http API passwords: %w", err)
+		}
+		if isTypedNil(passwords) {
+			return nil, fmt.Errorf("http API passwords are required")
+		}
+	}
 	runtime := application.Runtime()
 	if isTypedNil(runtime) {
 		return nil, fmt.Errorf("http API runtime is required")
@@ -130,9 +154,9 @@ func NewAPI(application *appkit.Application, options APIOptions) (http.Handler, 
 		byActionID[entry.Descriptor.ID] = entry
 	}
 	server := &apiServer{
-		sessions: sessions, runtime: runtime, catalog: catalog, byActionID: byActionID,
+		passwords: passwords, sessions: sessions, runtime: runtime, catalog: catalog, byActionID: byActionID,
 		cookieName: options.CookieName, secureCookie: !options.AllowInsecureCookie,
-		maxBodyBytes: options.MaxBodyBytes, timeout: options.Timeout,
+		maxBodyBytes: options.MaxBodyBytes, timeout: options.Timeout, resolveScope: options.ResolveScope,
 	}
 	if !application.Ready() {
 		return nil, fmt.Errorf("http API application stopped during construction: %w", appkit.ErrApplicationUnavailable)
@@ -141,6 +165,9 @@ func NewAPI(application *appkit.Application, options APIOptions) (http.Handler, 
 }
 
 func normalizeAPIOptions(options APIOptions) (APIOptions, error) {
+	if options.ResolveScope == nil {
+		return APIOptions{}, fmt.Errorf("http API scope resolver is required")
+	}
 	if options.CookieName == "" {
 		options.CookieName = DefaultCookieName
 	}
@@ -195,6 +222,10 @@ func (server *apiServer) serve(writer http.ResponseWriter, request *http.Request
 	path := request.URL.Path
 	switch path {
 	case "/api/auth/login":
+		if isTypedNil(server.passwords) {
+			writePublicError(writer, http.StatusNotFound, requestID, action.CodeActionNotFound, "API route was not found")
+			return
+		}
 		server.requireMethod(writer, request, requestID, http.MethodPost, server.login)
 	case "/api/auth/session":
 		server.requireMethod(writer, request, requestID, http.MethodGet, server.authenticated(server.session))
@@ -260,7 +291,7 @@ func (server *apiServer) authenticated(next apiHandler) apiHandler {
 			writePublicError(writer, http.StatusUnauthorized, requestID, action.CodeAuthzDenied, "authentication is required")
 			return
 		}
-		session, err := server.sessions.Session(request.Context(), token)
+		session, err := server.sessions.ResolveSession(request.Context(), token)
 		if err != nil {
 			if writeContextError(writer, requestID, request.Context(), err) {
 				return
@@ -310,13 +341,21 @@ func (server *apiServer) login(writer http.ResponseWriter, request *http.Request
 		writePublicError(writer, http.StatusBadRequest, requestID, action.CodeValidationFailed, "invalid login request")
 		return
 	}
-	session, err := server.sessions.Login(request.Context(), input.Username, input.Password)
+	authentication, err := server.passwords.AuthenticatePassword(request.Context(), input.Username, input.Password)
 	if err != nil {
 		if writeContextError(writer, requestID, request.Context(), err) {
 			return
 		}
 		if !isTypedNil(err) && safeerr.Is(err, identity.ErrAuthenticationFailed) {
 			writePublicError(writer, http.StatusUnauthorized, requestID, action.CodeAuthzDenied, "invalid username or password")
+			return
+		}
+		writePublicError(writer, http.StatusInternalServerError, requestID, action.CodeInternal, "internal server error")
+		return
+	}
+	session, err := server.sessions.CreateSession(request.Context(), authentication)
+	if err != nil {
+		if writeContextError(writer, requestID, request.Context(), err) {
 			return
 		}
 		writePublicError(writer, http.StatusInternalServerError, requestID, action.CodeInternal, "internal server error")
@@ -350,7 +389,7 @@ func (server *apiServer) logout(writer http.ResponseWriter, request *http.Reques
 		return
 	}
 	authenticated := request.Context().Value(sessionContextKey{}).(authenticatedSession)
-	if err := server.sessions.Logout(request.Context(), authenticated.token); err != nil {
+	if err := server.sessions.RevokeSession(request.Context(), authenticated.token); err != nil {
 		if writeContextError(writer, requestID, request.Context(), err) {
 			return
 		}
@@ -395,9 +434,14 @@ func (server *apiServer) preview(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	authenticated := request.Context().Value(sessionContextKey{}).(authenticatedSession)
+	executionScope, err := server.resolveExecutionScope(request, authenticated.session.Actor)
+	if err != nil {
+		writePublicError(writer, http.StatusBadRequest, requestID, action.CodeValidationFailed, "invalid execution scope")
+		return
+	}
 	preview, err := server.runtime.Preview(request.Context(), action.Request{
 		RequestID: requestID, Actor: authenticated.session.Actor, Channel: action.ChannelHTTP, ActionID: actionID,
-		Scope: authenticated.session.Actor.Scope, Input: call.Input,
+		Scope: executionScope, Input: call.Input,
 	})
 	if err != nil {
 		writeActionError(writer, requestID, request.Context(), err)
@@ -424,9 +468,14 @@ func (server *apiServer) execute(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	authenticated := request.Context().Value(sessionContextKey{}).(authenticatedSession)
+	executionScope, err := server.resolveExecutionScope(request, authenticated.session.Actor)
+	if err != nil {
+		writePublicError(writer, http.StatusBadRequest, requestID, action.CodeValidationFailed, "invalid execution scope")
+		return
+	}
 	result, err := server.runtime.Execute(request.Context(), action.Request{
 		RequestID: requestID, Actor: authenticated.session.Actor, Channel: action.ChannelHTTP, ActionID: actionID,
-		Scope: authenticated.session.Actor.Scope, Input: call.Input,
+		Scope: executionScope, Input: call.Input,
 		PlanHash: call.PlanHash, IdempotencyKey: call.IdempotencyKey,
 	})
 	if err != nil {
@@ -439,6 +488,20 @@ func (server *apiServer) execute(writer http.ResponseWriter, request *http.Reque
 		References []audit.Reference `json:"references,omitempty"`
 		RequestID  string            `json:"request_id"`
 	}{Result: result.Data, Summary: result.Summary, References: result.References, RequestID: requestID})
+}
+
+func (server *apiServer) resolveExecutionScope(request *http.Request, actor identity.Actor) (scope.Execution, error) {
+	if server == nil || server.resolveScope == nil {
+		return scope.Execution{}, fmt.Errorf("scope resolver is unavailable")
+	}
+	executionScope, err := server.resolveScope(request, actor)
+	if err != nil {
+		return scope.Execution{}, err
+	}
+	if err := executionScope.Validate(); err != nil {
+		return scope.Execution{}, err
+	}
+	return executionScope, nil
 }
 
 func (server *apiServer) writeBodyError(writer http.ResponseWriter, requestID string, ctx context.Context, err error, message string) {

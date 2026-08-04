@@ -10,6 +10,7 @@ import (
 	"github.com/iiwish/modary/identity"
 	"github.com/iiwish/modary/internal/actionruntime"
 	"github.com/iiwish/modary/internal/runtimecontrol"
+	"github.com/iiwish/modary/observe"
 	"github.com/iiwish/modary/task"
 )
 
@@ -21,7 +22,10 @@ type Assembly struct {
 	runtime       action.Runtime
 	database      database.Store
 	identities    identity.Resolver
-	sessions      identity.Authenticator
+	passwords     identity.PasswordAuthenticator
+	browserAuth   identity.BrowserAuthenticator
+	observability observe.Service
+	sessions      identity.SessionManager
 	tokens        identity.TokenAuthenticator
 	tasks         task.Service
 	taskInspector task.Inspector
@@ -40,8 +44,19 @@ func (assembly Assembly) Database() database.Store { return assembly.database }
 // Identities returns the optional public actor resolver installed by Modules.
 func (assembly Assembly) Identities() identity.Resolver { return assembly.identities }
 
-// Sessions returns the optional public session authenticator installed by Modules.
-func (assembly Assembly) Sessions() identity.Authenticator { return assembly.sessions }
+// Passwords returns the optional public password verifier installed by Modules.
+func (assembly Assembly) Passwords() identity.PasswordAuthenticator { return assembly.passwords }
+
+// BrowserAuthentication returns the optional redirect-login service.
+func (assembly Assembly) BrowserAuthentication() identity.BrowserAuthenticator {
+	return assembly.browserAuth
+}
+
+// Observability returns the optional bounded telemetry facade.
+func (assembly Assembly) Observability() observe.Service { return assembly.observability }
+
+// Sessions returns the optional public session manager installed by Modules.
+func (assembly Assembly) Sessions() identity.SessionManager { return assembly.sessions }
 
 // Tokens returns the optional public bearer-token authenticator installed by Modules.
 func (assembly Assembly) Tokens() identity.TokenAuthenticator { return assembly.tokens }
@@ -104,7 +119,19 @@ func (host *Host) assembleLocked() (Assembly, error) {
 	if err != nil {
 		return Assembly{}, err
 	}
-	sessions, err := resolveOptionalHostServiceLocked(host, SessionAuthenticator())
+	passwords, err := resolveOptionalHostServiceLocked(host, PasswordAuthenticator())
+	if err != nil {
+		return Assembly{}, err
+	}
+	browserAuth, err := resolveOptionalHostServiceLocked(host, BrowserAuthenticator())
+	if err != nil {
+		return Assembly{}, err
+	}
+	observability, err := resolveOptionalHostServiceLocked(host, Observability())
+	if err != nil {
+		return Assembly{}, err
+	}
+	sessions, err := resolveOptionalHostServiceLocked(host, SessionManager())
 	if err != nil {
 		return Assembly{}, err
 	}
@@ -127,6 +154,15 @@ func (host *Host) assembleLocked() (Assembly, error) {
 	if identities != nil {
 		assembly.identities = &assemblyResolver{gate: host.facades, next: identities}
 	}
+	if passwords != nil {
+		assembly.passwords = &assemblyPasswordAuthenticator{gate: host.facades, next: passwords}
+	}
+	if browserAuth != nil {
+		assembly.browserAuth = &assemblyBrowserAuthenticator{gate: host.facades, next: browserAuth}
+	}
+	if observability != nil {
+		assembly.observability = &assemblyObservability{gate: host.facades, next: observability}
+	}
 	store, err := resolveOptionalHostServiceLocked(host, Database())
 	if err != nil {
 		return Assembly{}, err
@@ -136,22 +172,22 @@ func (host *Host) assembleLocked() (Assembly, error) {
 		return Assembly{}, err
 	}
 	if store != nil {
-		assembly.database = &assemblyStore{gate: host.facades, next: store}
+		assembly.database = &assemblyStore{gate: host.facades, next: store, observer: assembly.observability}
 	}
 	if authorizer != nil {
 		assembly.authorizer = &assemblyAuthorizer{gate: host.facades, next: authorizer}
 	}
 	if sessions != nil {
-		assembly.sessions = &assemblyAuthenticator{gate: host.facades, next: sessions}
+		assembly.sessions = &assemblySessionManager{gate: host.facades, next: sessions}
 	}
 	if tokens != nil {
 		assembly.tokens = &assemblyTokenAuthenticator{gate: host.facades, next: tokens}
 	}
 	if tasks != nil {
-		assembly.tasks = &assemblyTaskService{gate: host.facades, next: tasks}
+		assembly.tasks = &assemblyTaskService{gate: host.facades, next: tasks, observer: assembly.observability}
 	}
 	if taskInspector != nil {
-		assembly.taskInspector = &assemblyTaskInspector{gate: host.facades, next: taskInspector}
+		assembly.taskInspector = &assemblyTaskInspector{gate: host.facades, next: taskInspector, observer: assembly.observability}
 	}
 	if auditReader != nil {
 		assembly.auditReader = &assemblyAuditReader{gate: host.facades, next: auditReader}

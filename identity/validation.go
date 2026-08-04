@@ -14,6 +14,9 @@ const (
 	MaxActorTypeRunes = 64
 	// MaxDisplayNameRunes is the canonical bound for optional display names.
 	MaxDisplayNameRunes = 256
+	// MaxCredentialVersionRunes bounds an adapter-owned freshness value carried
+	// only between authentication and session issuance.
+	MaxCredentialVersionRunes = 256
 )
 
 // ValidateActor validates the complete identity envelope shared by Runtime and
@@ -29,8 +32,26 @@ func ValidateActor(actor Actor) error {
 	if err := ValidateDisplayName(actor.DisplayName); err != nil {
 		return err
 	}
-	if err := actor.Scope.Validate(); err != nil {
-		return fmt.Errorf("actor scope: %w", err)
+	return nil
+}
+
+// ValidateAuthentication validates an upstream authentication result without
+// assigning authorization or product-scope meaning to it.
+func ValidateAuthentication(authentication Authentication) error {
+	if err := ValidateActor(authentication.Actor); err != nil {
+		return err
+	}
+	switch authentication.Method {
+	case AuthenticationMethodPassword:
+		if err := validateActorText("credential version", authentication.CredentialVersion, true, MaxCredentialVersionRunes); err != nil {
+			return err
+		}
+	case AuthenticationMethodOIDC:
+		if authentication.CredentialVersion != "" {
+			return fmt.Errorf("OIDC authentication cannot contain a password credential version")
+		}
+	default:
+		return fmt.Errorf("authentication method is invalid")
 	}
 	return nil
 }

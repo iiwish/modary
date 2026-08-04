@@ -5,17 +5,19 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 
 	"{{.ModulePath}}/internal/config"
 	"{{.ModulePath}}/internal/limits"
 	"github.com/iiwish/modary/appcmd"
 	"github.com/iiwish/modary/appkit"
 	"github.com/iiwish/modary/components/governedpostgres"
-	"github.com/iiwish/modary/components/postgres/localidentity"
+	"github.com/iiwish/modary/components/postgres/identitystore"
 	"github.com/iiwish/modary/components/postgres/rbac"
 	"github.com/iiwish/modary/components/postgres/sqlaudit"
 	"github.com/iiwish/modary/identity"
 	"github.com/iiwish/modary/module"
+	"github.com/iiwish/modary/processkit"
 	"github.com/iiwish/modary/scope"
 	"github.com/iiwish/modary/transport/httpapi"
 )
@@ -34,7 +36,7 @@ func Metadata() appkit.Metadata {
 
 // OperatorActor returns the development actor provisioned by NewDefinition.
 func OperatorActor() identity.Actor {
-	return identity.Actor{ID: operatorActorID, Type: "human", DisplayName: "Governed Operator", Scope: operatorScope}
+	return identity.Actor{ID: operatorActorID, Type: "human", DisplayName: "Governed Operator"}
 }
 
 // Definition loads process configuration only when a runtime command actually
@@ -47,6 +49,13 @@ func Definition() (appkit.Definition, error) {
 	return NewDefinition(runtimeConfig)
 }
 
+func persistenceRegistration(databaseConfig config.DatabaseConfig) (module.Registration, error) {
+	return governedpostgres.Module(governedpostgres.Options{
+		URL: databaseConfig.DatabaseURL, ApplicationSchema: databaseConfig.ApplicationSchema,
+		QueueSchema: databaseConfig.QueueSchema,
+	})
+}
+
 // NewDefinition composes every selected component without performing startup
 // I/O. PostgreSQL, River, Audit, Identity, RBAC, and the consumer Action are
 // visible and removable at this source boundary.
@@ -54,21 +63,18 @@ func NewDefinition(runtimeConfig config.Config) (appkit.Definition, error) {
 	if err := runtimeConfig.Validate(); err != nil {
 		return appkit.Definition{}, err
 	}
-	databaseModule, err := governedpostgres.Module(governedpostgres.Options{
-		URL: runtimeConfig.DatabaseURL, ApplicationSchema: runtimeConfig.ApplicationSchema,
-		QueueSchema: runtimeConfig.QueueSchema,
-	})
+	databaseModule, err := persistenceRegistration(runtimeConfig.DatabaseConfig())
 	if err != nil {
 		return appkit.Definition{}, fmt.Errorf("configure governed PostgreSQL: %w", err)
 	}
-	identityModule, err := localidentity.Module(localidentity.Options{
-		Principals: []localidentity.Principal{
-			{ActorID: operatorActorID, ActorType: "human", DisplayName: "Governed Operator", Scope: operatorScope},
+	identityModule, err := identitystore.Module(identitystore.Options{
+		Principals: []identitystore.Principal{
+			{ActorID: operatorActorID, ActorType: "human", DisplayName: "Governed Operator"},
 		},
-		PasswordCredentials: []localidentity.PasswordCredential{
+		PasswordCredentials: []identitystore.PasswordCredential{
 			{ActorID: operatorActorID, Username: runtimeConfig.OperatorUsername, Password: runtimeConfig.OperatorPassword},
 		},
-		BearerTokens: []localidentity.BearerToken{
+		BearerTokens: []identitystore.BearerToken{
 			{TokenID: operatorTokenID, ActorID: operatorActorID, Token: runtimeConfig.OperatorToken},
 		},
 	})
@@ -102,29 +108,53 @@ func NewDefinition(runtimeConfig config.Config) (appkit.Definition, error) {
 	}, nil
 }
 
+// MigrationDefinition preserves every selected migration owner while omitting
+// runtime credentials and feature startup.
+func MigrationDefinition() (appkit.Definition, error) {
+	databaseConfig, err := config.LoadDatabase()
+	if err != nil { return appkit.Definition{}, err }
+	databaseModule, err := persistenceRegistration(databaseConfig)
+	if err != nil { return appkit.Definition{}, fmt.Errorf("configure governed PostgreSQL: %w", err) }
+	identityModule, err := identitystore.Module(identitystore.Options{})
+	if err != nil { return appkit.Definition{}, err }
+	authorizationModule, err := rbac.Module(rbac.Options{})
+	if err != nil { return appkit.Definition{}, err }
+	limitsModule, err := limits.Module()
+	if err != nil { return appkit.Definition{}, err }
+	return appkit.Definition{Metadata: Metadata(), Modules: []module.Registration{
+		databaseModule, identityModule, authorizationModule, sqlaudit.Module(sqlaudit.Options{}), limitsModule,
+	}}, nil
+}
+
+func Migrate(ctx context.Context) error {
+	definition, err := MigrationDefinition()
+	if err != nil { return err }
+	return appkit.Migrate(ctx, definition, appkit.Options{})
+}
+
 // NewHTTPHandler explicitly mounts health, session Action API, and MCP. It
 // adds no Admin UI or runtime-generated product routes.
-func NewHTTPHandler(ctx context.Context, application *appkit.Application, insecureCookie bool) (http.Handler, error) {
+func NewHTTPHandler(ctx context.Context, application *appkit.Application, process *processkit.Manager, insecureCookie bool) (http.Handler, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("construct HTTP handler: context is required")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	health, err := httpapi.NewHealth(application)
-	if err != nil {
-		return nil, fmt.Errorf("construct health handler: %w", err)
-	}
-	api, err := httpapi.NewAPI(application, httpapi.APIOptions{AllowInsecureCookie: insecureCookie})
+	resolveScope := func(*http.Request, identity.Actor) (scope.Execution, error) { return operatorScope, nil }
+	api, err := httpapi.NewAPI(application, httpapi.APIOptions{
+		AllowInsecureCookie: insecureCookie, EnablePasswordLogin: true, ResolveScope: resolveScope,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("construct Action API: %w", err)
 	}
-	mcp, err := httpapi.NewMCP(application, httpapi.MCPOptions{})
+	mcp, err := httpapi.NewMCP(application, httpapi.MCPOptions{ResolveScope: resolveScope})
 	if err != nil {
 		return nil, fmt.Errorf("construct MCP handler: %w", err)
 	}
 	mux := http.NewServeMux()
-	mux.Handle("/healthz", health)
+	mux.Handle("/livez", process.LivenessHandler())
+	mux.Handle("/readyz", process.ReadinessHandler())
 	mux.Handle("/api/", api)
 	mux.Handle("/mcp", mcp)
 	if err := ctx.Err(); err != nil {
@@ -134,15 +164,28 @@ func NewHTTPHandler(ctx context.Context, application *appkit.Application, insecu
 }
 
 // CommandOptions installs consumer-owned HTTP composition into appcmd.
-func CommandOptions() appcmd.Options {
+func CommandOptions() (appcmd.Options, error) {
+	var application *appkit.Application
+	process, err := processkit.New(processkit.Options{Checks: []processkit.Check{ {Name: "database", Run: func(ctx context.Context) error {
+		if application == nil || !application.Ready() { return appkit.ErrApplicationUnavailable }
+		store, storeErr := application.Database()
+		if storeErr != nil { return storeErr }
+		var value int
+		return store.QueryRowContext(ctx, "SELECT 1").Scan(&value)
+	} } } })
+	if err != nil { return appcmd.Options{}, err }
 	return appcmd.Options{
 		Metadata: Metadata(),
-		Handler: func(ctx context.Context, application *appkit.Application) (http.Handler, error) {
+		App: appkit.Options{SkipMigrations: os.Getenv("MODARY_MIGRATE_ON_START") != "true"},
+		Process: process,
+		ListenAddress: os.Getenv("MODARY_HTTP_ADDR"),
+		Handler: func(ctx context.Context, started *appkit.Application) (http.Handler, error) {
+			application = started
 			runtimeConfig, err := config.Load()
 			if err != nil {
 				return nil, err
 			}
-			return NewHTTPHandler(ctx, application, runtimeConfig.InsecureCookie)
+			return NewHTTPHandler(ctx, started, process, runtimeConfig.InsecureCookie)
 		},
-	}
+	}, nil
 }

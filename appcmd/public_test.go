@@ -24,8 +24,7 @@ import (
 	"github.com/iiwish/modary/identity"
 	"github.com/iiwish/modary/internal/testcomponent"
 	"github.com/iiwish/modary/module"
-	"github.com/iiwish/modary/scope"
-	"github.com/iiwish/modary/transport/httpapi"
+	"github.com/iiwish/modary/processkit"
 )
 
 func TestPublicCommandConfigurationDoesNotExposeKernelExecutionInternals(t *testing.T) {
@@ -71,7 +70,7 @@ func TestExternalConsumerCanRunActionAndServeExplicitMount(t *testing.T) {
 	}
 	var output bytes.Buffer
 	if err := appcmd.RunAction(context.Background(), []string{
-		"run", "probe.read", "--token-file", tokenFile, "--input", "-",
+		"run", "probe.read", "--token-file", tokenFile, "--input", "-", "--scope-kind", "workspace", "--scope-id", "external",
 	}, definition, appcmd.Options{Stdin: io.NopCloser(strings.NewReader(`{}`)), Stdout: &output}); err != nil {
 		t.Fatalf("RunAction() error = %v", err)
 	}
@@ -80,6 +79,10 @@ func TestExternalConsumerCanRunActionAndServeExplicitMount(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	process, err := processkit.New(processkit.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ready := make(chan string, 1)
 	serveResult := make(chan error, 1)
 	go func() {
@@ -88,13 +91,11 @@ func TestExternalConsumerCanRunActionAndServeExplicitMount(t *testing.T) {
 			ShutdownTimeout: time.Second,
 			Stdout:          io.Discard,
 			Stderr:          io.Discard,
+			Process:         process,
 			Handler: func(_ context.Context, application *appkit.Application) (http.Handler, error) {
-				health, err := httpapi.NewHealth(application)
-				if err != nil {
-					return nil, err
-				}
+				_ = application
 				mux := http.NewServeMux()
-				mux.Handle("/health", health)
+				mux.Handle("/readyz", process.ReadinessHandler())
 				return mux, nil
 			},
 			Listener: func(_ context.Context, _, _ string) (net.Listener, error) {
@@ -114,10 +115,10 @@ func TestExternalConsumerCanRunActionAndServeExplicitMount(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Serve() did not create its listener")
 	}
-	response, err := (&http.Client{Timeout: time.Second}).Get("http://" + address + "/health")
+	response, err := (&http.Client{Timeout: time.Second}).Get("http://" + address + "/readyz")
 	if err != nil {
 		cancel()
-		t.Fatalf("GET /health: %v", err)
+		t.Fatalf("GET /readyz: %v", err)
 	}
 	_ = response.Body.Close()
 	if response.StatusCode != http.StatusOK {
@@ -152,7 +153,7 @@ func TestExternalDependencyErrorsRemainOpaqueAtCommandBoundaries(t *testing.T) {
 		}
 		assertOpaqueExternalError(t, "write Action output failed", func(cause error) error {
 			return appcmd.RunAction(context.Background(), []string{
-				"run", "probe.read", "--token-file", tokenFile, "--input", "-",
+				"run", "probe.read", "--token-file", tokenFile, "--input", "-", "--scope-kind", "workspace", "--scope-id", "external",
 			}, externalDefinition(t), appcmd.Options{
 				Stdin:  io.NopCloser(strings.NewReader(`{}`)),
 				Stdout: externalFullErrorWriter{err: cause},
@@ -535,8 +536,7 @@ func (address externalAddress) String() string { return string(address) }
 
 func externalDefinition(t *testing.T) appkit.Definition {
 	t.Helper()
-	executionScope := scope.Must("tenant", "external-appcmd")
-	actor := identity.Actor{ID: "external-user", Type: "user", DisplayName: "External User", Scope: executionScope}
+	actor := identity.Actor{ID: "external-user", Type: "user", DisplayName: "External User"}
 	descriptor := action.Descriptor{
 		ID: "probe.read", Version: "1.0.0", Title: "Read probe", Permission: "probe.read",
 		Preview: action.PreviewNone, AuditLevel: action.AuditMetadata, Channels: []action.Channel{action.ChannelCLI},
@@ -549,6 +549,7 @@ func externalDefinition(t *testing.T) appkit.Definition {
 			module.CapabilityAuthorization,
 			module.CapabilityAudit,
 			module.CapabilityIdentity,
+			module.CapabilityBearers,
 			"probe",
 		},
 	}, func(_ context.Context, installation module.Scope) error {

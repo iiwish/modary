@@ -48,12 +48,12 @@ func TestNewAPIValidatesBoundaryAndOptions(t *testing.T) {
 	}
 
 	withoutSessions := newHTTPTestApplication(t, false)
-	if handler, err := NewAPI(withoutSessions.app, APIOptions{}); err == nil || handler != nil || !errors.Is(err, appkit.ErrSessionsUnavailable) {
+	if handler, err := NewAPI(withoutSessions.app, APIOptions{ResolveScope: fixedScope(scope.Must("tenant", "http-test"))}); err == nil || handler != nil || !errors.Is(err, appkit.ErrSessionsUnavailable) {
 		t.Fatalf("NewAPI(missing sessions) = %#v, %v", handler, err)
 	}
 
 	var pointer *testAuthenticator
-	if !isTypedNil(identity.Authenticator(pointer)) || isTypedNil(testAuthorizer{}) {
+	if !isTypedNil(identity.SessionManager(pointer)) || isTypedNil(testAuthorizer{}) {
 		t.Fatal("typed-nil dependency detection is not fail-closed")
 	}
 }
@@ -207,7 +207,7 @@ func TestAPIAuthenticationCookieAndCatalogContract(t *testing.T) {
 	}
 	var authenticated loginResponse
 	decodeResponse(t, login, &authenticated)
-	if authenticated.CSRFToken == "" || authenticated.Actor.Scope != application.actor.Scope {
+	if authenticated.CSRFToken == "" || authenticated.Actor != application.actor {
 		t.Fatalf("login response = %#v", authenticated)
 	}
 	currentSession := performRequest(handler, http.MethodGet, "/api/auth/session", "", "", "application/json", []*http.Cookie{cookie}, nil, false)
@@ -323,7 +323,7 @@ func TestAPIPreviewExecuteCSRFAndScope(t *testing.T) {
 		t.Fatalf("execute = %d %s", executed.Code, executed.Body.String())
 	}
 	plan := application.handler.executedPlan()
-	if plan.Channel != action.ChannelHTTP || plan.Scope != application.actor.Scope || plan.ActorID != application.actor.ID || plan.ActorType != application.actor.Type {
+	if plan.Channel != action.ChannelHTTP || plan.Scope != application.executionScope || plan.ActorID != application.actor.ID || plan.ActorType != application.actor.Type {
 		t.Fatalf("Runtime plan boundary = %#v", plan)
 	}
 
@@ -693,11 +693,12 @@ func TestJSONAndNegotiationHelpersAreStrict(t *testing.T) {
 }
 
 type httpTestApplication struct {
-	app      *appkit.Application
-	actor    identity.Actor
-	sessions *testAuthenticator
-	handler  *testActionHandler
-	audit    *mcpAuditRecorder
+	app            *appkit.Application
+	actor          identity.Actor
+	sessions       *testAuthenticator
+	handler        *testActionHandler
+	audit          *mcpAuditRecorder
+	executionScope scope.Execution
 }
 
 func newHTTPTestApplication(t *testing.T, withSessions bool) *httpTestApplication {
@@ -707,7 +708,7 @@ func newHTTPTestApplication(t *testing.T, withSessions bool) *httpTestApplicatio
 func newHTTPTestApplicationWithInputSchema(t *testing.T, withSessions bool, inputSchema json.RawMessage) *httpTestApplication {
 	t.Helper()
 	executionScope := scope.Must("tenant", "http-test")
-	actor := identity.Actor{ID: "user-1", Type: "user", DisplayName: "Test User", Scope: executionScope}
+	actor := identity.Actor{ID: "user-1", Type: "user", DisplayName: "Test User"}
 	sessions := newTestAuthenticator(actor)
 	handler := &testActionHandler{}
 	auditHook := &mcpAuditRecorder{}
@@ -718,7 +719,7 @@ func newHTTPTestApplicationWithInputSchema(t *testing.T, withSessions bool, inpu
 		"example",
 	}
 	if withSessions {
-		provides = append(provides, module.CapabilityIdentity, module.CapabilitySessions)
+		provides = append(provides, module.CapabilityIdentity, module.CapabilityPasswords, module.CapabilitySessions)
 	}
 	manifest := module.Manifest{
 		SchemaVersion: module.SchemaVersion, ID: "unrelated-module-name", Version: "1.0.0", Type: module.ModuleTypeFeature, Provides: provides,
@@ -737,7 +738,10 @@ func newHTTPTestApplicationWithInputSchema(t *testing.T, withSessions bool, inpu
 			if err := module.Provide(install, module.IdentityResolver(), identity.Resolver(sessions)); err != nil {
 				return err
 			}
-			if err := module.Provide(install, module.SessionAuthenticator(), identity.Authenticator(sessions)); err != nil {
+			if err := module.Provide(install, module.PasswordAuthenticator(), identity.PasswordAuthenticator(sessions)); err != nil {
+				return err
+			}
+			if err := module.Provide(install, module.SessionManager(), identity.SessionManager(sessions)); err != nil {
 				return err
 			}
 		}
@@ -760,7 +764,7 @@ func newHTTPTestApplicationWithInputSchema(t *testing.T, withSessions bool, inpu
 		t.Fatalf("appkit.Start() error = %v", err)
 	}
 	t.Cleanup(func() { _ = application.Shutdown(context.Background()) })
-	return &httpTestApplication{app: application, actor: actor, sessions: sessions, handler: handler, audit: auditHook}
+	return &httpTestApplication{app: application, actor: actor, sessions: sessions, handler: handler, audit: auditHook, executionScope: executionScope}
 }
 
 func testActionDescriptor(id string, channels []action.Channel, preview action.PreviewPolicy) action.Descriptor {
@@ -858,18 +862,22 @@ func (authenticator *testAuthenticator) ResolveByID(_ context.Context, id string
 	return authenticator.actor, nil
 }
 
-func (authenticator *testAuthenticator) Login(_ context.Context, username, password string) (identity.Session, error) {
+func (authenticator *testAuthenticator) AuthenticatePassword(_ context.Context, username, password string) (identity.Authentication, error) {
 	authenticator.mu.Lock()
 	loginErr := authenticator.loginErr
 	authenticator.mu.Unlock()
 	if loginErr != nil {
-		return identity.Session{}, loginErr
+		return identity.Authentication{}, loginErr
 	}
 	if username != "admin" || password != "secret" {
-		return identity.Session{}, identity.ErrAuthenticationFailed
+		return identity.Authentication{}, identity.ErrAuthenticationFailed
 	}
+	return identity.Authentication{Actor: authenticator.actor, Method: identity.AuthenticationMethodPassword, CredentialVersion: "version"}, nil
+}
+
+func (authenticator *testAuthenticator) CreateSession(_ context.Context, authentication identity.Authentication) (identity.Session, error) {
 	session := identity.Session{
-		Token: "session-token-1", CSRFToken: "csrf-token-1", Actor: authenticator.actor, ExpiresAt: time.Now().Add(time.Hour),
+		Token: "session-token-1", CSRFToken: "csrf-token-1", Actor: authentication.Actor, ExpiresAt: time.Now().Add(time.Hour),
 	}
 	authenticator.mu.Lock()
 	authenticator.sessions[session.Token] = session
@@ -877,7 +885,7 @@ func (authenticator *testAuthenticator) Login(_ context.Context, username, passw
 	return session, nil
 }
 
-func (authenticator *testAuthenticator) Logout(_ context.Context, token string) error {
+func (authenticator *testAuthenticator) RevokeSession(_ context.Context, token string) error {
 	authenticator.mu.Lock()
 	defer authenticator.mu.Unlock()
 	if authenticator.logoutErr != nil {
@@ -887,7 +895,7 @@ func (authenticator *testAuthenticator) Logout(_ context.Context, token string) 
 	return nil
 }
 
-func (authenticator *testAuthenticator) Session(ctx context.Context, token string) (identity.Session, error) {
+func (authenticator *testAuthenticator) ResolveSession(ctx context.Context, token string) (identity.Session, error) {
 	authenticator.mu.Lock()
 	panicSession := authenticator.panicSession
 	block := authenticator.blockSession
@@ -966,11 +974,19 @@ func (authenticator *testAuthenticator) setPanicSession(value bool) {
 
 func mustNewAPI(t *testing.T, application *appkit.Application, options APIOptions) http.Handler {
 	t.Helper()
+	if options.ResolveScope == nil {
+		options.ResolveScope = fixedScope(scope.Must("tenant", "http-test"))
+	}
+	options.EnablePasswordLogin = true
 	handler, err := NewAPI(application, options)
 	if err != nil {
 		t.Fatalf("NewAPI() error = %v", err)
 	}
 	return handler
+}
+
+func fixedScope(executionScope scope.Execution) ScopeResolver {
+	return func(*http.Request, identity.Actor) (scope.Execution, error) { return executionScope, nil }
 }
 
 func loginForTest(t *testing.T, handler http.Handler) (*http.Cookie, string) {

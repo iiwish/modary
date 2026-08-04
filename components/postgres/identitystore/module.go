@@ -1,0 +1,339 @@
+// Package identitystore provides a PostgreSQL-backed principal, session, local
+// password, and bearer store. Credential surfaces are published only when the
+// consumer explicitly provisions that credential kind.
+//
+// Stability: alpha. Consumers should pin an exact pre-v1 Modary version.
+package identitystore
+
+import (
+	"context"
+	"embed"
+	"fmt"
+	"io"
+	"io/fs"
+	"reflect"
+	"regexp"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/iiwish/modary/identity"
+	"github.com/iiwish/modary/internal/moduleassembly"
+	"github.com/iiwish/modary/module"
+)
+
+// Adapter identity, session, and Argon2 concurrency limits.
+const (
+	// ModuleID intentionally retains the durable v0.2 migration owner. Package
+	// naming may evolve; a migration owner must not be renamed underneath an
+	// already initialized database.
+	ModuleID                         = "local-identity"
+	DefaultSessionTTL                = 12 * time.Hour
+	MaximumSessionTTL                = 30 * 24 * time.Hour
+	StandardPasswordCheckConcurrency = 2
+	MaximumConcurrentPasswordChecks  = 32
+)
+
+var identifierPattern = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,127}$`)
+
+//go:embed migrations/postgres/*.sql
+var migrationFiles embed.FS
+
+var postgresMigrations = mustMigrationFS()
+
+// Principal is one explicitly provisioned actor. Credentials are configured
+// independently so service identities do not need synthetic login secrets.
+type Principal struct {
+	ActorID     string
+	ActorType   string
+	DisplayName string
+}
+
+// PasswordCredential is one explicitly provisioned username/password login for
+// an existing or concurrently provisioned principal.
+type PasswordCredential struct {
+	ActorID  string
+	Username string
+	Password string
+}
+
+// BearerToken is one explicitly provisioned bearer credential. TokenID is a
+// non-secret stable identifier used for rotation and revocation. Token must be
+// generated from at least 256 bits of cryptographically secure randomness;
+// GenerateBearerToken provides the recommended representation.
+type BearerToken struct {
+	TokenID string
+	ActorID string
+	Token   string
+}
+
+// Options is an explicit provisioning and revocation patch. Empty provisioning
+// creates only schema; omitted durable principals and credentials are retained.
+// A password or actor type change invalidates sessions. An actor type change also
+// invalidates sessions and deactivates bearer credentials; a BearerTokens entry
+// in the same patch explicitly reactivates or replaces that credential. Password
+// verification concurrency is bounded in-process; network and account rate
+// limiting remain deployment responsibilities.
+type Options struct {
+	Principals          []Principal
+	PasswordCredentials []PasswordCredential
+	BearerTokens        []BearerToken
+	RevokedActorIDs     []string
+	RevokedTokenIDs     []string
+	SessionTTL          time.Duration
+	// MaxConcurrentPasswordChecks bounds Argon2 memory use. Zero selects the
+	// conservative limit; values above MaximumConcurrentPasswordChecks fail.
+	MaxConcurrentPasswordChecks int
+	// Random overrides crypto/rand for password salts and session material. A
+	// production override must be a concurrency-safe CSPRNG. Reads are serialized;
+	// deterministic readers are suitable only for tests.
+	Random io.Reader
+}
+
+// Module returns a pure Registration. Options are validated and defensively
+// copied before any database, migration, random, or hashing work occurs. The
+// returned consumer-owned Registration captures that copy, including plaintext
+// provisioning credentials; callers should retain it only as long as their
+// composition source requires. A started Application does not retain the
+// startup callback after provisioning completes.
+func Module(options Options) (module.Registration, error) {
+	normalized, err := normalizeOptions(options)
+	if err != nil {
+		return module.Registration{}, err
+	}
+	provides := []module.Capability{module.CapabilityIdentity}
+	if len(normalized.BearerTokens) > 0 {
+		provides = append(provides, module.CapabilityBearers)
+	}
+	if len(normalized.PasswordCredentials) > 0 {
+		provides = append(provides, module.CapabilityPasswords)
+	}
+	provides = append(provides, module.CapabilitySessions)
+	manifest := module.Manifest{
+		SchemaVersion: module.SchemaVersion,
+		ID:            ModuleID,
+		Version:       "0.1.0",
+		Type:          module.ModuleTypeAdapter,
+		Requires:      []module.Capability{module.CapabilityDatabase},
+		Provides:      provides,
+	}
+	return module.Registration{
+		Definition: module.Definition{
+			Manifest:   manifest,
+			Migrations: []module.MigrationSource{{Driver: "postgres", Files: postgresMigrations}},
+		},
+		Start: func(ctx context.Context, installation module.Scope) error {
+			return start(ctx, installation, normalized)
+		},
+	}, nil
+}
+
+func start(ctx context.Context, installation module.Scope, options Options) error {
+	if ctx == nil {
+		return fmt.Errorf("PostgreSQL identity store start context is required")
+	}
+	control, err := moduleassembly.ResolveDatabaseControl(installation)
+	if err != nil {
+		return fmt.Errorf("resolve database control: %w", err)
+	}
+	service := newService(control, options)
+	if err := service.provision(ctx, options); err != nil {
+		return fmt.Errorf("provision PostgreSQL identity store: %w", err)
+	}
+	if err := module.Provide(installation, module.IdentityResolver(), identity.Resolver(service)); err != nil {
+		return err
+	}
+	if len(options.PasswordCredentials) > 0 {
+		if err := module.Provide(installation, module.PasswordAuthenticator(), identity.PasswordAuthenticator(service)); err != nil {
+			return err
+		}
+	}
+	if err := module.Provide(installation, module.SessionManager(), identity.SessionManager(service)); err != nil {
+		return err
+	}
+	if len(options.BearerTokens) > 0 {
+		return module.Provide(installation, module.TokenAuthenticator(), identity.TokenAuthenticator(service))
+	}
+	return nil
+}
+
+func normalizeOptions(options Options) (Options, error) {
+	if options.SessionTTL < 0 {
+		return Options{}, fmt.Errorf("PostgreSQL identity store session TTL cannot be negative")
+	}
+	if options.SessionTTL == 0 {
+		options.SessionTTL = DefaultSessionTTL
+	}
+	if options.SessionTTL < time.Minute || options.SessionTTL > MaximumSessionTTL {
+		return Options{}, fmt.Errorf("PostgreSQL identity store session TTL must be between one minute and %s", MaximumSessionTTL)
+	}
+	if options.MaxConcurrentPasswordChecks < 0 || options.MaxConcurrentPasswordChecks > MaximumConcurrentPasswordChecks {
+		return Options{}, fmt.Errorf("PostgreSQL identity store maximum concurrent password checks must be zero or between 1 and %d", MaximumConcurrentPasswordChecks)
+	}
+	if options.MaxConcurrentPasswordChecks == 0 {
+		options.MaxConcurrentPasswordChecks = StandardPasswordCheckConcurrency
+	}
+	if typedNil(options.Random) {
+		return Options{}, fmt.Errorf("PostgreSQL identity store random source cannot be typed nil")
+	}
+
+	principals := append([]Principal(nil), options.Principals...)
+	passwords := append([]PasswordCredential(nil), options.PasswordCredentials...)
+	tokens := append([]BearerToken(nil), options.BearerTokens...)
+	revokedActors := append([]string(nil), options.RevokedActorIDs...)
+	revokedTokens := append([]string(nil), options.RevokedTokenIDs...)
+	seenActors := make(map[string]struct{}, len(principals))
+	for index, principal := range principals {
+		if err := identity.ValidateActorID(principal.ActorID); err != nil {
+			return Options{}, fmt.Errorf("PostgreSQL identity store principal %d: %w", index, err)
+		}
+		if err := identity.ValidateActorType(principal.ActorType); err != nil {
+			return Options{}, fmt.Errorf("PostgreSQL identity store principal %d: %w", index, err)
+		}
+		if err := identity.ValidateDisplayName(principal.DisplayName); err != nil {
+			return Options{}, fmt.Errorf("PostgreSQL identity store principal %d: %w", index, err)
+		}
+		if _, duplicate := seenActors[principal.ActorID]; duplicate {
+			return Options{}, fmt.Errorf("PostgreSQL identity store actor id %q is declared more than once", principal.ActorID)
+		}
+		seenActors[principal.ActorID] = struct{}{}
+	}
+	seenPasswordActors := make(map[string]struct{}, len(passwords))
+	seenUsernames := make(map[string]struct{}, len(passwords))
+	for index, credential := range passwords {
+		if err := identity.ValidateActorID(credential.ActorID); err != nil {
+			return Options{}, fmt.Errorf("PostgreSQL identity store password credential %d: %w", index, err)
+		}
+		if err := validateText("username", credential.Username, 256); err != nil {
+			return Options{}, fmt.Errorf("PostgreSQL identity store password credential %d: %w", index, err)
+		}
+		if utf8.RuneCountInString(credential.Password) < 12 || len(credential.Password) > 4096 || !utf8.ValidString(credential.Password) {
+			return Options{}, fmt.Errorf("PostgreSQL identity store password credential %d password must contain at least 12 characters and at most 4096 bytes of valid UTF-8", index)
+		}
+		if _, duplicate := seenPasswordActors[credential.ActorID]; duplicate {
+			return Options{}, fmt.Errorf("PostgreSQL identity store actor id %q has more than one password credential", credential.ActorID)
+		}
+		seenPasswordActors[credential.ActorID] = struct{}{}
+		if _, duplicate := seenUsernames[credential.Username]; duplicate {
+			return Options{}, fmt.Errorf("PostgreSQL identity store username %q is declared more than once", credential.Username)
+		}
+		seenUsernames[credential.Username] = struct{}{}
+	}
+	seenTokenIDs := make(map[string]struct{}, len(tokens))
+	seenTokenHashes := make(map[string]struct{}, len(tokens))
+	for index, token := range tokens {
+		if err := validateIdentifier("token id", token.TokenID); err != nil {
+			return Options{}, fmt.Errorf("PostgreSQL identity store bearer token %d: %w", index, err)
+		}
+		if err := identity.ValidateActorID(token.ActorID); err != nil {
+			return Options{}, fmt.Errorf("PostgreSQL identity store bearer token %d: %w", index, err)
+		}
+		if len(token.Token) < 32 || !validCredentialToken(token.Token) {
+			return Options{}, fmt.Errorf("PostgreSQL identity store bearer token %d secret must contain 32 to 4096 bytes of valid UTF-8 without whitespace or control characters", index)
+		}
+		if _, duplicate := seenTokenIDs[token.TokenID]; duplicate {
+			return Options{}, fmt.Errorf("PostgreSQL identity store token id %q is declared more than once", token.TokenID)
+		}
+		seenTokenIDs[token.TokenID] = struct{}{}
+		hash := credentialHash(token.Token)
+		if _, duplicate := seenTokenHashes[hash]; duplicate {
+			return Options{}, fmt.Errorf("PostgreSQL identity store bearer credentials must be unique")
+		}
+		seenTokenHashes[hash] = struct{}{}
+	}
+	revokedActorSet, err := validateUniqueActorIDs(revokedActors)
+	if err != nil {
+		return Options{}, err
+	}
+	if err := validateUniqueIdentifiers("revoked token id", revokedTokens); err != nil {
+		return Options{}, err
+	}
+	for _, id := range revokedActors {
+		if _, provisioned := seenActors[id]; provisioned {
+			return Options{}, fmt.Errorf("PostgreSQL identity store actor %q cannot be provisioned and revoked together", id)
+		}
+		if _, credentialed := seenPasswordActors[id]; credentialed {
+			return Options{}, fmt.Errorf("PostgreSQL identity store actor %q cannot receive a password credential and be revoked together", id)
+		}
+	}
+	for _, token := range tokens {
+		if _, revoked := revokedActorSet[token.ActorID]; revoked {
+			return Options{}, fmt.Errorf("PostgreSQL identity store bearer token %q cannot target revoked actor %q", token.TokenID, token.ActorID)
+		}
+	}
+	for _, id := range revokedTokens {
+		if _, provisioned := seenTokenIDs[id]; provisioned {
+			return Options{}, fmt.Errorf("PostgreSQL identity store token %q cannot be provisioned and revoked together", id)
+		}
+	}
+	options.Principals = principals
+	options.PasswordCredentials = passwords
+	options.BearerTokens = tokens
+	options.RevokedActorIDs = revokedActors
+	options.RevokedTokenIDs = revokedTokens
+	return options, nil
+}
+
+func validateUniqueActorIDs(values []string) (map[string]struct{}, error) {
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if err := identity.ValidateActorID(value); err != nil {
+			return nil, fmt.Errorf("PostgreSQL identity store revoked actor id: %w", err)
+		}
+		if _, duplicate := seen[value]; duplicate {
+			return nil, fmt.Errorf("PostgreSQL identity store revoked actor id %q is declared more than once", value)
+		}
+		seen[value] = struct{}{}
+	}
+	return seen, nil
+}
+
+func validateUniqueIdentifiers(name string, values []string) error {
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if err := validateIdentifier(name, value); err != nil {
+			return fmt.Errorf("PostgreSQL identity store: %w", err)
+		}
+		if _, duplicate := seen[value]; duplicate {
+			return fmt.Errorf("PostgreSQL identity store %s %q is declared more than once", name, value)
+		}
+		seen[value] = struct{}{}
+	}
+	return nil
+}
+
+func validateIdentifier(name, value string) error {
+	if !identifierPattern.MatchString(value) {
+		return fmt.Errorf("%s %q is invalid", name, value)
+	}
+	return nil
+}
+
+func validateText(name, value string, limit int) error {
+	if !utf8.ValidString(value) || value == "" || strings.TrimSpace(value) != value || utf8.RuneCountInString(value) > limit || strings.ContainsFunc(value, unicode.IsControl) {
+		return fmt.Errorf("%s must contain 1 to %d non-control characters without surrounding whitespace", name, limit)
+	}
+	return nil
+}
+
+func typedNil(value any) bool {
+	if value == nil {
+		return false
+	}
+	reflected := reflect.ValueOf(value)
+	switch reflected.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return reflected.IsNil()
+	default:
+		return false
+	}
+}
+
+func mustMigrationFS() fs.FS {
+	files, err := fs.Sub(migrationFiles, "migrations/postgres")
+	if err != nil {
+		panic(err)
+	}
+	return files
+}

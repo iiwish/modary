@@ -37,7 +37,7 @@ Modary takes the opposite approach:
 
 | Profile | Selects | Does not select |
 |---|---|---|
-| `api` | Core, health, one example route | database, identity, UI, River, Actions, audit, MCP |
+| `api` | Core, process probes, one example route | database, identity, UI, River, Actions, audit, MCP, OTel |
 | `admin` | PostgreSQL business Store, local development Identity, RBAC, sessions, React Admin, records slice | River, governed Actions, SQL Audit, MCP |
 | `governed` | PostgreSQL, River, Identity, RBAC, SQL Audit, governed Action, CLI/HTTP/MCP, worker | Admin UI and ordinary records slice |
 
@@ -45,16 +45,16 @@ Profiles are creation presets, not runtime modes. After creation the generated
 files belong to the application and the Module list remains the source of truth.
 The Starter never patches an existing project.
 
-## Install v0.2 Alpha 1
+## Install v0.3 Alpha 1
 
-`v0.2.0-alpha.1` is the current component-framework release.
-`v0.1.0-alpha.3` remains the immutable historical Governed-only baseline.
+`v0.3.0-alpha.1` is the current component-framework release.
+`v0.2.0-alpha.1` remains the immutable React component-framework baseline.
 
 Go 1.26.5 or newer is required. Create a database-free API project directly
 from the released Starter:
 
 ```bash
-go run github.com/iiwish/modary/cmd/modary@v0.2.0-alpha.1 \
+go run github.com/iiwish/modary/cmd/modary@v0.3.0-alpha.1 \
   new sample-api --profile api --module example.com/acme/sample-api
 cd sample-api
 go mod tidy
@@ -62,7 +62,8 @@ go test ./...
 go run ./cmd/sample-api
 ```
 
-The API starts on `127.0.0.1:8080` and exposes `/healthz` and `/api/ping`.
+The API starts on `127.0.0.1:8080` and exposes local `/livez`, bounded
+dependency `/readyz`, and `/api/ping`.
 Continue with the [Profile quickstart](docs/getting-started/quickstart.md).
 
 ## Architecture
@@ -103,20 +104,23 @@ module registry. A prebuilt production bundle is
 embedded in the generated Go binary, so deployment does not require Node.js.
 Node.js and pnpm are required only when changing the generated frontend source.
 
-The F0 UI includes login, session restoration, logout, permission-aware
+The F0 UI includes local-password or OIDC redirect login, session restoration,
+logout, permission-aware
 navigation and commands, responsive scoped CRUD, and optional read-only task
-and audit operations. `--with tasks` and `--with audit` select those components
-at generation time; omitted components contribute no Go dependency, route,
-source module, or production bundle code. It is a reference work surface, not a
-framework-owned low-code schema or dynamic menu engine.
+and audit operations. `--with tasks`, `--with audit`, `--with oidc`, and
+`--with otel` select those components at generation time. OIDC replaces the
+local password surface; OTel adds no UI. Omitted components contribute no Go
+dependency, route, configuration, source module, or production bundle code. It
+is a reference work surface, not a framework-owned low-code schema or dynamic
+menu engine.
 
 ## Public Layers
 
 | Layer | Main packages |
 |---|---|
-| Core | `module`, `appkit`, `appcmd`, `httpkit` |
-| Contracts | `database`, `identity`, `authz`, `scope`, `task`, `action`, `audit` |
-| Standard components | `components/postgres`, `components/governedpostgres`, `components/postgres/localidentity`, `components/postgres/rbac`, `components/postgres/sqlaudit` |
+| Core | `module`, `appkit`, `appcmd`, `httpkit`, `processkit` |
+| Contracts | `database`, `identity`, `authz`, `scope`, `task`, `action`, `audit`, `observe` |
+| Standard components | `components/postgres`, `components/governedpostgres`, `components/oidc`, `components/otel`, `components/postgres/identitystore`, `components/postgres/rbac`, `components/postgres/sqlaudit` |
 | Transports | `transport/httpapi`, `transport/sessionhttp` |
 | Tooling | `starter`, `cmd/modary`, `projecttool` |
 
@@ -137,7 +141,7 @@ Start at the [documentation index](docs/index.md):
 - [Persistence and tasks](docs/concepts/persistence-and-tasks.md)
 - [Rulary adoption plan](docs/guides/rulary-bootstrap.md)
 - [简体中文教程](docs/zh-CN/index.md)
-- [v0.1 Alpha 3 to v0.2 migration](docs/releases/upgrade-guide.md)
+- [v0.2 Alpha 1 to v0.3 Alpha 1 migration](docs/releases/upgrade-v0.2-to-v0.3.md)
 
 ## Verification
 
@@ -150,8 +154,10 @@ make race
 ```
 
 The F0 evidence additionally covers copied-out API/Admin/Governed projects,
-real PostgreSQL, frontend asset reproducibility, browser desktop/mobile checks,
-the external Counter conformance consumer, source stability, and cross-builds.
+real PostgreSQL, disposable OIDC and OTLP endpoints, non-root OCI images,
+frontend asset reproducibility, browser desktop/mobile checks, active-request
+drain, the external Counter conformance consumer, source stability, and
+cross-builds.
 
 ## Stability, License, And Security
 

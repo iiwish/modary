@@ -1,9 +1,9 @@
 # Current Product Contract
 
-- Version: 8.0
+- Version: 9.0
 - Status: Confirmed
-- Last updated: 2026-08-02
-- Source: explicit owner approval for the component-framework refoundation
+- Last updated: 2026-08-04
+- Source: explicit owner approval for the component framework and v0.3 Production Foundation
 
 ## Product Definition
 
@@ -56,6 +56,10 @@ product.
 5. **Governed Operations** provide the existing typed Action, Preview/Execute,
    idempotency, transaction, audit, HTTP, CLI, and MCP capabilities as optional
    advanced components.
+6. **Production Foundation** provides replaceable identity flows, process
+   health and drain, migration execution, container reference artifacts,
+   structured logs, and optional OpenTelemetry integration without making them
+   requirements of Core or API Profile applications.
 
 ## Profiles
 
@@ -87,6 +91,22 @@ migrations, processes, configuration requirements, and generated artifacts.
 Framework services are passed through typed capabilities. Business packages do
 not read framework-global database, logger, router, configuration, or identity
 variables.
+
+## Identity And Authorization Boundary
+
+Identity establishes an active principal with stable ID, type, and display
+metadata. It does not assign the product's current workspace, tenant, project,
+or resource scope. Consumer routes derive a validated scope from trusted
+product context; the Authorizer evaluates durable bindings between that actor
+and the requested scope.
+
+Local password Identity remains an explicit development and controlled-internal
+component. Production browser sign-in uses an optional OIDC relying-party
+component with Authorization Code, PKCE, state, nonce, exact issuer/audience
+verification, stable issuer/subject identity, bounded claim mapping, and
+revocable server-side application sessions. The external provider owns password,
+MFA, enrollment, recovery, and upstream account policy. Claim-to-role mapping is
+never implicit.
 
 ## Generation And Ownership
 
@@ -136,18 +156,41 @@ Removing a component changes future assembly and migration registration. It
 does not automatically drop schemas, tables, or retained product data from a
 database that was initialized by an earlier composition.
 
+## Runtime, Deployment, And Operations
+
+The generated process exposes distinct liveness and readiness endpoints.
+Liveness reports only local process progress. Readiness reports application
+lifecycle and bounded selected dependency checks, becomes false before graceful
+drain, and reveals no secret diagnostics. Database migrations can run through a
+distinct command so operators can separate schema change from serving traffic.
+
+Starter deployment artifacts build a minimal non-root OCI image, preserve the
+embedded Admin bundle, record build identity, and support local PostgreSQL
+composition. They are reference source owned by the consumer, not a managed
+runtime. Kubernetes, TLS, proxy policy, PostgreSQL high availability, secret
+distribution, collectors, dashboards, and backups remain deployment choices.
+
+Generated processes use structured `slog` output with request correlation and
+redaction. An optional independently versioned OpenTelemetry component provides
+OTLP traces and metrics for selected applications. It is absent from Core and
+unselected dependency graphs. Operational metrics use bounded stable labels;
+task and audit data remain available through their existing read-only contracts.
+
 ## Compatibility And Release State
 
-`v0.2.0-alpha.1` is the current immutable component-framework release.
+`v0.3.0-alpha.1` is the current Production Foundation release.
+`v0.2.0-alpha.1` remains the immutable React component-framework baseline, and
 `v0.1.0-alpha.3` remains available for consumers pinned to its historical
-Governed-first contract. The v0.2 API and generated source remain pre-v1 Alpha
+Governed-first contract. Public APIs and generated source remain pre-v1 Alpha
 contracts. Retained guarantees receive conformance tests; removed or replaced
 APIs receive an explicit upgrade note.
 
 ## Success Definition
 
-The v0.2 F0 is accepted when independent copied-out consumers prove all three
-Profiles, an Admin consumer can sign in and use a real business module, omitted
-components are absent rather than dormant, Governed Action guarantees remain
-available when selected, and the complete onboarding, test, build, and review
-gates pass.
+The v0.3 F0 is accepted when independent copied-out consumers prove all three
+Profiles, local and OIDC Admin identities, multi-scope authorization, distinct
+probe and drain behavior, migration-only operation, non-root container
+execution, structured diagnostics, optional OTLP export, and complete absence of
+OIDC/OpenTelemetry dependencies from Core and unselected applications. Governed
+Action guarantees, deterministic generation, release checks, and remote module
+consumption must remain green.

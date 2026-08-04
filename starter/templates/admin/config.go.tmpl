@@ -2,6 +2,9 @@
 package config
 
 import (
+	{{if .HasOTel}}"encoding/json"
+	"io"
+	{{end}}
 	"fmt"
 	"os"
 	"strings"
@@ -14,40 +17,125 @@ type Config struct {
 	Schema       string
 	{{if .HasTasks}}QueueSchema  string
 	{{end}}HTTPAddress  string
-	AdminUser    string
+	{{if .HasOIDC}}OIDCIssuerURL string
+	OIDCClientID string
+	OIDCClientSecret string
+	OIDCRedirectURL string
+	OIDCSubject string
+	OIDCAllowInsecureHTTP bool
+	{{else}}AdminUser    string
 	AdminPassword string
+	{{end}}
 	InsecureCookie bool
+	MigrateOnStart bool
+	{{if .HasOTel}}OTelEndpoint string
+	OTelHeaders map[string]string
+	OTelEnvironment string
+	OTelInsecure bool
+	{{end}}
 }
 
-func Load() (Config, error) {
-	config := Config{
+// DatabaseConfig is the complete configuration needed by migration-only
+// execution. It deliberately excludes application and exporter credentials.
+type DatabaseConfig struct {
+	DatabaseURL string
+	Schema string
+	{{if .HasTasks}}QueueSchema string
+	{{end}}
+}
+
+func LoadDatabase() (DatabaseConfig, error) {
+	config := DatabaseConfig{
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		Schema: os.Getenv("MODARY_DATABASE_SCHEMA"),
 		{{if .HasTasks}}QueueSchema: os.Getenv("MODARY_QUEUE_SCHEMA"),
+		{{end}}
+	}
+	if config.Schema == "" { config.Schema = {{quote .SchemaID}} }
+	{{if .HasTasks}}if config.QueueSchema == "" { config.QueueSchema = {{quote .QueueSchemaID}} }
+	{{end}}if config.DatabaseURL == "" || len(config.DatabaseURL) > 8192 || !utf8.ValidString(config.DatabaseURL) || strings.TrimSpace(config.DatabaseURL) != config.DatabaseURL || strings.ContainsFunc(config.DatabaseURL, unicode.IsControl) {
+		return DatabaseConfig{}, fmt.Errorf("DATABASE_URL is required and must be a bounded unambiguous value")
+	}
+	return config, nil
+}
+
+func (config Config) DatabaseConfig() DatabaseConfig {
+	return DatabaseConfig{DatabaseURL: config.DatabaseURL, Schema: config.Schema,
+		{{if .HasTasks}}QueueSchema: config.QueueSchema,
+		{{end}}}
+}
+
+func Load() (Config, error) {
+	databaseConfig, err := LoadDatabase()
+	if err != nil { return Config{}, err }
+	config := Config{
+		DatabaseURL: databaseConfig.DatabaseURL,
+		Schema: databaseConfig.Schema,
+		{{if .HasTasks}}QueueSchema: databaseConfig.QueueSchema,
 		{{end}}HTTPAddress: os.Getenv("MODARY_HTTP_ADDR"),
-		AdminUser: os.Getenv("MODARY_ADMIN_USERNAME"),
+		{{if .HasOIDC}}OIDCIssuerURL: os.Getenv("MODARY_OIDC_ISSUER_URL"),
+		OIDCClientID: os.Getenv("MODARY_OIDC_CLIENT_ID"),
+		OIDCClientSecret: os.Getenv("MODARY_OIDC_CLIENT_SECRET"),
+		OIDCRedirectURL: os.Getenv("MODARY_OIDC_REDIRECT_URL"),
+		OIDCSubject: os.Getenv("MODARY_OIDC_SUBJECT"),
+		OIDCAllowInsecureHTTP: os.Getenv("MODARY_OIDC_ALLOW_INSECURE_HTTP") == "true",
+		{{else}}AdminUser: os.Getenv("MODARY_ADMIN_USERNAME"),
 		AdminPassword: os.Getenv("MODARY_ADMIN_PASSWORD"),
+		{{end}}
 		InsecureCookie: os.Getenv("MODARY_ALLOW_INSECURE_COOKIE") == "true",
+		MigrateOnStart: os.Getenv("MODARY_MIGRATE_ON_START") == "true",
+		{{if .HasOTel}}OTelEndpoint: os.Getenv("MODARY_OTEL_ENDPOINT"),
+		OTelEnvironment: os.Getenv("MODARY_OTEL_ENVIRONMENT"),
+		OTelInsecure: os.Getenv("MODARY_OTEL_INSECURE") == "true",
+		{{end}}
 	}
-	if config.Schema == "" {
-		config.Schema = {{quote .SchemaID}}
-	}
-	{{if .HasTasks}}if config.QueueSchema == "" {
-		config.QueueSchema = {{quote .QueueSchemaID}}
-	}
-	{{end}}
 	if config.HTTPAddress == "" {
 		config.HTTPAddress = "127.0.0.1:8080"
 	}
-	if config.DatabaseURL == "" {
-		return Config{}, fmt.Errorf("DATABASE_URL is required")
+	{{if .HasOIDC}}for name, value := range map[string]string{
+		"MODARY_OIDC_ISSUER_URL": config.OIDCIssuerURL,
+		"MODARY_OIDC_CLIENT_ID": config.OIDCClientID,
+		"MODARY_OIDC_REDIRECT_URL": config.OIDCRedirectURL,
+		"MODARY_OIDC_SUBJECT": config.OIDCSubject,
+	} {
+		if invalidCredential(value, 2048) { return Config{}, fmt.Errorf("%s is required and must be a bounded value", name) }
 	}
-	if invalidCredential(config.AdminUser, 256) {
+	if len(config.OIDCClientSecret) > 4096 || !utf8.ValidString(config.OIDCClientSecret) {
+		return Config{}, fmt.Errorf("MODARY_OIDC_CLIENT_SECRET must contain at most 4096 bytes of valid UTF-8")
+	}
+	{{else}}if invalidCredential(config.AdminUser, 256) {
 		return Config{}, fmt.Errorf("MODARY_ADMIN_USERNAME is required and must be a bounded value")
 	}
 	if !utf8.ValidString(config.AdminPassword) || len(config.AdminPassword) > 4096 || utf8.RuneCountInString(config.AdminPassword) < 12 {
 		return Config{}, fmt.Errorf("MODARY_ADMIN_PASSWORD must contain 12 to 4096 bytes of valid UTF-8")
 	}
+	{{end}}
+	{{if .HasOTel}}if invalidCredential(config.OTelEndpoint, 2048) {
+		return Config{}, fmt.Errorf("MODARY_OTEL_ENDPOINT is required and must be a bounded value")
+	}
+	if invalidCredential(config.OTelEnvironment, 64) {
+		return Config{}, fmt.Errorf("MODARY_OTEL_ENVIRONMENT is required and must be a bounded value")
+	}
+	headerJSON := os.Getenv("MODARY_OTEL_HEADERS_JSON")
+	if len(headerJSON) > 64<<10 {
+		return Config{}, fmt.Errorf("MODARY_OTEL_HEADERS_JSON exceeds 65536 bytes")
+	}
+	config.OTelHeaders = make(map[string]string)
+	if headerJSON != "" {
+		decoder := json.NewDecoder(strings.NewReader(headerJSON))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&config.OTelHeaders); err != nil {
+			return Config{}, fmt.Errorf("MODARY_OTEL_HEADERS_JSON must be one JSON string map")
+		}
+		if config.OTelHeaders == nil {
+			return Config{}, fmt.Errorf("MODARY_OTEL_HEADERS_JSON must be one JSON string map")
+		}
+		var trailing any
+		if err := decoder.Decode(&trailing); err != io.EOF {
+			return Config{}, fmt.Errorf("MODARY_OTEL_HEADERS_JSON must contain one JSON value")
+		}
+	}
+	{{end}}
 	return config, nil
 }
 

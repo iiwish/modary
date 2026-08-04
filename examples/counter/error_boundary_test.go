@@ -33,6 +33,8 @@ func TestPublicCommandReaderErrorChainIsSafeToInspect(t *testing.T) {
 		"run", counter.ActionID,
 		"--token-file", "-",
 		"--input", "unused.json",
+		"--scope-kind", project.PrimaryScope.Kind,
+		"--scope-id", project.PrimaryScope.ID,
 	}, mustDefinition(t, project.DefaultConfig()), appcmd.Options{
 		Stdin:  consumerErrorReader{cause: callbackCause},
 		Stdout: io.Discard,
@@ -71,7 +73,7 @@ func TestPublicActionCallbackErrorChainIsSafeToInspect(t *testing.T) {
 		Actor:     actor,
 		Channel:   "test",
 		ActionID:  counter.ActionID,
-		Scope:     actor.Scope,
+		Scope:     project.PrimaryScope,
 		Input:     counterInput(0, 1),
 	})
 	assertPublicSafeErrorChain(t, err, callbackCause, hostile, context.Canceled, "INTERNAL_ERROR")

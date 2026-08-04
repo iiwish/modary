@@ -1,0 +1,18 @@
+import { render, screen } from '@testing-library/react'
+import axe from 'axe-core'
+import { MemoryRouter } from 'react-router'
+import { describe, expect, it } from 'vitest'
+import { AppProvider } from '@/stores/app'
+import LoginView from './LoginView'
+
+describe('OIDC login view', () => {
+  it('offers one accessible upstream login action', async () => {
+    const { container } = render(
+      <AppProvider><MemoryRouter initialEntries={['/login?next=%2Frecords']}><LoginView /></MemoryRouter></AppProvider>,
+    )
+    const link = screen.getByRole('link', { name: '使用企业账号登录' })
+    expect(link.getAttribute('href')).toBe('/api/auth/oidc/login')
+    expect(screen.queryByLabelText('密码')).toBeNull()
+    expect((await axe.run(container)).violations).toEqual([])
+  })
+})

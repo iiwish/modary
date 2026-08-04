@@ -35,6 +35,17 @@ export MODARY_OPERATOR_TOKEN='development-bearer-token-000000000001'
 export MODARY_ALLOW_INSECURE_COOKIE=true
 ```
 
+Apply the selected forward migrations once before running Actions, the API, or
+the worker:
+
+```bash
+go run ./cmd/policy-control migrate
+```
+
+Serving and Action commands do not make hidden schema changes. Use
+`MODARY_MIGRATE_ON_START=true` only for a deliberate local single-process
+workflow.
+
 The generated Identity is a development adapter. The bearer token must contain
 at least 32 non-whitespace bytes; production uses randomly generated secrets and
 a product IAM boundary.
@@ -83,7 +94,7 @@ go run ./cmd/policy-control serve --listen 127.0.0.1:8080
 go run ./cmd/policy-control-worker
 ```
 
-The server mounts `/healthz`, `/api/`, and `/mcp` explicitly. The worker starts
+The server mounts `/readyz`, `/api/`, and `/mcp` explicitly. The worker starts
 one `task.Runner` and strictly decodes `limits.changed`. Replace its logging
 callback with an idempotent product effect. Delivery is at least once.
 

@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,9 +15,15 @@ import (
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := appcmd.Run(ctx, os.Args[1:], project.Definition, project.CommandOptions()); err != nil &&
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	options, err := project.CommandOptions()
+	if err == nil {
+		options.Logger = logger
+		err = appcmd.Run(ctx, os.Args[1:], project.Definition, options)
+	}
+	if err != nil &&
 		!errors.Is(err, context.Canceled) {
-		_, _ = fmt.Fprintln(os.Stderr, err)
+		logger.Error("process failed", "event", "process.failed")
 		os.Exit(1)
 	}
 }

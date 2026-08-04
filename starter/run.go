@@ -13,7 +13,7 @@ import (
 
 // CommandUsage is the global create-only Starter command help.
 const CommandUsage = `Usage:
-  modary new <destination> [--profile api|admin|governed] [--with tasks|audit]... [--module module/path] [--name display-name]
+  modary new <destination> [--profile api|admin|governed] [--with tasks|audit|oidc|otel]... [--module module/path] [--name display-name]
   modary help
 `
 
@@ -71,7 +71,7 @@ func Run(ctx context.Context, args []string, options Options) error {
 
 func parseNewCommand(args []string) (CreateOptions, error) {
 	values := make(map[string]string)
-	components := make([]Component, 0, 2)
+	components := make([]Component, 0, 4)
 	destination := ""
 	for index := 0; index < len(args); index++ {
 		argument := args[index]

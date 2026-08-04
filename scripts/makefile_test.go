@@ -117,9 +117,19 @@ func TestMakeAcceptanceRunsPinnedVulnerabilityScans(t *testing.T) {
 		t.Fatal(err)
 	}
 	makefile := string(data)
-	const command = "$(GO_COMMAND_ENV) $(GO) run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./..."
-	if strings.Count(makefile, command) != 4 {
-		t.Fatalf("govulncheck command count = %d, want Core, component loop, integration, and consumer", strings.Count(makefile, command))
+	const build = "GOBIN=\"$$scanner_directory\" $(GO_COMMAND_ENV) $(GO) install golang.org/x/vuln/cmd/govulncheck@v1.6.0"
+	if strings.Count(makefile, build) != 1 {
+		t.Fatalf("pinned govulncheck build count = %d, want one", strings.Count(makefile, build))
+	}
+	for _, scan := range []string{
+		"\"$$scanner\" ./...",
+		"for directory in $(PUBLISHED_COMPONENT_DIRS); do (cd \"$$directory\" && \"$$scanner\" ./...); done",
+		"(cd integration && \"$$scanner\" ./...)",
+		"(cd $(CONSUMER_DIR) && \"$$scanner\" ./...)",
+	} {
+		if !strings.Contains(makefile, scan) {
+			t.Errorf("vulnerability gate does not contain scan %q", scan)
+		}
 	}
 	if !strings.Contains(makefile, "acceptance-core: format-check tidy-check diff-check docs-check react-admin-check admin-frontend test panicnil vet vulncheck") {
 		t.Fatal("acceptance does not run the pinned vulnerability scans")
@@ -138,6 +148,10 @@ func TestMakeReleaseTargetsSeparateMetadataFullAndRemoteGates(t *testing.T) {
 		"./scripts/release-preflight.sh \"$(VERSION)\" \"$(RELEASE_MODE)\"",
 		"release-readiness: release-preflight",
 		"$(MAKE) ci",
+		"$(MAKE) provider-acceptance",
+		"$(MAKE) container-acceptance VERSION=\"$(VERSION)\"",
+		"container-acceptance:",
+		"MODARY_CONTAINER_ACCEPTANCE_MODE=source",
 		"remote-consumer:",
 		"./scripts/remote-consumer.sh \"$(VERSION)\"",
 	} {
@@ -180,7 +194,7 @@ func TestMakeTestConsumerOverridesHostileGoEnvironmentAndExecutesGate(t *testing
 	}
 
 	repository := t.TempDir()
-	for _, directory := range []string{"examples/counter", "components/postgres", "components/governedpostgres", "integration"} {
+	for _, directory := range []string{"examples/counter", "components/postgres", "components/governedpostgres", "components/oidc", "components/otel", "integration"} {
 		if err := os.MkdirAll(filepath.Join(repository, filepath.FromSlash(directory)), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -237,7 +251,7 @@ func TestMakeCrossBuildCompilesUnsupportedPlatformTestsOutsideRepository(t *test
 	}
 
 	repository := t.TempDir()
-	for _, directory := range []string{"examples/counter", "components/postgres", "components/governedpostgres", "integration"} {
+	for _, directory := range []string{"examples/counter", "components/postgres", "components/governedpostgres", "components/oidc", "components/otel", "integration"} {
 		if err := os.MkdirAll(filepath.Join(repository, filepath.FromSlash(directory)), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -313,8 +327,8 @@ fi
 		"darwin/amd64", "darwin/arm64",
 		"windows/amd64", "windows/arm64",
 	} {
-		if builds[platform] != 5 {
-			t.Errorf("%s build invocations = %d, want Core, two components, integration, and consumer; log:\n%s", platform, builds[platform], data)
+		if builds[platform] != 7 {
+			t.Errorf("%s build invocations = %d, want Core, four components, integration, and consumer; log:\n%s", platform, builds[platform], data)
 		}
 	}
 	if len(compiledTests) != 8 {
@@ -426,7 +440,7 @@ func TestMakeRepeatTargetsOnlyStatefulHighRiskPackages(t *testing.T) {
 	}
 	for _, required := range []string{
 		"cd components/postgres",
-		"./localidentity -run='$(REPEAT_IDENTITY_TESTS)'",
+		"./identitystore -run='$(REPEAT_IDENTITY_TESTS)'",
 		"./rbac -run='$(REPEAT_RBAC_TESTS)'",
 		"./sqlaudit -run='$(REPEAT_AUDIT_TESTS)'",
 		"cd components/governedpostgres",
@@ -453,6 +467,12 @@ func TestMakeFuzzSmokeCoversManifestJSONProtocolAndDarwinACLParsers(t *testing.T
 		t.Fatal(err)
 	}
 	makefile := string(data)
+	if !strings.Contains(makefile, "FUZZ_SMOKE_EXECUTIONS ?= 1000x") {
+		t.Error("fuzz smoke does not use a deterministic execution budget")
+	}
+	if count := strings.Count(makefile, "-fuzztime=$(FUZZ_SMOKE_EXECUTIONS)"); count != 6 {
+		t.Errorf("deterministic fuzz execution budget count = %d, want 6", count)
+	}
 	for _, target := range []string{
 		"FuzzParseManifestFailsClosed",
 		"FuzzDecodeFailsClosed",
@@ -502,8 +522,8 @@ func TestCIUsesCompleteHistoryAndCurrentNode24Actions(t *testing.T) {
 		needle string
 		count  int
 	}{
-		"checkout": {needle: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1", count: 4},
-		"setup-go": {needle: "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0", count: 4},
+		"checkout": {needle: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1", count: 5},
+		"setup-go": {needle: "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0", count: 5},
 		"history":  {needle: "fetch-depth: 0", count: 4},
 		"linux-rg": {needle: "sudo apt-get update && sudo apt-get install --no-install-recommends -y ripgrep", count: 2},
 	} {
@@ -522,7 +542,7 @@ func TestCIUsesCompleteHistoryAndCurrentNode24Actions(t *testing.T) {
 	}
 	for _, required := range []string{
 		"copied-profiles:",
-		"timeout-minutes: 30",
+		"timeout-minutes: 55",
 		"run: make ci-core",
 		"run: make copied-profile-acceptance",
 		"Verify copied-out acceptance leaves source unchanged",
@@ -547,11 +567,12 @@ func TestCITagReleaseWaitsForPlatformGatesAndVerifiesRemoteConsumer(t *testing.T
 	release = release[start:]
 	for _, required := range []string{
 		"if: startsWith(github.ref, 'refs/tags/v')",
-		"needs: [quality, copied-profiles, darwin-arm64]",
+		"needs: [quality, copied-profiles, darwin-arm64, operational-providers]",
 		"fetch-depth: 0",
 		"permissions:\n      contents: read",
 		"make release-preflight VERSION=\"${GITHUB_REF_NAME}\" RELEASE_MODE=tag",
 		"make remote-consumer VERSION=\"${GITHUB_REF_NAME}\"",
+		"make released-container-acceptance VERSION=\"${GITHUB_REF_NAME}\"",
 	} {
 		if !strings.Contains(release, required) {
 			t.Errorf("release job does not contain %q", required)

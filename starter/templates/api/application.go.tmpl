@@ -11,25 +11,32 @@ import (
 	"github.com/iiwish/modary/appkit"
 	"github.com/iiwish/modary/httpkit"
 	"github.com/iiwish/modary/module"
-	"github.com/iiwish/modary/transport/httpapi"
+	"github.com/iiwish/modary/processkit"
 )
 
 // Application binds the Modary lifecycle to the selected HTTP routes.
 type Application struct {
 	core    *appkit.Application
 	handler http.Handler
+	process *processkit.Manager
 }
+
+func Definition() appkit.Definition {
+	return appkit.Definition{
+		Metadata: appkit.Metadata{ID: {{quote .ID}}, Name: {{quote .Name}}, Version: "0.1.0"},
+		Modules: []module.Registration{ping.Registration()},
+	}
+}
+
+func Migrate(ctx context.Context) error { return appkit.Migrate(ctx, Definition(), appkit.Options{}) }
 
 // Start assembles only the components imported and listed here.
 func Start(ctx context.Context) (*Application, error) {
-	definition := appkit.Definition{
-		Metadata: appkit.Metadata{ID: {{quote .ID}}, Name: {{quote .Name}}, Version: "0.1.0"},
-		Modules: []module.Registration{
-			ping.Registration(),
-		},
-	}
+	definition := Definition()
 	options := appkit.Options{}
-	plan, err := httpkit.NewPlan(definition, options, healthContribution(), ping.Contribution())
+	process, err := processkit.New(processkit.Options{})
+	if err != nil { return nil, err }
+	plan, err := httpkit.NewPlan(definition, options, processContribution(process), ping.Contribution())
 	if err != nil {
 		return nil, err
 	}
@@ -41,29 +48,32 @@ func Start(ctx context.Context) (*Application, error) {
 	if err != nil {
 		return nil, errors.Join(err, stopAfterAssemblyFailure(core))
 	}
-	return &Application{core: core, handler: handler}, nil
+	handler, err = process.Middleware(handler)
+	if err != nil { return nil, errors.Join(err, stopAfterAssemblyFailure(core)) }
+	return &Application{core: core, handler: handler, process: process}, nil
 }
 
-func healthContribution() httpkit.Contribution {
+func processContribution(process *processkit.Manager) httpkit.Contribution {
 	return httpkit.Contribution{
-		ID: "health",
-		Routes: []httpkit.RouteSpec{ {Method: http.MethodGet, Path: "/healthz"} },
-		Build: func(_ context.Context, core *appkit.Application) ([]httpkit.Route, error) {
-			health, err := httpapi.NewHealth(core)
-			if err != nil {
-				return nil, err
-			}
-			return []httpkit.Route{ {Method: http.MethodGet, Path: "/healthz", Handler: health} }, nil
+		ID: "process-probes",
+		Routes: []httpkit.RouteSpec{ {Method: http.MethodGet, Path: "/livez"}, {Method: http.MethodGet, Path: "/readyz"} },
+		Build: func(_ context.Context, _ *appkit.Application) ([]httpkit.Route, error) {
+			return []httpkit.Route{
+				{Method: http.MethodGet, Path: "/livez", Handler: process.LivenessHandler()},
+				{Method: http.MethodGet, Path: "/readyz", Handler: process.ReadinessHandler()},
+			}, nil
 		},
 	}
 }
 
 // Handler returns the complete explicitly composed HTTP surface.
 func (application *Application) Handler() http.Handler { return application.handler }
+func (application *Application) Process() *processkit.Manager { return application.process }
 
 // Shutdown stops the selected components exactly once.
 func (application *Application) Shutdown(ctx context.Context) error {
-	return application.core.Shutdown(ctx)
+	application.process.BeginDrain()
+	return errors.Join(application.process.Drain(ctx), application.core.Shutdown(ctx), application.process.MarkStopped())
 }
 
 func stopAfterAssemblyFailure(core *appkit.Application) error {

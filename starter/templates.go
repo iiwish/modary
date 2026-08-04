@@ -27,6 +27,8 @@ type profileTemplate struct {
 
 var apiTemplates = []profileTemplate{
 	{source: "gitignore.tmpl", destination: fixedDestination(".gitignore")},
+	{source: "dockerignore.tmpl", destination: fixedDestination(".dockerignore")},
+	{source: "Dockerfile.tmpl", destination: fixedDestination("Dockerfile")},
 	{source: "README.md.tmpl", destination: fixedDestination("README.md")},
 	{source: "go.mod.tmpl", destination: fixedDestination("go.mod")},
 	{source: "main.go.tmpl", destination: func(options normalizedCreateOptions) string { return path.Join("cmd", options.id, "main.go") }},
@@ -37,6 +39,9 @@ var apiTemplates = []profileTemplate{
 
 var adminTemplates = []profileTemplate{
 	{source: "gitignore.tmpl", destination: fixedDestination(".gitignore")},
+	{source: "dockerignore.tmpl", destination: fixedDestination(".dockerignore")},
+	{source: "Dockerfile.tmpl", destination: fixedDestination("Dockerfile")},
+	{source: "compose.yaml.tmpl", destination: fixedDestination("compose.yaml")},
 	{source: "README.md.tmpl", destination: fixedDestination("README.md")},
 	{source: "go.mod.tmpl", destination: fixedDestination("go.mod")},
 	{source: "main.go.tmpl", destination: func(options normalizedCreateOptions) string { return path.Join("cmd", options.id, "main.go") }},
@@ -54,10 +59,17 @@ var adminTemplates = []profileTemplate{
 	{source: "modules.ts.tmpl", destination: fixedDestination("web/src/modules/active.ts")},
 	{source: "modules.test.ts.tmpl", destination: fixedDestination("web/src/modules/active.test.ts")},
 	{source: "web.go.tmpl", destination: fixedDestination("internal/web/web.go")},
+	{source: "web/src/views/LoginView.oidc.tsx", destination: fixedDestination("web/src/views/LoginView.tsx"), condition: withComponent(ComponentOIDC)},
+	{source: "login-oidc.test.tsx.tmpl", destination: fixedDestination("web/src/views/LoginView.test.tsx"), condition: withComponent(ComponentOIDC)},
+	{source: "web/src/stores/auth.oidc.tsx", destination: fixedDestination("web/src/stores/auth.tsx"), condition: withComponent(ComponentOIDC)},
+	{source: "auth-oidc.test.tsx.tmpl", destination: fixedDestination("web/src/stores/auth.test.tsx"), condition: withComponent(ComponentOIDC)},
 }
 
 var governedTemplates = []profileTemplate{
 	{source: "gitignore.tmpl", destination: fixedDestination(".gitignore")},
+	{source: "dockerignore.tmpl", destination: fixedDestination(".dockerignore")},
+	{source: "Dockerfile.tmpl", destination: fixedDestination("Dockerfile")},
+	{source: "compose.yaml.tmpl", destination: fixedDestination("compose.yaml")},
 	{source: "README.md.tmpl", destination: fixedDestination("README.md")},
 	{source: "go.mod.tmpl", destination: fixedDestination("go.mod")},
 	{source: "main.go.tmpl", destination: func(options normalizedCreateOptions) string { return path.Join("cmd", options.id, "main.go") }},
@@ -82,9 +94,13 @@ type templateData struct {
 	ModaryReplace     string
 	PostgresReplace   string
 	GovernedReplace   string
+	OIDCReplace       string
+	OTelReplace       string
 	HasModaryReplace  bool
 	HasTasks          bool
 	HasAudit          bool
+	HasOIDC           bool
+	HasOTel           bool
 }
 
 func fixedDestination(value string) func(normalizedCreateOptions) string {
@@ -123,10 +139,14 @@ func renderProfile(ctx context.Context, options normalizedCreateOptions) ([]rend
 		HasModaryReplace:  options.modaryReplace != "",
 		HasTasks:          options.hasComponent(ComponentTasks),
 		HasAudit:          options.hasComponent(ComponentAudit),
+		HasOIDC:           options.hasComponent(ComponentOIDC),
+		HasOTel:           options.hasComponent(ComponentOTel),
 	}
 	if options.modaryReplace != "" {
 		data.PostgresReplace = filepath.Join(options.modaryReplace, "components", "postgres")
 		data.GovernedReplace = filepath.Join(options.modaryReplace, "components", "governedpostgres")
+		data.OIDCReplace = filepath.Join(options.modaryReplace, "components", "oidc")
+		data.OTelReplace = filepath.Join(options.modaryReplace, "components", "otel")
 	}
 	result := make([]renderedFile, 0, len(templates))
 	seen := make(map[string]struct{}, len(templates))
@@ -177,6 +197,10 @@ func renderProfile(ctx context.Context, options normalizedCreateOptions) ([]rend
 				return false
 			case strings.HasPrefix(relative, "scripts/selections/"):
 				return false
+			case strings.Contains(relative, ".oidc."):
+				return false
+			case options.hasComponent(ComponentOIDC) && (relative == "src/views/LoginView.tsx" || relative == "src/views/LoginView.test.tsx" || relative == "src/stores/auth.tsx" || relative == "src/stores/auth.test.tsx" || relative == "src/App.test.tsx"):
+				return false
 			case strings.HasPrefix(relative, "src/modules/tasks/") && !options.hasComponent(ComponentTasks):
 				return false
 			case strings.HasPrefix(relative, "src/modules/audit/") && !options.hasComponent(ComponentAudit):
@@ -199,6 +223,14 @@ func renderProfile(ctx context.Context, options normalizedCreateOptions) ([]rend
 
 func adminDistRoot(options normalizedCreateOptions) string {
 	switch {
+	case options.hasComponent(ComponentOIDC) && options.hasComponent(ComponentTasks) && options.hasComponent(ComponentAudit):
+		return "templates/admin/internal/web/dist-oidc-operations"
+	case options.hasComponent(ComponentOIDC) && options.hasComponent(ComponentTasks):
+		return "templates/admin/internal/web/dist-oidc-tasks"
+	case options.hasComponent(ComponentOIDC) && options.hasComponent(ComponentAudit):
+		return "templates/admin/internal/web/dist-oidc-audit"
+	case options.hasComponent(ComponentOIDC):
+		return "templates/admin/internal/web/dist-oidc"
 	case options.hasComponent(ComponentTasks) && options.hasComponent(ComponentAudit):
 		return "templates/admin/internal/web/dist-operations"
 	case options.hasComponent(ComponentTasks):

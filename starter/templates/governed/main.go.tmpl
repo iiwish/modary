@@ -3,21 +3,51 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"{{.ModulePath}}/internal/project"
 	"github.com/iiwish/modary/appcmd"
+	"github.com/iiwish/modary/processkit"
+	"{{.ModulePath}}/internal/project"
+)
+
+var (
+	version  = "dev"
+	revision = "unknown"
+	created  = "unknown"
 )
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := appcmd.Run(ctx, os.Args[1:], project.Definition, project.CommandOptions()); err != nil &&
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	build, err := processkit.NormalizeBuildInfo(processkit.BuildInfo{Version: version, Revision: revision, Created: created})
+	if err == nil {
+		logger.InfoContext(ctx, "process started", "event", "process.started", "build", build)
+	}
+	var options appcmd.Options
+	if err == nil && len(os.Args) == 2 && os.Args[1] == "migrate" {
+		logger.InfoContext(ctx, "database migration started", "event", "database.migration.started")
+		err = project.Migrate(ctx)
+		if err == nil {
+			logger.InfoContext(ctx, "database migration completed", "event", "database.migration.completed")
+		}
+	} else {
+		if err == nil {
+			options, err = project.CommandOptions()
+		}
+		if err == nil {
+			options.Logger = logger
+		}
+		if err == nil {
+			err = appcmd.Run(ctx, os.Args[1:], project.Definition, options)
+		}
+	}
+	if err != nil &&
 		!errors.Is(err, context.Canceled) {
-		_, _ = fmt.Fprintln(os.Stderr, err)
+		logger.Error("process failed", "event", "process.failed")
 		os.Exit(1)
 	}
 }

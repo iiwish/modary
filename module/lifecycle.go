@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net/http"
 	"sync"
 
 	"github.com/iiwish/modary/action"
@@ -11,6 +12,7 @@ import (
 	"github.com/iiwish/modary/authz"
 	"github.com/iiwish/modary/database"
 	"github.com/iiwish/modary/identity"
+	"github.com/iiwish/modary/observe"
 	"github.com/iiwish/modary/task"
 )
 
@@ -108,8 +110,9 @@ type assemblyRuntime struct {
 }
 
 type assemblyStore struct {
-	gate *assemblyGate
-	next database.Store
+	gate     *assemblyGate
+	next     database.Store
+	observer observe.Service
 }
 
 func (store *assemblyStore) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
@@ -118,7 +121,10 @@ func (store *assemblyStore) ExecContext(ctx context.Context, query string, args 
 		return nil, err
 	}
 	defer release()
-	return store.next.ExecContext(callCtx, query, args...)
+	operationCtx, finish := beginOperation(store.observer, callCtx, observe.OperationDatabaseExec)
+	result, err := store.next.ExecContext(operationCtx, query, args...)
+	finish(operationOutcome(err))
+	return result, err
 }
 
 func (store *assemblyStore) QueryContext(ctx context.Context, query string, args ...any) (database.Rows, error) {
@@ -126,12 +132,14 @@ func (store *assemblyStore) QueryContext(ctx context.Context, query string, args
 	if err != nil {
 		return nil, err
 	}
-	rows, err := store.next.QueryContext(callCtx, query, args...)
+	operationCtx, finish := beginOperation(store.observer, callCtx, observe.OperationDatabaseQuery)
+	rows, err := store.next.QueryContext(operationCtx, query, args...)
 	if err != nil {
+		finish(observe.OutcomeError)
 		release()
 		return nil, err
 	}
-	return &assemblyRows{next: rows, release: release}, nil
+	return &assemblyRows{next: rows, release: release, finishOperation: finish}, nil
 }
 
 func (store *assemblyStore) QueryRowContext(ctx context.Context, query string, args ...any) database.Row {
@@ -147,7 +155,10 @@ func (store *assemblyStore) WithinTransaction(ctx context.Context, operation fun
 		return err
 	}
 	defer release()
-	return store.next.WithinTransaction(callCtx, operation)
+	operationCtx, finish := beginOperation(store.observer, callCtx, observe.OperationDatabaseTransaction)
+	err = store.next.WithinTransaction(operationCtx, operation)
+	finish(operationOutcome(err))
+	return err
 }
 
 func (store *assemblyStore) acquire(ctx context.Context) (context.Context, func(), error) {
@@ -188,19 +199,29 @@ func (row *assemblyLazyRow) Scan(destinations ...any) error {
 			return
 		}
 		defer release()
-		row.err = row.store.next.QueryRowContext(callCtx, row.query, row.args...).Scan(destinations...)
+		operationCtx, finish := beginOperation(row.store.observer, callCtx, observe.OperationDatabaseQuery)
+		row.err = row.store.next.QueryRowContext(operationCtx, row.query, row.args...).Scan(destinations...)
+		finish(operationOutcome(row.err))
 		row.args = nil
 	})
 	return row.err
 }
 
 type assemblyRows struct {
-	next    database.Rows
-	release func()
-	once    sync.Once
+	next            database.Rows
+	release         func()
+	finishOperation func(observe.Outcome)
+	once            sync.Once
 }
 
-func (rows *assemblyRows) finish() { rows.once.Do(rows.release) }
+func (rows *assemblyRows) finish(err error) {
+	rows.once.Do(func() {
+		if rows.finishOperation != nil {
+			rows.finishOperation(operationOutcome(err))
+		}
+		rows.release()
+	})
+}
 
 func (rows *assemblyRows) Next() bool {
 	if rows == nil || rows.next == nil {
@@ -208,7 +229,7 @@ func (rows *assemblyRows) Next() bool {
 	}
 	next := rows.next.Next()
 	if !next {
-		rows.finish()
+		rows.finish(rows.next.Err())
 	}
 	return next
 }
@@ -238,8 +259,9 @@ func (rows *assemblyRows) Close() error {
 	if rows == nil || rows.next == nil {
 		return database.ErrAccessUnavailable
 	}
-	defer rows.finish()
-	return rows.next.Close()
+	err := rows.next.Close()
+	rows.finish(err)
+	return err
 }
 
 type assemblyAuthorizer struct {
@@ -317,57 +339,166 @@ func (resolver *assemblyResolver) ResolveByID(ctx context.Context, actorID strin
 	return resolver.next.ResolveByID(callCtx, actorID)
 }
 
-type assemblyAuthenticator struct {
+type assemblyPasswordAuthenticator struct {
 	gate *assemblyGate
-	next identity.Authenticator
+	next identity.PasswordAuthenticator
 }
 
-func (authenticator *assemblyAuthenticator) ResolveByID(ctx context.Context, actorID string) (identity.Actor, error) {
-	if authenticator == nil || authenticator.gate == nil || authenticator.next == nil {
-		return identity.Actor{}, ErrApplicationUnavailable
+type assemblyObservability struct {
+	gate *assemblyGate
+	next observe.Service
+}
+
+func (observer *assemblyObservability) WrapHTTP(method, routeTemplate string, next http.Handler) http.Handler {
+	if next == nil {
+		next = http.NotFoundHandler()
 	}
-	callCtx, release, err := authenticator.gate.acquire(ctx)
+	unavailable := http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		http.Error(writer, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+	})
+	if observer == nil || observer.gate == nil || observer.next == nil {
+		return unavailable
+	}
+	_, release, err := observer.gate.acquire(context.Background())
 	if err != nil {
-		return identity.Actor{}, err
+		return unavailable
 	}
-	defer release()
-	return authenticator.next.ResolveByID(callCtx, actorID)
+	wrapped := observer.next.WrapHTTP(method, routeTemplate, next)
+	release()
+	if wrapped == nil {
+		return unavailable
+	}
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request == nil {
+			unavailable.ServeHTTP(writer, request)
+			return
+		}
+		callCtx, release, err := observer.gate.acquire(request.Context())
+		if err != nil {
+			unavailable.ServeHTTP(writer, request)
+			return
+		}
+		defer release()
+		wrapped.ServeHTTP(writer, request.WithContext(callCtx))
+	})
 }
 
-func (authenticator *assemblyAuthenticator) Login(ctx context.Context, username, password string) (identity.Session, error) {
-	if authenticator == nil || authenticator.gate == nil || authenticator.next == nil {
-		return identity.Session{}, ErrApplicationUnavailable
-	}
-	callCtx, release, err := authenticator.gate.acquire(ctx)
-	if err != nil {
-		return identity.Session{}, err
-	}
-	defer release()
-	return authenticator.next.Login(callCtx, username, password)
-}
-
-func (authenticator *assemblyAuthenticator) Logout(ctx context.Context, token string) error {
-	if authenticator == nil || authenticator.gate == nil || authenticator.next == nil {
+func (observer *assemblyObservability) Ready(ctx context.Context) error {
+	if observer == nil || observer.gate == nil || observer.next == nil {
 		return ErrApplicationUnavailable
 	}
-	callCtx, release, err := authenticator.gate.acquire(ctx)
+	callCtx, release, err := observer.gate.acquire(ctx)
 	if err != nil {
 		return err
 	}
 	defer release()
-	return authenticator.next.Logout(callCtx, token)
+	return observer.next.Ready(callCtx)
 }
 
-func (authenticator *assemblyAuthenticator) Session(ctx context.Context, token string) (identity.Session, error) {
+func (observer *assemblyObservability) StartOperation(ctx context.Context, operation observe.Operation) (context.Context, func(observe.Outcome)) {
+	if observer == nil || observer.gate == nil || observer.next == nil {
+		return ctx, func(observe.Outcome) {}
+	}
+	callCtx, release, err := observer.gate.acquire(ctx)
+	if err != nil {
+		return ctx, func(observe.Outcome) {}
+	}
+	operationCtx, finish := observer.next.StartOperation(callCtx, operation)
+	if operationCtx == nil {
+		operationCtx = callCtx
+	}
+	if finish == nil {
+		finish = func(observe.Outcome) {}
+	}
+	var once sync.Once
+	return operationCtx, func(outcome observe.Outcome) {
+		once.Do(func() {
+			finish(outcome)
+			release()
+		})
+	}
+}
+
+type assemblyBrowserAuthenticator struct {
+	gate *assemblyGate
+	next identity.BrowserAuthenticator
+}
+
+func (authenticator *assemblyBrowserAuthenticator) Begin(ctx context.Context) (identity.BrowserFlow, error) {
 	if authenticator == nil || authenticator.gate == nil || authenticator.next == nil {
-		return identity.Session{}, ErrApplicationUnavailable
+		return identity.BrowserFlow{}, ErrApplicationUnavailable
 	}
 	callCtx, release, err := authenticator.gate.acquire(ctx)
+	if err != nil {
+		return identity.BrowserFlow{}, err
+	}
+	defer release()
+	return authenticator.next.Begin(callCtx)
+}
+
+func (authenticator *assemblyBrowserAuthenticator) Complete(ctx context.Context, callback identity.BrowserCallback) (identity.Authentication, error) {
+	if authenticator == nil || authenticator.gate == nil || authenticator.next == nil {
+		return identity.Authentication{}, ErrApplicationUnavailable
+	}
+	callCtx, release, err := authenticator.gate.acquire(ctx)
+	if err != nil {
+		return identity.Authentication{}, err
+	}
+	defer release()
+	return authenticator.next.Complete(callCtx, callback)
+}
+
+func (authenticator *assemblyPasswordAuthenticator) AuthenticatePassword(ctx context.Context, username, password string) (identity.Authentication, error) {
+	if authenticator == nil || authenticator.gate == nil || authenticator.next == nil {
+		return identity.Authentication{}, ErrApplicationUnavailable
+	}
+	callCtx, release, err := authenticator.gate.acquire(ctx)
+	if err != nil {
+		return identity.Authentication{}, err
+	}
+	defer release()
+	return authenticator.next.AuthenticatePassword(callCtx, username, password)
+}
+
+type assemblySessionManager struct {
+	gate *assemblyGate
+	next identity.SessionManager
+}
+
+func (manager *assemblySessionManager) CreateSession(ctx context.Context, authentication identity.Authentication) (identity.Session, error) {
+	if manager == nil || manager.gate == nil || manager.next == nil {
+		return identity.Session{}, ErrApplicationUnavailable
+	}
+	callCtx, release, err := manager.gate.acquire(ctx)
 	if err != nil {
 		return identity.Session{}, err
 	}
 	defer release()
-	return authenticator.next.Session(callCtx, token)
+	return manager.next.CreateSession(callCtx, authentication)
+}
+
+func (manager *assemblySessionManager) RevokeSession(ctx context.Context, token string) error {
+	if manager == nil || manager.gate == nil || manager.next == nil {
+		return ErrApplicationUnavailable
+	}
+	callCtx, release, err := manager.gate.acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	return manager.next.RevokeSession(callCtx, token)
+}
+
+func (manager *assemblySessionManager) ResolveSession(ctx context.Context, token string) (identity.Session, error) {
+	if manager == nil || manager.gate == nil || manager.next == nil {
+		return identity.Session{}, ErrApplicationUnavailable
+	}
+	callCtx, release, err := manager.gate.acquire(ctx)
+	if err != nil {
+		return identity.Session{}, err
+	}
+	defer release()
+	return manager.next.ResolveSession(callCtx, token)
 }
 
 type assemblyTokenAuthenticator struct {
@@ -388,8 +519,9 @@ func (authenticator *assemblyTokenAuthenticator) AuthenticateToken(ctx context.C
 }
 
 type assemblyTaskService struct {
-	gate *assemblyGate
-	next task.Service
+	gate     *assemblyGate
+	next     task.Service
+	observer observe.Service
 }
 
 func (service *assemblyTaskService) Enqueue(ctx context.Context, request task.Request) (task.Receipt, error) {
@@ -401,7 +533,10 @@ func (service *assemblyTaskService) Enqueue(ctx context.Context, request task.Re
 		return task.Receipt{}, task.ErrUnavailable
 	}
 	defer release()
-	return service.next.Enqueue(callCtx, request)
+	operationCtx, finish := beginOperation(service.observer, callCtx, observe.OperationTaskEnqueue)
+	receipt, err := service.next.Enqueue(operationCtx, request)
+	finish(operationOutcome(err))
+	return receipt, err
 }
 
 func (service *assemblyTaskService) NewRunner(handler task.Handler, options task.RunnerOptions) (task.Runner, error) {
@@ -413,12 +548,28 @@ func (service *assemblyTaskService) NewRunner(handler task.Handler, options task
 		return nil, task.ErrUnavailable
 	}
 	defer release()
+	if service.observer != nil && !isNilValue(handler) {
+		handler = observedTaskHandler{next: handler, observer: service.observer}
+	}
 	return service.next.NewRunner(handler, options)
 }
 
+type observedTaskHandler struct {
+	next     task.Handler
+	observer observe.Service
+}
+
+func (handler observedTaskHandler) Handle(ctx context.Context, job task.Job) error {
+	operationCtx, finish := beginOperation(handler.observer, ctx, observe.OperationTaskHandle)
+	err := handler.next.Handle(operationCtx, job)
+	finish(operationOutcome(err))
+	return err
+}
+
 type assemblyTaskInspector struct {
-	gate *assemblyGate
-	next task.Inspector
+	gate     *assemblyGate
+	next     task.Inspector
+	observer observe.Service
 }
 
 func (inspector *assemblyTaskInspector) List(ctx context.Context, options task.ListOptions) (task.Page, error) {
@@ -430,7 +581,24 @@ func (inspector *assemblyTaskInspector) List(ctx context.Context, options task.L
 		return task.Page{}, task.ErrUnavailable
 	}
 	defer release()
-	return inspector.next.List(callCtx, options)
+	operationCtx, finish := beginOperation(inspector.observer, callCtx, observe.OperationTaskInspect)
+	page, err := inspector.next.List(operationCtx, options)
+	finish(operationOutcome(err))
+	return page, err
+}
+
+func beginOperation(observer observe.Service, ctx context.Context, operation observe.Operation) (context.Context, func(observe.Outcome)) {
+	if observer == nil {
+		return ctx, func(observe.Outcome) {}
+	}
+	return observer.StartOperation(ctx, operation)
+}
+
+func operationOutcome(err error) observe.Outcome {
+	if err != nil {
+		return observe.OutcomeError
+	}
+	return observe.OutcomeSuccess
 }
 
 type assemblyAuditReader struct {

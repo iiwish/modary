@@ -1,6 +1,6 @@
 # Support Matrix
 
-This matrix describes the v0.2 F0 source contract. Absence is not implied
+This matrix describes the v0.3 F0 source contract. Absence is not implied
 support.
 
 ## Toolchain And Platforms
@@ -15,6 +15,8 @@ support.
 | pnpm | 11.1 used for generated Admin source |
 | React / React Router | React 19.2 and React Router 8.3 generated baseline |
 | Node.js | Needed to change/build Admin frontend; not needed by API/Governed or deployed Admin Go binary |
+| OCI runtime | Generated Linux amd64/arm64 static non-root image source |
+| OpenTelemetry | SDK/exporters 1.44 in the optional component; OTLP/HTTP |
 
 ## Profiles
 
@@ -29,6 +31,10 @@ support.
 | SQL Audit | no | no | yes |
 | River task service/worker | no | no | yes |
 | MCP | no | no | yes |
+| OIDC browser login | no | optional replacement for local password | no |
+| OTLP traces and metrics | no | optional | no |
+| `/livez` and `/readyz` | yes | yes | yes |
+| Migration-only command | yes, no-op without migrations | yes | yes |
 
 ## Persistence
 
@@ -49,10 +55,11 @@ support.
 | Capability | Status |
 |---|---|
 | Explicit local principals/passwords/sessions/bearer tokens | Development and controlled internal use |
-| Scoped RBAC and row impact | Supported |
+| Scope-independent principal with multi-scope RBAC | Supported |
 | CSRF-protected Admin mutations | Supported |
 | Secure cookie default | Supported |
-| OAuth, SSO, MFA, account recovery | Not provided |
+| Generic OIDC Authorization Code + PKCE | Optional Admin component |
+| MFA, enrollment, account recovery, SCIM | Not provided; identity-provider/product responsibility |
 | TLS, proxy trust, WAF, rate limiting | Deployment responsibility |
 | Hostile plugin sandbox | Not provided |
 
@@ -65,6 +72,8 @@ support.
 | `projecttool verify/generate/check/build` | Optional advanced workflow |
 | Starter patch/upgrade command | Not provided |
 | Runtime plugin/component marketplace | Not provided |
+| Generated Dockerfile and local PostgreSQL Compose | Supported reference source |
+| Hosted runtime, Kubernetes operator, TLS automation | Not provided |
 
 Trusted consumer callbacks, handlers, repositories, task consumers, and output
 writers remain concurrency-safe and cancellation-cooperative responsibilities.

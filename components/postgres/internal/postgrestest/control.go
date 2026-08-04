@@ -27,6 +27,7 @@ const defaultURL = "postgres://modary:modary-test-password@127.0.0.1:55432/modar
 
 var (
 	sequence      atomic.Uint64
+	processNonce  = uint64(time.Now().UnixNano()) ^ uint64(os.Getpid())<<32
 	testIDPattern = regexp.MustCompile(`[^a-z0-9_]+`)
 )
 
@@ -126,10 +127,10 @@ func Open(t testing.TB) (*sql.DB, databasecontrol.Control) {
 		url = defaultURL
 	}
 	name := strings.ToLower(testIDPattern.ReplaceAllString(t.Name(), "_"))
-	if len(name) > 30 {
-		name = name[len(name)-30:]
+	if len(name) > 16 {
+		name = name[len(name)-16:]
 	}
-	schema := fmt.Sprintf("adapter_%s_%d", name, sequence.Add(1))
+	schema := fmt.Sprintf("adapter_%s_%016x_%016x", name, processNonce, sequence.Add(1))
 	admin, err := sql.Open("pgx", url)
 	if err != nil {
 		t.Fatal(err)

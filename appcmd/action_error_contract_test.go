@@ -115,7 +115,7 @@ func runCLIActionPreviewForErrorContract(t *testing.T, fixture *cliActionFixture
 	t.Helper()
 	tokenFile := writeCLIActionTokenFile(t, cliActionToken)
 	return RunAction(context.Background(), []string{
-		"run", "example.echo", "--token-file", tokenFile, "--input", "-", "--preview",
+		"run", "example.echo", "--token-file", tokenFile, "--input", "-", "--scope-kind", "tenant", "--scope-id", "acme", "--preview",
 		"--request-id", "req_cli_error_contract",
 	}, definition, Options{
 		Stdin:  cliInput(strings.NewReader(`{"message":"hello"}`)),

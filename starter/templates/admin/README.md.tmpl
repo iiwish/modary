@@ -1,7 +1,7 @@
 # {{.Name}}
 
 This project uses Modary's Admin Profile. The composition is explicit in
-`internal/app/application.go`: PostgreSQL, local development identity, RBAC,
+`internal/app/application.go`: PostgreSQL, {{if .HasOIDC}}OIDC{{else}}local development password identity{{end}}, RBAC,
 session HTTP, and the consumer-owned `records` slice.{{if .HasTasks}} River-backed
 task inspection is selected.{{end}}{{if .HasAudit}} Scope-bound SQL audit inspection is selected.{{end}}
 Governed Actions and MCP are not selected.
@@ -10,18 +10,31 @@ Set development configuration:
 
 ```sh
 export DATABASE_URL='postgres://user:password@127.0.0.1:5432/app?sslmode=disable'
-export MODARY_ADMIN_USERNAME='admin'
+{{if .HasOIDC}}export MODARY_OIDC_ISSUER_URL='https://identity.example.com'
+export MODARY_OIDC_CLIENT_ID='replace-with-client-id'
+export MODARY_OIDC_CLIENT_SECRET='replace-with-client-secret' # optional for public clients
+export MODARY_OIDC_REDIRECT_URL='https://admin.example.com/api/auth/oidc/callback'
+export MODARY_OIDC_SUBJECT='replace-with-exact-provider-subject'
+{{else}}export MODARY_ADMIN_USERNAME='admin'
 export MODARY_ADMIN_PASSWORD='replace-with-at-least-12-characters'
+{{end}}
 {{if .HasTasks}}export MODARY_QUEUE_SCHEMA={{.QueueSchemaID}}
 {{end}}
 export MODARY_ALLOW_INSECURE_COOKIE='true' # local HTTP only
+{{if .HasOIDC}}# For a local HTTP-only provider, also set MODARY_OIDC_ALLOW_INSECURE_HTTP=true.
+{{end}}
 ```
 
 Run the backend:
 
 ```sh
-go run -mod=mod ./cmd/{{.ID}}
+go run -mod=mod ./cmd/{{.ID}} migrate
+go run -mod=mod ./cmd/{{.ID}} serve
 ```
+
+The first command is a migration-only process and exits before serving. Serving
+does not apply migrations unless `MODARY_MIGRATE_ON_START=true` is selected
+explicitly for a controlled local workflow.
 
 It listens on `127.0.0.1:8080` by default. `MODARY_HTTP_ADDR` and
 `MODARY_DATABASE_SCHEMA` select another address or application schema.

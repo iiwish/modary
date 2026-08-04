@@ -1,12 +1,12 @@
-# Modary v0.2 F0 Framework Contract
+# Modary v0.3 F0 Framework Contract
 
 - Product: lightweight, componentized Go backend framework
-- Source target: `v0.2.0-alpha.1`
-- Distribution status: not released
-- Frozen published baseline: `v0.1.0-alpha.3`
+- Source target: `v0.3.0-alpha.1`
+- Distribution status: released
+- Frozen published baseline: `v0.2.0-alpha.1`
 - License: Apache-2.0
 
-This document is the canonical technical contract for the v0.2 F0 source. It
+This document is the canonical technical contract for the v0.3 F0 source. It
 defines what Core guarantees, which official components exist, what each
 Starter Profile selects, and where consumer ownership begins.
 
@@ -109,7 +109,7 @@ escaping idempotency, audit, and task atomicity.
 
 ### 3.3 Identity And Authorization
 
-`identity` and `authz` are contracts. `components/postgres/localidentity` and
+`identity` and `authz` are contracts. `components/postgres/identitystore` and
 `components/postgres/rbac` are selectable implementations for development and
 bounded internal deployments. Core does not select an identity model or default
 policy. Principal Identity and browser-session authentication are distinct
@@ -287,7 +287,32 @@ implement another `database.Store` without changing Core. F0 provides no
 official MySQL or embedded adapter and makes no cross-database transaction
 claim.
 
-## 9. Acceptance Contract
+## 9. Production Foundation
+
+`identity.Actor` is a stable principal and contains no product Scope. Consumer
+routing derives an exact validated Scope; durable RBAC bindings grant that
+principal permissions independently in zero, one, or many scopes. Password,
+session, bearer, and redirect browser authentication are distinct capabilities.
+The optional OIDC module uses Authorization Code with PKCE, state, nonce, and
+strict verification and never grants roles from provider claims.
+
+`processkit` defines local `/livez`, bounded dependency `/readyz`, pre-shutdown
+drain, accepted-request waiting, build identity, and one HTTP server lifecycle.
+`appkit.Migrate` applies forward migrations without starting feature Modules or
+binding handlers. Generated database Profiles default to explicit migration
+operation rather than implicit serving-time changes.
+
+Every Profile owns non-root static OCI source. Database Profiles own local
+PostgreSQL Compose source with a one-shot migration service. Platform policy,
+TLS, secret distribution, database operation, and collectors remain outside
+Core.
+
+Required diagnostics use `log/slog`. The optional OTel module owns local
+providers, OTLP/HTTP exporters, stable route-template HTTP signals, and closed
+database/task operation signals. It installs no globals and is absent from
+unselected module graphs.
+
+## 10. Acceptance Contract
 
 F0 acceptance requires all three Profiles to be generated outside the source
 tree and verified with `GOWORK=off`:
@@ -302,15 +327,18 @@ tree and verified with `GOWORK=off`:
   documentation, generated-state, import-direction, and diff checks;
 - product and engineering review with no unresolved P0, P1, or P2 finding;
 - visual QA at desktop and mobile viewports with no browser errors.
+- local and OIDC Admin identity, multi-scope RBAC, process probes and drain,
+  migration-only execution, non-root OCI, OTLP export, and selected/unselected
+  failure cases.
 
 The detailed current result is in
 [F0 acceptance report](f0-acceptance-report.md). Operational exclusions are in
 [known limitations](f0-known-limitations.md).
 
-## 10. Release Boundary
+## 11. Release Boundary
 
-`v0.2.0-alpha.1` is the current component-framework release.
-`v0.1.0-alpha.3` remains the immutable historical Governed-first baseline.
-Consumers pin the complete v0.2 release train and review the documented
+`v0.3.0-alpha.1` is the current component-framework release.
+`v0.2.0-alpha.1` remains the immutable React component-framework baseline.
+Consumers pin the complete v0.3 five-module release train and review the documented
 breaking migration before adoption. No acceptance document moves or rewrites
 a published tag.

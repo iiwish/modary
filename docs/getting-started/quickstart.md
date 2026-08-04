@@ -40,7 +40,7 @@ Confirm absence from the package graph:
 ```bash
 cd ../inventory-api
 GOWORK=off go mod tidy
-GOWORK=off go list -deps ./... | rg 'river|postgres|localidentity|sqlaudit'
+GOWORK=off go list -deps ./... | rg 'river|postgres|identitystore|sqlaudit'
 ```
 
 The command should print nothing.
@@ -56,7 +56,7 @@ go run ./cmd/inventory-api
 In another terminal:
 
 ```bash
-curl -fsS http://127.0.0.1:8080/healthz
+curl -fsS http://127.0.0.1:8080/readyz
 curl -fsS http://127.0.0.1:8080/api/ping
 ```
 

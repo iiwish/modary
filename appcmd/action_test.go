@@ -34,7 +34,7 @@ func TestRunActionPreviewAndExecuteUseIdentityRuntimeAndActorScope(t *testing.T)
 		tokenFile := writeCLIActionTokenFile(t, cliActionToken+"\n")
 		var output bytes.Buffer
 		err := RunAction(context.Background(), []string{
-			"run", "example.echo", "--token-file", tokenFile, "--input", "-", "--preview", "--request-id", "req_cli_preview",
+			"run", "example.echo", "--token-file", tokenFile, "--input", "-", "--scope-kind", "tenant", "--scope-id", "acme", "--preview", "--request-id", "req_cli_preview",
 		}, fixture.definition(), Options{Stdin: cliInput(strings.NewReader(`{"message":"hello"}`)), Stdout: &output})
 		if err != nil {
 			t.Fatalf("RunAction(preview) error = %v", err)
@@ -65,6 +65,7 @@ func TestRunActionPreviewAndExecuteUseIdentityRuntimeAndActorScope(t *testing.T)
 		var providerCalls atomic.Int64
 		err := Run(context.Background(), []string{
 			"action", "run", "example.echo", "--token-file=-", "--input=" + inputPath,
+			"--scope-kind=tenant", "--scope-id=acme",
 			"--preview=false", "--idempotency-key=execute-once", "--request-id=req_cli_execute",
 		}, func() (appkit.Definition, error) {
 			providerCalls.Add(1)
@@ -90,7 +91,7 @@ func TestRunActionPreviewAndExecuteUseIdentityRuntimeAndActorScope(t *testing.T)
 		request := fixture.handler.lastRequest(t)
 		assertCLIActionRequest(t, request, "req_cli_execute", "execute-once")
 		plan := fixture.handler.lastPlan(t)
-		if plan.Channel != action.ChannelCLI || plan.Scope != fixture.actor.Scope || plan.ActorID != fixture.actor.ID || plan.ActorType != fixture.actor.Type {
+		if plan.Channel != action.ChannelCLI || plan.Scope != scope.Must("tenant", "acme") || plan.ActorID != fixture.actor.ID || plan.ActorType != fixture.actor.Type {
 			t.Fatalf("execution Plan boundary = %#v", plan)
 		}
 		fixture.assertLifecycle(t, 1, 1, 1)
@@ -207,7 +208,7 @@ func TestRunActionPreflightFailuresDoNotStartModules(t *testing.T) {
 
 func TestActionDependencyBoundariesFailClosedOnTypedNilErrors(t *testing.T) {
 	var typedNil *lifecycleTypedNilDependencyError
-	actor := identity.Actor{ID: "typed-nil-user", Type: "user", Scope: scope.Must("tenant", "acme")}
+	actor := identity.Actor{ID: "typed-nil-user", Type: "user"}
 
 	authenticated, err := callTokenAuthenticator(context.Background(), cliTypedNilAuthenticator{actor: actor, err: typedNil}, "token")
 	if authenticated != (identity.Actor{}) {
@@ -239,7 +240,7 @@ func TestActionDependencyBoundariesFailClosedOnTypedNilErrors(t *testing.T) {
 }
 
 func TestActionTokenFilePathHasCredentialSpecificDiagnostic(t *testing.T) {
-	_, _, err := parseActionCommand([]string{"run", "example.echo", "--token-file", " invalid", "--input", "input.json"})
+	_, _, err := parseActionCommand([]string{"run", "example.echo", "--token-file", " invalid", "--input", "input.json", "--scope-kind", "tenant", "--scope-id", "acme"})
 	if err == nil || !errors.Is(err, ErrUsage) || !strings.Contains(err.Error(), "CLI token file path") || strings.Contains(err.Error(), "Action input path") {
 		t.Fatalf("token-file path error = %v", err)
 	}
@@ -248,7 +249,7 @@ func TestActionTokenFilePathHasCredentialSpecificDiagnostic(t *testing.T) {
 func TestRunActionContextAndInputReaderBoundaries(t *testing.T) {
 	fixture := newCLIActionFixture()
 	tokenFile := writeCLIActionTokenFile(t, cliActionToken)
-	validArgs := []string{"run", "example.echo", "--token-file", tokenFile, "--input", "-"}
+	validArgs := []string{"run", "example.echo", "--token-file", tokenFile, "--input", "-", "--scope-kind", "tenant", "--scope-id", "acme"}
 	if err := RunAction(nil, validArgs, fixture.definition(), Options{Stdin: cliInput(strings.NewReader(`{}`)), Stdout: io.Discard}); !errors.Is(err, ErrContextRequired) {
 		t.Fatalf("RunAction(nil) error = %v", err)
 	}
@@ -302,7 +303,7 @@ func TestRunActionJoinsFailuresWithIndependentBoundedShutdown(t *testing.T) {
 	primaryFailure := errors.New("primary Action failure")
 	cleanupFailure := errors.New("cleanup failure")
 	tokenFile := writeCLIActionTokenFile(t, cliActionToken)
-	validArgs := []string{"run", "example.echo", "--token-file", tokenFile, "--input", "-"}
+	validArgs := []string{"run", "example.echo", "--token-file", tokenFile, "--input", "-", "--scope-kind", "tenant", "--scope-id", "acme"}
 
 	tests := []struct {
 		name      string
@@ -412,10 +413,10 @@ func TestRunActionJoinsFailuresWithIndependentBoundedShutdown(t *testing.T) {
 
 func TestRunActionRejectsMalformedAuthenticatedActorBeforeRuntime(t *testing.T) {
 	fixture := newCLIActionFixture()
-	fixture.tokens.actor = identity.Actor{ID: "", Type: "user", Scope: scope.Must("tenant", "acme")}
+	fixture.tokens.actor = identity.Actor{ID: "", Type: "user"}
 	tokenFile := writeCLIActionTokenFile(t, cliActionToken)
 	err := RunAction(context.Background(), []string{
-		"run", "example.echo", "--token-file", tokenFile, "--input", "-",
+		"run", "example.echo", "--token-file", tokenFile, "--input", "-", "--scope-kind", "tenant", "--scope-id", "acme",
 	}, fixture.definition(), Options{Stdin: cliInput(strings.NewReader(`{"message":"ok"}`)), Stdout: io.Discard})
 	if err == nil || err.Error() != "authenticate CLI token failed" {
 		t.Fatalf("malformed Actor error = %v", err)
@@ -447,7 +448,7 @@ func TestRunActionHelpIsPureAndOutputPanicsAreContained(t *testing.T) {
 func assertCLIActionRequest(t *testing.T, request action.Request, requestID, idempotencyKey string) {
 	t.Helper()
 	if request.RequestID != requestID || request.Actor.ID != "cli-user" || request.Channel != action.ChannelCLI || request.ActionID != "example.echo" ||
-		request.Scope != request.Actor.Scope || request.Scope != scope.Must("tenant", "acme") || request.IdempotencyKey != idempotencyKey {
+		request.Scope != scope.Must("tenant", "acme") || request.IdempotencyKey != idempotencyKey {
 		t.Fatalf("Action Request boundary = %#v", request)
 	}
 }
@@ -465,7 +466,7 @@ type cliActionFixture struct {
 }
 
 func newCLIActionFixture() *cliActionFixture {
-	actor := identity.Actor{ID: "cli-user", Type: "user", DisplayName: "CLI User", Scope: scope.Must("tenant", "acme")}
+	actor := identity.Actor{ID: "cli-user", Type: "user", DisplayName: "CLI User"}
 	return &cliActionFixture{
 		actor:   actor,
 		tokens:  &cliActionTokens{actor: actor},
@@ -504,6 +505,7 @@ func (fixture *cliActionFixture) definition() appkit.Definition {
 					module.CapabilityAuthorization,
 					module.CapabilityDatabase,
 					module.CapabilityIdentity,
+					module.CapabilityBearers,
 				},
 			},
 			Actions: []module.ActionBinding{{

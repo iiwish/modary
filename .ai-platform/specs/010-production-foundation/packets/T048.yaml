@@ -1,0 +1,63 @@
+schema_version: 1
+packet_id: EP-010-T048
+task_id: T048
+feature_id: 010-production-foundation
+mode: execute_one_task
+title: v0.3 Coordinated Release And Remote Verification
+status: Pending
+adapter: direct
+goal: Publish one accepted five-module v0.3.0-alpha.1 tag train and prove hosted and local remote consumption.
+requirements: [US-006, NFR-007, NFR-008, SC-006]
+depends_on: [T047]
+conflicts_with: [all source changes, tags, releases, main publication]
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  spec: .ai-platform/specs/010-production-foundation/spec.md
+  checklist: .ai-platform/specs/010-production-foundation/checklists/requirements.md
+  plan: .ai-platform/specs/010-production-foundation/plan.md
+  analysis: .ai-platform/specs/010-production-foundation/analysis.md
+  work_graph: .ai-platform/specs/010-production-foundation/tasks.md
+  approval: explicit owner instruction on 2026-08-04
+work_unit:
+  title: v0.3 Coordinated Release And Remote Verification
+  goal: Publish one accepted five-module v0.3.0-alpha.1 tag train and prove hosted and local remote consumption.
+  requirements: [US-006, NFR-007, NFR-008, SC-006]
+  depends_on: [T047]
+codebase_context:
+  relevant_paths: [release scripts, module files, release docs, evidence, Git refs, GitHub Actions]
+  preserve: [immutable historical tags, canonical origin, exact-version module alignment, no local remote-consumer replacement]
+  forbidden: [moving a tag, publishing after failed gate, replacing remote modules locally, draft presented as verified]
+execution_constraints:
+  allowed_files: [CHANGELOG.md, README.md, go.mod, go.work.sum, components/**/go.mod, components/**/go.sum, scripts/**, docs/releases/**, docs/f0-acceptance-report.md, .ai-platform/docs/**, .ai-platform/specs/010-production-foundation/**, .ai-platform/evidence/T048/**, .github/**]
+  conflicts_with: [T042, T043, T044, T045, T046, T047]
+  worktree: clean committed candidate required before live tags
+  delegation: direct execution because subagent delegation was not authorized
+allowed_files: [CHANGELOG.md, README.md, go.mod, go.work.sum, components/**/go.mod, components/**/go.sum, scripts/**, docs/releases/**, docs/f0-acceptance-report.md, .ai-platform/docs/**, .ai-platform/specs/010-production-foundation/**, .ai-platform/evidence/T048/**, .github/**]
+tdd:
+  red: Release fixture tests reject missing/misaligned tags, modules, origin, CI, and replacement removal.
+  green: Prepare clean candidate, publish immutable refs, and verify remote consumers.
+  refactor: Record final canonical release state without changing tag contents.
+tdd_plan:
+  red: Release fixture tests reject missing or misaligned tags, modules, origin, CI, and replacement removal.
+  green: Prepare clean candidate, publish immutable refs, and verify remote consumers.
+  refactor: Record final canonical release state without changing tag contents.
+validation_commands: ["make release-readiness VERSION=v0.3.0-alpha.1", "make remote-consumer VERSION=v0.3.0-alpha.1", "git status --short"]
+validation_loop:
+  commands: [clean candidate readiness, tag-mode preflight, hosted main and tag CI, normal remote module consumption, release metadata, clean final state]
+  retry_budget: no destructive retry; fix source in a new commit before any unpublished tag
+evidence:
+  summary: .ai-platform/evidence/T048/summary.md
+  diff: .ai-platform/evidence/T048/diff.patch
+  tests: .ai-platform/evidence/T048/test-results.md
+  review: .ai-platform/evidence/T048/review.md
+evidence_contract:
+  summary: .ai-platform/evidence/T048/summary.md
+  diff: .ai-platform/evidence/T048/diff.patch
+  test_results: .ai-platform/evidence/T048/test-results.md
+  review: .ai-platform/evidence/T048/review.md
+review_contract:
+  sequence: [candidate integrity, tag alignment, hosted CI, remote consumption, release record]
+  acceptance: every publication gate passes and no tag moves
+handoff:
+  next_task: complete goal after final record CI
+stop_conditions: [candidate worktree is dirty, hosted main or tag CI fails, any tag exists at another object, any module fails normal remote resolution]

@@ -6,7 +6,59 @@ its release notes explicitly state otherwise.
 
 ## Unreleased
 
-No changes are recorded after `v0.2.0-alpha.1`.
+No changes are recorded after `v0.3.0-alpha.1`.
+
+## v0.3.0-alpha.1 - 2026-08-04
+
+### Added
+
+- A separately versioned OIDC relying-party component with discovery,
+  Authorization Code flow, PKCE S256, state, nonce, signed ID-token validation,
+  one-use callbacks, exact issuer/subject provisioning, and revocable local
+  application sessions.
+- A standard process contract with distinct `/livez` and `/readyz` probes,
+  bounded dependency checks, pre-drain admission closure, active-request drain,
+  structured lifecycle diagnostics, build identity, and explicit `serve` and
+  `migrate` commands.
+- Consumer-owned multi-stage Dockerfiles and PostgreSQL Compose references for
+  all Profiles. Runtime images are minimal, non-root, read-only compatible, and
+  contain the embedded Admin bundle without Node.js.
+- A provider-neutral observability facade and separately versioned optional
+  OpenTelemetry component with owned providers, W3C propagation, OTLP/HTTP
+  traces and metrics, stable route and operation dimensions, readiness, flush,
+  and shutdown.
+- English and Chinese OIDC, deployment, observability, security, and upgrade
+  guidance for operators and framework consumers.
+
+### Changed
+
+- `identity.Actor` represents only a stable principal. Product execution scope
+  is resolved independently at each HTTP, MCP, CLI, or Admin boundary and is
+  passed explicitly to authorization.
+- Password authentication, browser sessions, and bearer authentication are
+  separate capabilities. Local PostgreSQL Identity is exposed from
+  `components/postgres/identitystore`.
+- The identity schema receives a forward migration that removes principal scope
+  columns; RBAC bindings remain the authority for one or many exact scopes.
+- Admin creation accepts `--with oidc` to replace password login and `--with
+  otel` to select telemetry. Unselected dependencies, routes, configuration,
+  migrations, providers, and frontend surfaces remain absent.
+- The coordinated release train contains the root, PostgreSQL, Governed
+  PostgreSQL, OIDC, and OpenTelemetry modules at one version and commit.
+- The OpenTelemetry component pins `google.golang.org/grpc` to the patched
+  `v1.82.1` transitive baseline required by the release vulnerability gate.
+
+### Compatibility
+
+- This Alpha intentionally breaks v0.2 identity, session, scope resolution,
+  process startup, and generated application source. Follow
+  `docs/releases/upgrade-v0.2-to-v0.3.md`; do not regenerate over consumer code.
+- Applied `0001_identity.sql` migrations remain immutable. The new forward
+  migration removes embedded scope columns after authorization composition is
+  updated and data is backed up.
+- Pin `v0.3.0-alpha.1` exactly. Deployment infrastructure, external identity
+  provider policy, PostgreSQL operations, collectors, dashboards, and alerting
+  remain consumer responsibilities.
 
 ## v0.2.0-alpha.1 - 2026-08-04
 

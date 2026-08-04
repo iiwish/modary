@@ -16,13 +16,19 @@ import (
 	{{end}}"{{.ModulePath}}/internal/web"
 	"github.com/iiwish/modary/appkit"
 	"github.com/iiwish/modary/authz"
+	{{if .HasOIDC}}"github.com/iiwish/modary/components/oidc"
+	"github.com/iiwish/modary/components/oidc/oidchttp"
+	{{end}}
+	{{if .HasOTel}}otelcomponent "github.com/iiwish/modary/components/otel"
+	{{end}}
 	{{if .HasTasks}}governedpostgres "github.com/iiwish/modary/components/governedpostgres"
 	{{else}}postgresdb "github.com/iiwish/modary/components/postgres"
-	{{end}}"github.com/iiwish/modary/components/postgres/localidentity"
+	{{end}}"github.com/iiwish/modary/components/postgres/identitystore"
 	"github.com/iiwish/modary/components/postgres/rbac"
 	{{if .HasAudit}}"github.com/iiwish/modary/components/postgres/sqlaudit"
 	{{end}}"github.com/iiwish/modary/httpkit"
 	"github.com/iiwish/modary/module"
+	"github.com/iiwish/modary/processkit"
 	"github.com/iiwish/modary/scope"
 	"github.com/iiwish/modary/transport/httpapi"
 	"github.com/iiwish/modary/transport/sessionhttp"
@@ -31,23 +37,29 @@ import (
 type Application struct {
 	core    *appkit.Application
 	handler http.Handler
+	process *processkit.Manager
 }
 
-func Start(ctx context.Context, runtimeConfig config.Config) (*Application, error) {
-	adminScope := scope.Must("workspace", "default")
+func persistenceRegistration(databaseConfig config.DatabaseConfig) (module.Registration, error) {
 	{{if .HasTasks}}databaseModule, err := governedpostgres.Module(governedpostgres.Options{
-		URL: runtimeConfig.DatabaseURL, ApplicationSchema: runtimeConfig.Schema, QueueSchema: runtimeConfig.QueueSchema,
+		URL: databaseConfig.DatabaseURL, ApplicationSchema: databaseConfig.Schema, QueueSchema: databaseConfig.QueueSchema,
 	})
-	{{else}}databaseModule, err := postgresdb.Module(postgresdb.Options{URL: runtimeConfig.DatabaseURL, Schema: runtimeConfig.Schema})
-	{{end}}if err != nil {
-		return nil, err
-	}
-	identityModule, err := localidentity.Module(localidentity.Options{
-		Principals: []localidentity.Principal{ {ActorID: "admin", ActorType: "human", DisplayName: "管理员", Scope: adminScope} },
-		PasswordCredentials: []localidentity.PasswordCredential{ {ActorID: "admin", Username: runtimeConfig.AdminUser, Password: runtimeConfig.AdminPassword} },
+	{{else}}databaseModule, err := postgresdb.Module(postgresdb.Options{URL: databaseConfig.DatabaseURL, Schema: databaseConfig.Schema})
+	{{end}}return databaseModule, err
+}
+
+func Definition(runtimeConfig config.Config) (appkit.Definition, error) {
+	adminScope := scope.Must("workspace", "default")
+	databaseModule, err := persistenceRegistration(runtimeConfig.DatabaseConfig())
+	if err != nil { return appkit.Definition{}, err }
+	identityModule, err := identitystore.Module(identitystore.Options{
+		Principals: []identitystore.Principal{ {ActorID: "admin", ActorType: "human", DisplayName: "管理员"} },
+		{{if not .HasOIDC}}
+		PasswordCredentials: []identitystore.PasswordCredential{ {ActorID: "admin", Username: runtimeConfig.AdminUser, Password: runtimeConfig.AdminPassword} },
+		{{end}}
 	})
 	if err != nil {
-		return nil, err
+		return appkit.Definition{}, err
 	}
 	permissions := []string{"records.create", "records.delete", "records.list", "records.update"}
 	{{if .HasTasks}}permissions = append(permissions, "tasks.read")
@@ -57,28 +69,89 @@ func Start(ctx context.Context, runtimeConfig config.Config) (*Application, erro
 		Bindings: []rbac.Binding{ {ActorID: "admin", ActorType: "human", Scope: adminScope, RoleID: "records-admin"} },
 	})
 	if err != nil {
-		return nil, err
+		return appkit.Definition{}, err
 	}
 	modules := []module.Registration{databaseModule, identityModule, rbacModule, records.Registration()}
+	{{if .HasOIDC}}oidcModule, err := oidc.Module(oidc.Options{
+		IssuerURL: runtimeConfig.OIDCIssuerURL, ClientID: runtimeConfig.OIDCClientID,
+		ClientSecret: runtimeConfig.OIDCClientSecret, RedirectURL: runtimeConfig.OIDCRedirectURL,
+		AllowInsecureHTTP: runtimeConfig.OIDCAllowInsecureHTTP,
+		SubjectMappings: []oidc.SubjectMapping{ {Subject: runtimeConfig.OIDCSubject, ActorID: "admin", ActorType: "human"} },
+	})
+	if err != nil { return appkit.Definition{}, err }
+	modules = append(modules, oidcModule)
+	{{end}}
+	{{if .HasOTel}}telemetryModule, err := otelcomponent.Module(otelcomponent.Options{
+		Endpoint: runtimeConfig.OTelEndpoint, Headers: runtimeConfig.OTelHeaders,
+		ServiceName: {{quote .ID}}, ServiceVersion: "0.1.0", Environment: runtimeConfig.OTelEnvironment,
+		Insecure: runtimeConfig.OTelInsecure,
+	})
+	if err != nil { return appkit.Definition{}, err }
+	modules = append(modules, telemetryModule)
+	{{end}}
 	{{if .HasAudit}}modules = append(modules, sqlaudit.Module(sqlaudit.Options{}))
-	{{end}}definition := appkit.Definition{
+	{{end}}return appkit.Definition{
 		Metadata: appkit.Metadata{ID: {{quote .ID}}, Name: {{quote .Name}}, Version: "0.1.0"},
 		Modules: modules,
-	}
-	options := appkit.Options{}
+	}, nil
+}
+
+func MigrationDefinition(databaseConfig config.DatabaseConfig) (appkit.Definition, error) {
+	databaseModule, err := persistenceRegistration(databaseConfig)
+	if err != nil { return appkit.Definition{}, err }
+	identityModule, err := identitystore.Module(identitystore.Options{})
+	if err != nil { return appkit.Definition{}, err }
+	authorizationModule, err := rbac.Module(rbac.Options{})
+	if err != nil { return appkit.Definition{}, err }
+	modules := []module.Registration{databaseModule, identityModule, authorizationModule, records.Registration()}
+	{{if .HasAudit}}modules = append(modules, sqlaudit.Module(sqlaudit.Options{}))
+	{{end}}return appkit.Definition{Metadata: appkit.Metadata{ID: {{quote .ID}}, Name: {{quote .Name}}, Version: "0.1.0"}, Modules: modules}, nil
+}
+
+func Migrate(ctx context.Context, databaseConfig config.DatabaseConfig) error {
+	definition, err := MigrationDefinition(databaseConfig)
+	if err != nil { return err }
+	return appkit.Migrate(ctx, definition, appkit.Options{})
+}
+
+func Start(ctx context.Context, runtimeConfig config.Config) (*Application, error) {
+	definition, err := Definition(runtimeConfig)
+	if err != nil { return nil, err }
+	options := appkit.Options{SkipMigrations: !runtimeConfig.MigrateOnStart}
+	var core *appkit.Application
+	checks := []processkit.Check{ {Name: "database", Run: func(checkCtx context.Context) error {
+		if core == nil || !core.Ready() { return appkit.ErrApplicationUnavailable }
+		store, storeErr := core.Database()
+		if storeErr != nil { return storeErr }
+		var value int
+		return store.QueryRowContext(checkCtx, "SELECT 1").Scan(&value)
+	} } }
+	{{if .HasOTel}}checks = append(checks, processkit.Check{Name: "telemetry", Run: func(checkCtx context.Context) error {
+		if core == nil || !core.Ready() { return appkit.ErrApplicationUnavailable }
+		observer, observerErr := core.Observability()
+		if observerErr != nil { return observerErr }
+		return observer.Ready(checkCtx)
+	}})
+	{{end}}process, err := processkit.New(processkit.Options{Checks: checks})
+	if err != nil { return nil, err }
 	var plan *httpkit.Plan
+	adminScope := scope.Must("workspace", "default")
 	contributions := []httpkit.Contribution{
-		platformContribution(runtimeConfig.InsecureCookie, func() []httpkit.AdminDescriptor { return plan.Admin() }),
-		records.Contribution(runtimeConfig.InsecureCookie),
-		{{if .HasTasks}}tasks.Contribution(runtimeConfig.InsecureCookie),
-		{{end}}{{if .HasAudit}}auditlog.Contribution(runtimeConfig.InsecureCookie),
+		platformContribution(process, runtimeConfig.InsecureCookie, adminScope, func() []httpkit.AdminDescriptor { return plan.Admin() }),
+		records.Contribution(runtimeConfig.InsecureCookie, adminScope),
+		{{if .HasTasks}}tasks.Contribution(runtimeConfig.InsecureCookie, adminScope),
+		{{end}}{{if .HasAudit}}auditlog.Contribution(runtimeConfig.InsecureCookie, adminScope),
 		{{end}}adminShellContribution(),
 	}
+	{{if .HasOIDC}}oidcContribution, err := oidchttp.Contribution(oidchttp.HTTPOptions{AllowInsecureCookie: runtimeConfig.InsecureCookie})
+	if err != nil { return nil, err }
+	contributions = append(contributions, oidcContribution)
+	{{end}}
 	plan, err = httpkit.NewPlan(definition, options, contributions...)
 	if err != nil {
 		return nil, err
 	}
-	core, err := appkit.Start(ctx, definition, options)
+	core, err = appkit.Start(ctx, definition, options)
 	if err != nil {
 		return nil, err
 	}
@@ -86,25 +159,27 @@ func Start(ctx context.Context, runtimeConfig config.Config) (*Application, erro
 	if err != nil {
 		return nil, errors.Join(err, stopAfterAssemblyFailure(core))
 	}
-	return &Application{core: core, handler: handler}, nil
+	handler, err = process.Middleware(handler)
+	if err != nil { return nil, errors.Join(err, stopAfterAssemblyFailure(core)) }
+	return &Application{core: core, handler: handler, process: process}, nil
 }
 
-func platformContribution(insecureCookie bool, descriptors func() []httpkit.AdminDescriptor) httpkit.Contribution {
+func platformContribution(process *processkit.Manager, insecureCookie bool, adminScope scope.Execution, descriptors func() []httpkit.AdminDescriptor) httpkit.Contribution {
 	return httpkit.Contribution{
 		ID: "admin-platform",
-		Requires: []module.Capability{module.CapabilitySessions, module.CapabilityAuthorization},
+		Requires: []module.Capability{module.CapabilityAuthorization, {{if not .HasOIDC}}module.CapabilityPasswords, {{end}}module.CapabilitySessions},
 		Routes: []httpkit.RouteSpec{
-			{Method: http.MethodGet, Path: "/healthz"},
+			{Method: http.MethodGet, Path: "/livez"},
+			{Method: http.MethodGet, Path: "/readyz"},
 			{Method: http.MethodGet, Path: "/api/meta"},
-			{Method: http.MethodPost, Path: "/api/auth/login"},
+			{{if not .HasOIDC}}{Method: http.MethodPost, Path: "/api/auth/login"},
+			{{end}}
 			{Method: http.MethodGet, Path: "/api/auth/session"},
 			{Method: http.MethodPost, Path: "/api/auth/logout"},
 			{Method: http.MethodGet, Path: "/api/admin/context"},
 		},
 		Build: func(_ context.Context, core *appkit.Application) ([]httpkit.Route, error) {
-			health, err := httpapi.NewHealth(core)
-			if err != nil { return nil, err }
-			sessions, err := sessionhttp.New(core, sessionhttp.Options{AllowInsecureCookie: insecureCookie})
+			sessions, err := sessionhttp.New(core, sessionhttp.Options{AllowInsecureCookie: insecureCookie, EnablePasswordLogin: {{if .HasOIDC}}false{{else}}true{{end}}})
 			if err != nil { return nil, err }
 			authorizer, err := core.Authorizer()
 			if err != nil { return nil, err }
@@ -122,7 +197,7 @@ func platformContribution(insecureCookie bool, descriptors func() []httpkit.Admi
 				grants := make([]string, 0, len(permissions))
 				for _, permission := range permissions {
 					decision, err := authorizer.Authorize(request.Context(), authz.Request{
-						Actor: actor, OperationID: permission, Permission: permission, Scope: actor.Scope, Phase: authz.PhaseIntent,
+						Actor: actor, OperationID: permission, Permission: permission, Scope: adminScope, Phase: authz.PhaseIntent,
 					})
 					if err != nil { adminapi.WriteError(writer, request, http.StatusInternalServerError, "AUTHORIZATION_FAILED", "Permissions could not be loaded"); return }
 					if decision.Allowed { grants = append(grants, permission) }
@@ -135,11 +210,13 @@ func platformContribution(insecureCookie bool, descriptors func() []httpkit.Admi
 			if err != nil { return nil, err }
 			metadata := core.Metadata()
 			return []httpkit.Route{
-				{Method: http.MethodGet, Path: "/healthz", Handler: health},
+				{Method: http.MethodGet, Path: "/livez", Handler: process.LivenessHandler()},
+				{Method: http.MethodGet, Path: "/readyz", Handler: process.ReadinessHandler()},
 				{Method: http.MethodGet, Path: "/api/meta", Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 					adminapi.WriteJSON(writer, http.StatusOK, struct { Name string `json:"name"`; Version string `json:"version"` }{Name: metadata.Name, Version: metadata.Version})
 				})},
-				{Method: http.MethodPost, Path: "/api/auth/login", Handler: sessions},
+				{{if not .HasOIDC}}{Method: http.MethodPost, Path: "/api/auth/login", Handler: sessions},
+				{{end}}
 				{Method: http.MethodGet, Path: "/api/auth/session", Handler: sessions},
 				{Method: http.MethodPost, Path: "/api/auth/logout", Handler: sessions},
 				{Method: http.MethodGet, Path: "/api/admin/context", Handler: contextHandler},
@@ -155,7 +232,7 @@ func adminShellContribution() httpkit.Contribution {
 		Build: func(_ context.Context, _ *appkit.Application) ([]httpkit.Route, error) {
 			spa, err := httpapi.NewSPA(web.Assets(), httpapi.SPAOptions{
 				IndexCacheControl: "no-cache", AssetCacheControl: "public, max-age=31536000, immutable",
-				FallbackExcludedPaths: []string{"/api", "/healthz"},
+				FallbackExcludedPaths: []string{"/api", "/livez", "/readyz"},
 			})
 			if err != nil { return nil, err }
 			return []httpkit.Route{ {Method: http.MethodGet, Path: "/", Handler: spa} }, nil
@@ -165,7 +242,11 @@ func adminShellContribution() httpkit.Contribution {
 
 func (application *Application) Handler() http.Handler { return application.handler }
 func (application *Application) Core() *appkit.Application { return application.core }
-func (application *Application) Shutdown(ctx context.Context) error { return application.core.Shutdown(ctx) }
+func (application *Application) Process() *processkit.Manager { return application.process }
+func (application *Application) Shutdown(ctx context.Context) error {
+	application.process.BeginDrain()
+	return errors.Join(application.process.Drain(ctx), application.core.Shutdown(ctx), application.process.MarkStopped())
+}
 
 func stopAfterAssemblyFailure(core *appkit.Application) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

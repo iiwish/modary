@@ -1,0 +1,2 @@
+T043 implementation is contained in components/oidc, the browser authentication
+contract, OIDC HTTP contribution, and explicitly selected Starter source.

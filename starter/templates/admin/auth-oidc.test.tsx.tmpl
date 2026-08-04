@@ -1,0 +1,31 @@
+import { act, renderHook } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import { AppProvider } from './app'
+import { AuthProvider, useAuth } from './auth'
+
+function response(status: number, value: unknown) {
+  return new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } })
+}
+
+function wrapper({ children }: { children: React.ReactNode }) {
+  return <AppProvider><AuthProvider>{children}</AuthProvider></AppProvider>
+}
+
+describe('OIDC auth provider', () => {
+  it('restores the server-side session established by the redirect callback', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const path = String(input)
+      if (path === '/api/meta') return response(200, { name: 'Example', version: '0.1.0' })
+      if (path === '/api/auth/session') return response(200, {
+        actor: { id: 'admin', type: 'human', display_name: '管理员' },
+        csrf_token: 'csrf-token', expires_at: '2030-01-01T00:00:00Z', request_id: 'req-test',
+      })
+      if (path === '/api/admin/context') return response(200, { modules: [], grants: [] })
+      throw new Error(`unexpected request ${path}`)
+    }))
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    await act(() => result.current.initialize())
+    expect(result.current.actor?.id).toBe('admin')
+    expect('login' in result.current).toBe(false)
+  })
+})

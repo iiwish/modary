@@ -7,6 +7,9 @@ const source = fileURLToPath(new URL('./src', import.meta.url))
 const selection = process.env.VITE_ADMIN_SELECTION
 const active = fileURLToPath(new URL('./src/modules/active.ts', import.meta.url))
 const selectionSource = selection ? fileURLToPath(new URL(`./scripts/selections/${selection}.ts.txt`, import.meta.url)) : ''
+const oidc = process.env.VITE_AUTH_SELECTION === 'oidc'
+const login = fileURLToPath(new URL(oidc ? './src/views/LoginView.oidc.tsx' : './src/views/LoginView.tsx', import.meta.url))
+const auth = fileURLToPath(new URL(oidc ? './src/stores/auth.oidc.tsx' : './src/stores/auth.tsx', import.meta.url))
 
 export default defineConfig({
   plugins: [{
@@ -14,8 +17,13 @@ export default defineConfig({
     enforce: 'pre',
     load(id) { return selectionSource && id === active ? readFileSync(selectionSource, 'utf8') : null },
   }, react()],
-  resolve: { alias: [{ find: '@/modules/active', replacement: active }, { find: '@', replacement: source }] },
-  server: { proxy: { '/api': 'http://127.0.0.1:8080', '/healthz': 'http://127.0.0.1:8080' } },
+  resolve: { alias: [
+    { find: '@/modules/active', replacement: active },
+    { find: '@/views/LoginView', replacement: login },
+    { find: '@/stores/auth', replacement: auth },
+    { find: '@', replacement: source },
+  ] },
+  server: { proxy: { '/api': 'http://127.0.0.1:8080', '/livez': 'http://127.0.0.1:8080', '/readyz': 'http://127.0.0.1:8080' } },
   test: { environment: 'happy-dom', setupFiles: ['./src/test/setup.ts'], restoreMocks: true, testTimeout: 15_000 },
   build: {
     outDir: '../internal/web/dist',

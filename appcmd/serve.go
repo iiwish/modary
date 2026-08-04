@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/iiwish/modary/appkit"
 	"github.com/iiwish/modary/internal/safeerr"
+	"github.com/iiwish/modary/processkit"
 )
 
 // Serve starts the consumer Application and its explicitly supplied HTTP
@@ -105,7 +107,25 @@ func serve(ctx context.Context, definition appkit.Definition, options normalized
 		return opaqueCommandError("start application failed", err)
 	}
 	defer func() {
+		if options.Process != nil {
+			options.Process.BeginDrain()
+			drainCtx, cancel := context.WithTimeout(context.Background(), options.ShutdownTimeout)
+			result = errors.Join(result, options.Process.Drain(drainCtx))
+			cancel()
+		}
 		result = errors.Join(result, shutdownApplication(application, options.ShutdownTimeout))
+		if options.Process != nil {
+			stopErr := options.Process.MarkStopped()
+			result = errors.Join(result, stopErr)
+			if stopErr == nil {
+				options.Logger.Info("process stopped", "event", "process.stopped")
+			} else {
+				options.Logger.Error("process did not stop cleanly", "event", "process.stop_failed")
+			}
+		}
+		if options.loggerOutput != nil {
+			result = errors.Join(result, options.loggerOutput.Err())
+		}
 	}()
 	if err := ctx.Err(); err != nil {
 		return err
@@ -116,6 +136,12 @@ func serve(ctx context.Context, definition appkit.Definition, options normalized
 	}
 	if isNilInterface(handler) {
 		return fmt.Errorf("HTTP Handler factory returned nil")
+	}
+	if options.Process != nil {
+		handler, err = options.Process.Middleware(handler)
+		if err != nil {
+			return err
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -147,7 +173,7 @@ func serve(ctx context.Context, definition appkit.Definition, options normalized
 		BaseContext:       func(net.Listener) context.Context { return baseCtx },
 		ConnState:         connections.observe,
 	}
-	return errors.Join(runHTTPServer(ctx, server, listener, connections, cancelBase, options.ShutdownTimeout, trustedAcceptErrors), errorOutput.Err())
+	return errors.Join(runHTTPServer(ctx, server, listener, connections, cancelBase, options.ShutdownTimeout, trustedAcceptErrors, options.Process, options.Logger), errorOutput.Err())
 }
 
 func validateListenAddress(address string) error {
@@ -267,12 +293,21 @@ func containHTTPHandlerPanics(handler http.Handler, errorLog *log.Logger) http.H
 	})
 }
 
-func runHTTPServer(ctx context.Context, server *http.Server, listener net.Listener, connections *connectionTracker, cancelActive context.CancelFunc, timeout time.Duration, trustedAcceptErrors bool) error {
+func runHTTPServer(ctx context.Context, server *http.Server, listener net.Listener, connections *connectionTracker, cancelActive context.CancelFunc, timeout time.Duration, trustedAcceptErrors bool, process *processkit.Manager, logger *slog.Logger) error {
 	serveResult := make(chan error, 1)
 	listener = &trackedListener{Listener: listener, tracker: connections, trustedAcceptErrors: trustedAcceptErrors}
 	go func() {
 		serveResult <- callHTTPServe(server, listener)
 	}()
+	if process != nil {
+		if err := process.MarkReady(); err != nil {
+			_ = server.Close()
+			<-serveResult
+			return err
+		}
+		logger.InfoContext(ctx, "process ready", "event", "process.ready")
+	}
+	logger.InfoContext(ctx, "HTTP server started", "event", "http.server.started", "address", listener.Addr().String())
 
 	var serveErr error
 	serveCompleted := false
@@ -281,6 +316,11 @@ func runHTTPServer(ctx context.Context, server *http.Server, listener net.Listen
 		serveCompleted = true
 	case <-ctx.Done():
 	}
+	if process != nil {
+		process.BeginDrain()
+		logger.Info("process draining", "event", "process.draining")
+	}
+	logger.Info("HTTP server draining", "event", "http.server.draining")
 	drainErr := drainHTTP(server, connections, cancelActive, timeout)
 	cancelActive()
 	var waitErr error
@@ -291,6 +331,7 @@ func runHTTPServer(ctx context.Context, server *http.Server, listener net.Listen
 	if serveErr == nil || safeerr.Is(serveErr, http.ErrServerClosed) {
 		serveErr = nil
 	}
+	logger.Info("HTTP server stopped", "event", "http.server.stopped")
 	return errors.Join(serveErr, drainErr, waitErr, connectionWaitErr, connections.Err())
 }
 
@@ -423,6 +464,8 @@ type recordingWriter struct {
 // Write forwards one output write while containing panics and recording the
 // first invalid or failed write.
 func (writer *recordingWriter) Write(data []byte) (written int, err error) {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
 	returned := false
 	defer func() {
 		if !returned {
@@ -438,8 +481,8 @@ func (writer *recordingWriter) Write(data []byte) (written int, err error) {
 		} else if err == nil && written != len(data) {
 			err = io.ErrShortWrite
 		}
-		if err != nil {
-			writer.record(err)
+		if err != nil && writer.err == nil {
+			writer.err = err
 		}
 	}()
 	written, err = writer.destination.Write(data)
@@ -448,14 +491,6 @@ func (writer *recordingWriter) Write(data []byte) (written int, err error) {
 		err = opaqueCommandError(writer.operation+" failed", err)
 	}
 	return written, err
-}
-
-func (writer *recordingWriter) record(err error) {
-	writer.mu.Lock()
-	defer writer.mu.Unlock()
-	if writer.err == nil {
-		writer.err = err
-	}
 }
 
 // Err returns the first error observed by Write.

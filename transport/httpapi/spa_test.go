@@ -95,8 +95,8 @@ func TestNewSPAValidatesFilesystemIndexAndOptions(t *testing.T) {
 }
 
 func TestSPAFallbackExclusionsReserveCohostedNamespaces(t *testing.T) {
-	handler := spaTestHandler(t, spaTestFiles(), SPAOptions{FallbackExcludedPaths: []string{"/api", "/healthz"}})
-	for _, target := range []string{"/api", "/api/tasks", "/healthz/status"} {
+	handler := spaTestHandler(t, spaTestFiles(), SPAOptions{FallbackExcludedPaths: []string{"/api", "/readyz"}})
+	for _, target := range []string{"/api", "/api/tasks", "/readyz/status"} {
 		for _, accept := range []string{"", "*/*", "text/html", "application/json"} {
 			response := spaDoRequest(handler, http.MethodGet, target, accept, nil)
 			if response.Code != http.StatusNotFound || response.Body.String() == spaTestIndex {

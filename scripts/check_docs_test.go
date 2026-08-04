@@ -17,16 +17,16 @@ var currentDocsFiles = []string{
 	"docs/adr/ADR-003-postgresql-and-module-migrations.md",
 	"docs/adr/ADR-004-consumer-owned-surfaces.md",
 	"docs/adr/ADR-005-create-only-profiles.md",
-	"docs/getting-started/choose-profile.md", "docs/getting-started/admin-profile.md", "docs/getting-started/governed-profile.md",
+	"docs/getting-started/choose-profile.md", "docs/getting-started/admin-profile.md", "docs/getting-started/oidc-admin.md", "docs/getting-started/governed-profile.md",
 	"docs/concepts/components-and-profiles.md", "docs/concepts/persistence-and-tasks.md",
 	"docs/guides/rulary-bootstrap.md", "docs/how-to/run-background-tasks.md",
-	"docs/operations/deployment.md", "docs/operations/security.md", "docs/operations/postgresql-backup-restore.md",
+	"docs/operations/deployment.md", "docs/operations/observability.md", "docs/operations/security.md", "docs/operations/postgresql-backup-restore.md",
 	"docs/reference/packages.md", "docs/reference/project-manifest.md", "docs/reference/support-matrix.md",
 	"docs/releases/release-process.md", "docs/releases/upgrade-guide.md", "docs/releases/versioning.md",
 	"docs/zh-CN/index.md", "docs/zh-CN/getting-started/choose-profile.md",
 	"docs/zh-CN/getting-started/quickstart.md", "docs/zh-CN/getting-started/first-application.md",
-	"docs/zh-CN/getting-started/admin-profile.md", "docs/zh-CN/getting-started/governed-profile.md",
-	"docs/zh-CN/concepts/persistence-and-tasks.md", "docs/zh-CN/how-to/run-background-tasks.md",
+	"docs/zh-CN/getting-started/admin-profile.md", "docs/zh-CN/getting-started/oidc-admin.md", "docs/zh-CN/getting-started/governed-profile.md",
+	"docs/zh-CN/concepts/persistence-and-tasks.md", "docs/zh-CN/how-to/run-background-tasks.md", "docs/zh-CN/operations/deployment.md", "docs/zh-CN/operations/observability.md",
 	".ai-platform/memory/constitution.md", ".ai-platform/docs/product-design.md",
 	".ai-platform/docs/technology-decision-record.md", ".ai-platform/docs/tasks.md", ".ai-platform/docs/release-report.md",
 	".ai-platform/specs/005-postgres-task-runtime/spec.md", ".ai-platform/specs/005-postgres-task-runtime/plan.md",
@@ -69,6 +69,18 @@ var currentDocsFiles = []string{
 	".ai-platform/specs/009-component-boundary-closure/packets/T039.yaml",
 	".ai-platform/specs/009-component-boundary-closure/packets/T040.yaml",
 	".ai-platform/specs/009-component-boundary-closure/packets/T041.yaml",
+	".ai-platform/specs/010-production-foundation/spec.md",
+	".ai-platform/specs/010-production-foundation/plan.md",
+	".ai-platform/specs/010-production-foundation/analysis.md",
+	".ai-platform/specs/010-production-foundation/tasks.md",
+	".ai-platform/specs/010-production-foundation/checklists/requirements.md",
+	".ai-platform/specs/010-production-foundation/packets/T042.yaml",
+	".ai-platform/specs/010-production-foundation/packets/T043.yaml",
+	".ai-platform/specs/010-production-foundation/packets/T044.yaml",
+	".ai-platform/specs/010-production-foundation/packets/T045.yaml",
+	".ai-platform/specs/010-production-foundation/packets/T046.yaml",
+	".ai-platform/specs/010-production-foundation/packets/T047.yaml",
+	".ai-platform/specs/010-production-foundation/packets/T048.yaml",
 	".ai-platform/evidence/T024/summary.md", ".ai-platform/evidence/T024/diff.patch", ".ai-platform/evidence/T024/test-results.md",
 	".ai-platform/evidence/T025/summary.md", ".ai-platform/evidence/T025/diff.patch", ".ai-platform/evidence/T025/test-results.md",
 	".ai-platform/evidence/T026/summary.md", ".ai-platform/evidence/T026/diff.patch", ".ai-platform/evidence/T026/test-results.md",
@@ -107,6 +119,18 @@ var currentDocsFiles = []string{
 	".ai-platform/evidence/T040/test-results.md", ".ai-platform/evidence/T040/review.md",
 	".ai-platform/evidence/T041/summary.md", ".ai-platform/evidence/T041/diff.patch",
 	".ai-platform/evidence/T041/test-results.md", ".ai-platform/evidence/T041/review.md",
+	".ai-platform/evidence/T042/summary.md", ".ai-platform/evidence/T042/diff.patch",
+	".ai-platform/evidence/T042/test-results.md", ".ai-platform/evidence/T042/review.md",
+	".ai-platform/evidence/T043/summary.md", ".ai-platform/evidence/T043/diff.patch",
+	".ai-platform/evidence/T043/test-results.md", ".ai-platform/evidence/T043/review.md",
+	".ai-platform/evidence/T044/summary.md", ".ai-platform/evidence/T044/diff.patch",
+	".ai-platform/evidence/T044/test-results.md", ".ai-platform/evidence/T044/review.md",
+	".ai-platform/evidence/T045/summary.md", ".ai-platform/evidence/T045/diff.patch",
+	".ai-platform/evidence/T045/test-results.md", ".ai-platform/evidence/T045/review.md",
+	".ai-platform/evidence/T046/summary.md", ".ai-platform/evidence/T046/diff.patch",
+	".ai-platform/evidence/T046/test-results.md", ".ai-platform/evidence/T046/review.md",
+	".ai-platform/evidence/T047/summary.md", ".ai-platform/evidence/T047/diff.patch",
+	".ai-platform/evidence/T047/test-results.md", ".ai-platform/evidence/T047/review.md",
 	"starter/templates/admin/README.md.tmpl",
 }
 
@@ -167,7 +191,7 @@ func TestCheckDocsRejectsUnresolvedAcceptanceFinding(t *testing.T) {
 
 func TestCheckDocsRejectsUnresolvedCurrentClosureFinding(t *testing.T) {
 	repository := currentDocsFixture(t)
-	path := filepath.Join(repository, ".ai-platform/evidence/T041/review.md")
+	path := filepath.Join(repository, ".ai-platform/evidence/T047/review.md")
 	replaceCurrentDocs(t, path, "- P1: 0", "- P1: 1")
 	output, err := runCurrentDocsCheck(t, repository)
 	if err == nil || !strings.Contains(output, "- P1: 0") {
@@ -178,8 +202,8 @@ func TestCheckDocsRejectsUnresolvedCurrentClosureFinding(t *testing.T) {
 func TestAcceptanceEvidenceDigestRejectsSourceDrift(t *testing.T) {
 	repository := t.TempDir()
 	writeDocsFixtureFile(t, filepath.Join(repository, "implementation.txt"), "accepted implementation\n")
-	writeDocsFixtureFile(t, filepath.Join(repository, ".ai-platform", "evidence", "T041", "summary.md"),
-		"# T041\n\n- Source digest: git-hash:0000000000000000000000000000000000000000\n")
+	writeDocsFixtureFile(t, filepath.Join(repository, ".ai-platform", "evidence", "T047", "summary.md"),
+		"# T047\n\n- Source digest: git-hash:0000000000000000000000000000000000000000\n")
 	runGitFixture(t, repository, "init", "--quiet")
 	digestCommand := exec.Command(filepath.Join(repositoryRoot(t), "scripts", "acceptance-source-digest.sh"), repository)
 	digestOutput, err := digestCommand.CombinedOutput()
@@ -187,7 +211,7 @@ func TestAcceptanceEvidenceDigestRejectsSourceDrift(t *testing.T) {
 		t.Fatalf("acceptance digest failed: %v\n%s", err, digestOutput)
 	}
 	digest := strings.TrimSpace(string(digestOutput))
-	replaceCurrentDocs(t, filepath.Join(repository, ".ai-platform", "evidence", "T041", "summary.md"),
+	replaceCurrentDocs(t, filepath.Join(repository, ".ai-platform", "evidence", "T047", "summary.md"),
 		"git-hash:0000000000000000000000000000000000000000", digest)
 
 	check := func() (string, error) {

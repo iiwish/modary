@@ -55,8 +55,12 @@ schema，以保留业务写入与任务入队的原子性。Starter 根据项目
 
 ```bash
 DATABASE_URL="$DATABASE_URL" go test ./...
-go run ./cmd/operations-admin
+go run ./cmd/operations-admin migrate
+go run ./cmd/operations-admin serve
 ```
+
+`migrate` 只应用已选择的前向迁移并退出；`serve` 不会隐式修改 schema。只有明确的
+本地单进程流程才应设置 `MODARY_MIGRATE_ON_START=true`。
 
 打开 `http://127.0.0.1:8080`，使用配置的开发账号登录。records 示例覆盖加载、
 筛选、创建、乐观更新和删除；后端 RBAC 对每条路由授权，隐藏按钮不代表授权。
@@ -66,7 +70,7 @@ go run ./cmd/operations-admin
 `internal/app/application.go` 显式选择：
 
 - `components/postgres` 提供 `database.Store`；
-- `components/postgres/localidentity` 提供开发身份；
+- `components/postgres/identitystore` 提供开发身份；
 - `components/postgres/rbac` 提供后端策略；
 - `transport/sessionhttp` 提供登录、会话、退出与 CSRF；
 - 应用自己的 records Module 和路由。
@@ -90,7 +94,7 @@ SQL Audit 或 MCP。
 绝不提供可执行 UI；未知或未授权 descriptor 会关闭显示，后端仍逐请求鉴权。
 默认实现不强制引入全局状态库；只有产品出现真实的跨模块共享状态时才需要选择。
 
-生成的壳层将 `/api` 与 `/healthz` 排除在 SPA fallback 之外。未知后端路径会在
+生成的壳层将 `/api` 与 `/readyz` 排除在 SPA fallback 之外。未知后端路径会在
 所有 `Accept` 请求头下保持 HTTP 404，而不会被 `index.html` 掩盖。
 
 API 客户端会在变更请求中携带 CSRF token。已登录请求返回 `401` 时，本地会话会

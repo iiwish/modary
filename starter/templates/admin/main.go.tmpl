@@ -2,29 +2,61 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"log"
-	"net"
-	"net/http"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
+	"github.com/iiwish/modary/processkit"
 	"{{.ModulePath}}/internal/app"
 	"{{.ModulePath}}/internal/config"
+)
+
+var (
+	version  = "dev"
+	revision = "unknown"
+	created  = "unknown"
 )
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := run(ctx); err != nil {
-		log.Fatal(err)
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	if err := run(ctx, os.Args[1:], logger); err != nil {
+		logger.Error("process failed", "event", "process.failed")
+		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context) error {
+func run(ctx context.Context, args []string, logger *slog.Logger) error {
+	build, err := processkit.NormalizeBuildInfo(processkit.BuildInfo{Version: version, Revision: revision, Created: created})
+	if err != nil {
+		return err
+	}
+	logger.InfoContext(ctx, "process started", "event", "process.started", "build", build)
+	mode := "serve"
+	if len(args) > 0 {
+		mode = args[0]
+	}
+	if len(args) > 1 {
+		return fmt.Errorf("usage: {{.ID}} [serve|migrate]")
+	}
+	if mode == "migrate" {
+		databaseConfig, err := config.LoadDatabase()
+		if err != nil {
+			return err
+		}
+		logger.InfoContext(ctx, "database migration started", "event", "database.migration.started")
+		if err := app.Migrate(ctx, databaseConfig); err != nil {
+			return err
+		}
+		logger.InfoContext(ctx, "database migration completed", "event", "database.migration.completed")
+		return nil
+	}
+	if mode != "serve" {
+		return fmt.Errorf("usage: {{.ID}} [serve|migrate]")
+	}
 	runtimeConfig, err := config.Load()
 	if err != nil {
 		return err
@@ -33,29 +65,9 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("start application: %w", err)
 	}
-	server := &http.Server{Handler: application.Handler(), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second}
-	listener, err := net.Listen("tcp", runtimeConfig.HTTPAddress)
-	if err != nil {
-		return errors.Join(err, stopApplication(application))
-	}
-	result := make(chan error, 1)
-	go func() { result <- server.Serve(listener) }()
-	log.Printf("listening on http://%s", listener.Addr())
-	select {
-	case serveErr := <-result:
-		if errors.Is(serveErr, http.ErrServerClosed) {
-			serveErr = nil
-		}
-		return errors.Join(serveErr, stopApplication(application))
-	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		return errors.Join(server.Shutdown(shutdownCtx), application.Shutdown(shutdownCtx))
-	}
-}
-
-func stopApplication(application *app.Application) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	return application.Shutdown(ctx)
+	return processkit.Serve(ctx, processkit.ServerOptions{
+		Address: runtimeConfig.HTTPAddress, Handler: application.Handler(), Manager: application.Process(),
+		Logger: logger, Shutdown: application.Shutdown,
+		Build: build,
+	})
 }

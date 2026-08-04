@@ -31,6 +31,13 @@ const (
 	CapabilityDatabase Capability = "database"
 	// CapabilityIdentity identifies canonical identity services.
 	CapabilityIdentity Capability = "identity"
+	// CapabilityPasswords identifies local password verification. It is
+	// deliberately separate from identity resolution and browser sessions.
+	CapabilityPasswords Capability = "identity.passwords"
+	// CapabilityBearers identifies bearer-token authentication.
+	CapabilityBearers Capability = "identity.bearers"
+	// CapabilityBrowserAuthentication identifies redirect-based browser login.
+	CapabilityBrowserAuthentication Capability = "identity.browser"
 	// CapabilitySessions identifies browser-session authentication.
 	CapabilitySessions Capability = "identity.sessions"
 	// CapabilityAuthorization identifies the canonical authorization service.
@@ -43,6 +50,8 @@ const (
 	CapabilityTaskInspection Capability = "tasks.read"
 	// CapabilityAuditInspection identifies read-only, scope-bound audit metadata.
 	CapabilityAuditInspection Capability = "audit.read"
+	// CapabilityObservability identifies explicitly selected bounded telemetry.
+	CapabilityObservability Capability = "observability"
 )
 
 var (

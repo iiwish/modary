@@ -1,0 +1,19 @@
+issuer: http://127.0.0.1:5556/dex
+storage:
+  type: memory
+web:
+  http: 0.0.0.0:5556
+oauth2:
+  skipApprovalScreen: true
+enablePasswordDB: true
+staticClients:
+  - id: modary-acceptance
+    name: Modary acceptance
+    secret: modary-acceptance-secret
+    redirectURIs:
+      - http://127.0.0.1:5557/callback
+staticPasswords:
+  - email: admin@example.com
+    username: modary-admin
+    userID: modary-dex-subject
+    hash: $2y$10$ClPqXVIY5p9agzgAjHjgWuRlr/sasEBTpT.AD2dSxY3K7oztH9YlC

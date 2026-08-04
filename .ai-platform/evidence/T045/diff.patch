@@ -1,0 +1,2 @@
+T045 implementation is contained in the generated Dockerfiles, dockerignore
+files, Compose files, build identity injection, and deployment acceptance.

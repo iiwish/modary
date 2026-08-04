@@ -275,7 +275,7 @@ func TestPanickingContextCannotPolluteHostFacadeDrain(t *testing.T) {
 
 func hostIdentityRegistration(service *hostBlockingIdentity, cleanup Cleanup) Registration {
 	return Register(
-		validManifest("identity-service", "adapter", nil, []string{"identity", "identity.sessions"}),
+		validManifest("identity-service", "adapter", nil, []string{"identity", "identity.bearers", "identity.passwords", "identity.sessions"}),
 		func(_ context.Context, scope Scope) error {
 			if cleanup != nil {
 				if err := OnStop(scope, cleanup); err != nil {
@@ -285,7 +285,10 @@ func hostIdentityRegistration(service *hostBlockingIdentity, cleanup Cleanup) Re
 			if err := Provide(scope, IdentityResolver(), identity.Resolver(service)); err != nil {
 				return err
 			}
-			if err := Provide(scope, SessionAuthenticator(), identity.Authenticator(service)); err != nil {
+			if err := Provide(scope, PasswordAuthenticator(), identity.PasswordAuthenticator(service)); err != nil {
+				return err
+			}
+			if err := Provide(scope, SessionManager(), identity.SessionManager(service)); err != nil {
 				return err
 			}
 			return Provide(scope, TokenAuthenticator(), identity.TokenAuthenticator(service))
@@ -327,15 +330,19 @@ func (service *hostBlockingIdentity) ResolveByID(ctx context.Context, _ string) 
 	return identity.Actor{}, service.wait(ctx)
 }
 
-func (service *hostBlockingIdentity) Login(ctx context.Context, _, _ string) (identity.Session, error) {
+func (service *hostBlockingIdentity) AuthenticatePassword(ctx context.Context, _, _ string) (identity.Authentication, error) {
+	return identity.Authentication{}, service.wait(ctx)
+}
+
+func (service *hostBlockingIdentity) CreateSession(ctx context.Context, _ identity.Authentication) (identity.Session, error) {
 	return identity.Session{}, service.wait(ctx)
 }
 
-func (service *hostBlockingIdentity) Logout(ctx context.Context, _ string) error {
+func (service *hostBlockingIdentity) RevokeSession(ctx context.Context, _ string) error {
 	return service.wait(ctx)
 }
 
-func (service *hostBlockingIdentity) Session(ctx context.Context, _ string) (identity.Session, error) {
+func (service *hostBlockingIdentity) ResolveSession(ctx context.Context, _ string) (identity.Session, error) {
 	return identity.Session{}, service.wait(ctx)
 }
 

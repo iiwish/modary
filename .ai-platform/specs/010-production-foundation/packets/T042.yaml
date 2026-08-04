@@ -1,0 +1,91 @@
+schema_version: 1
+packet_id: EP-010-T042
+task_id: T042
+feature_id: 010-production-foundation
+mode: execute_one_task
+title: Principal, Scope, And Session Boundary
+status: Completed
+adapter: direct
+goal: >-
+  Establish scope-independent principals, multi-scope default-deny RBAC, and
+  split password/session/bearer contracts while retaining local development identity.
+requirements: [US-001, US-002, FR-001, FR-002, FR-003, FR-004, FR-007, NFR-001, NFR-005]
+depends_on: [T041]
+conflicts_with: [T043, T044, T047, T048]
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  spec: .ai-platform/specs/010-production-foundation/spec.md
+  checklist: .ai-platform/specs/010-production-foundation/checklists/requirements.md
+  plan: .ai-platform/specs/010-production-foundation/plan.md
+  analysis: .ai-platform/specs/010-production-foundation/analysis.md
+  work_graph: .ai-platform/specs/010-production-foundation/tasks.md
+  approval: explicit owner instruction on 2026-08-04
+work_unit:
+  title: Principal, Scope, And Session Boundary
+  goal: Establish scope-independent principals and split password/session/bearer contracts while retaining local development identity.
+  requirements: [US-001, US-002, FR-001, FR-002, FR-003, FR-004, FR-007, NFR-001, NFR-005]
+  depends_on: [T041]
+codebase_context:
+  relevant_paths: [identity, authz, scope, module, appkit, transport/sessionhttp, components/postgres/localidentity, components/postgres/rbac, starter/templates]
+  preserve:
+    - database-free Core and API graph
+    - Argon2id, hashed token/session, CSRF, revocation, bounded lifecycle
+    - immutable published migrations and tags
+  forbidden:
+    - compatibility wrapper retaining Actor.Scope
+    - identity-owned role or scope grants
+    - raw database authority in public identity contracts
+execution_constraints:
+  allowed_files: [identity/**, authz/**, scope/**, module/**, appkit/**, transport/sessionhttp/**, components/postgres/localidentity/**, components/postgres/rbac/**, starter/**, docs/**, .ai-platform/specs/010-production-foundation/**, .ai-platform/evidence/T042/**]
+  conflicts_with: [T043, T044, T047, T048]
+  worktree: current owner-approved main worktree
+  delegation: direct execution because subagent delegation was not authorized
+allowed_files:
+  - identity/**
+  - authz/**
+  - scope/**
+  - module/**
+  - appkit/**
+  - transport/sessionhttp/**
+  - components/postgres/localidentity/**
+  - components/postgres/rbac/**
+  - starter/**
+  - docs/**
+  - .ai-platform/specs/010-production-foundation/**
+  - .ai-platform/evidence/T042/**
+tdd:
+  red: Add contract, multi-scope, unbound-scope, local session, and lifecycle tests and verify expected failures.
+  green: Implement the narrow contracts and migrate adapters and generated consumers.
+  refactor: Remove scope coupling and duplicate responsibilities with all tests green.
+tdd_plan:
+  red: Add contract, multi-scope, unbound-scope, local session, and lifecycle tests and verify expected failures.
+  green: Implement the narrow contracts and migrate adapters and generated consumers.
+  refactor: Remove scope coupling and duplicate responsibilities with all tests green.
+validation_commands:
+  - go test ./identity ./authz ./module ./appkit ./transport/sessionhttp
+  - (cd components/postgres && go test ./localidentity ./rbac)
+  - make copied-profile-acceptance
+  - make ci-core
+  - git diff --check
+validation_loop:
+  commands: [focused identity/authz/module/appkit/session tests, PostgreSQL localidentity and RBAC integration, copied-profile acceptance, ci-core, diff check]
+  retry_budget: 3 per failing gate before scope reassessment
+evidence:
+  summary: .ai-platform/evidence/T042/summary.md
+  diff: .ai-platform/evidence/T042/diff.patch
+  tests: .ai-platform/evidence/T042/test-results.md
+  review: .ai-platform/evidence/T042/review.md
+evidence_contract:
+  summary: .ai-platform/evidence/T042/summary.md
+  diff: .ai-platform/evidence/T042/diff.patch
+  test_results: .ai-platform/evidence/T042/test-results.md
+  review: .ai-platform/evidence/T042/review.md
+review_contract:
+  sequence: [spec compliance, engineering quality, security, external acceptance]
+  acceptance: no unresolved P0 through P2 finding
+handoff:
+  next_task: T043
+stop_conditions:
+  - local credential/session security would be weakened
+  - multi-scope policy cannot remain exact and default deny
+  - Core gains PostgreSQL, OIDC, or telemetry dependencies

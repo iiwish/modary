@@ -680,7 +680,7 @@ func (r *Engine) validateAcquired(request *action.Request, registered registrati
 	if request.Actor.ID == "" {
 		return action.WithRequest(action.NewError(action.CodeAuthzDenied, "authenticated actor is required"), *request, registered.Descriptor.Permission)
 	}
-	if err := request.Scope.Validate(); err != nil || request.Actor.Scope != request.Scope {
+	if err := request.Scope.Validate(); err != nil {
 		return action.WithRequest(action.NewError(action.CodeAuthzDenied, "actor execution scope does not match request scope"), *request, registered.Descriptor.Permission)
 	}
 	canonical, _, err := canonicalInput(request.Input)

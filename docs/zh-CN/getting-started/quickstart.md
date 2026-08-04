@@ -13,8 +13,8 @@ make bootstrap
 export MODARY_STARTER_REPLACE="$(pwd)"
 ```
 
-当前 v0.2 源码尚未发布，因此本地生成项目通过 `MODARY_STARTER_REPLACE` 绑定当前
-检出。发布后的消费者应删除 `replace` 并固定到准确版本。
+本地框架开发可通过 `MODARY_STARTER_REPLACE` 绑定当前检出。正式消费者应删除
+`replace` 并准确固定到 `v0.3.0-alpha.1`。
 
 ## 2. 创建 API 项目
 
@@ -36,7 +36,7 @@ go run ./cmd/modary new ../inventory-api \
 ```bash
 cd ../inventory-api
 GOWORK=off go mod tidy
-GOWORK=off go list -deps ./... | rg 'river|postgres|localidentity|sqlaudit'
+GOWORK=off go list -deps ./... | rg 'river|postgres|identitystore|sqlaudit'
 ```
 
 最后一条命令应无输出，这证明未选择的组件不在依赖图中。
@@ -52,7 +52,7 @@ go run ./cmd/inventory-api
 另开终端验证：
 
 ```bash
-curl -fsS http://127.0.0.1:8080/healthz
+curl -fsS http://127.0.0.1:8080/readyz
 curl -fsS http://127.0.0.1:8080/api/ping
 ```
 

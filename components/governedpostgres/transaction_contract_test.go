@@ -55,7 +55,7 @@ func TestPostgresPreservesNestedRuntimeAndDatabaseTransactionMarkers(t *testing.
 		t.Fatal(err)
 	}
 	executionScope := scope.Must("tenant", "transaction-contract")
-	actor := identity.Actor{ID: "actor-1", Type: "user", Scope: executionScope}
+	actor := identity.Actor{ID: "actor-1", Type: "user"}
 	result, err := runtime.Execute(context.Background(), action.Request{
 		RequestID: "transaction-contract",
 		Actor:     actor,

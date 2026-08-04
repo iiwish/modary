@@ -40,6 +40,18 @@ require_line() {
 	fi
 }
 
+require_match() {
+	file=$1
+	pattern=$2
+	if test ! -f "$file"; then
+		return
+	fi
+	count=$(grep -Ec -- "$pattern" "$file" || true)
+	if test "$count" -ne 1; then
+		fail "$file must contain exactly one line matching $pattern"
+	fi
+}
+
 required='README.md
 LICENSE
 NOTICE
@@ -55,12 +67,14 @@ docs/adr/ADR-004-consumer-owned-surfaces.md
 docs/adr/ADR-005-create-only-profiles.md
 docs/getting-started/choose-profile.md
 docs/getting-started/admin-profile.md
+docs/getting-started/oidc-admin.md
 docs/getting-started/governed-profile.md
 docs/concepts/components-and-profiles.md
 docs/concepts/persistence-and-tasks.md
 docs/guides/rulary-bootstrap.md
 docs/how-to/run-background-tasks.md
 docs/operations/deployment.md
+docs/operations/observability.md
 docs/operations/security.md
 docs/operations/postgresql-backup-restore.md
 docs/reference/packages.md
@@ -74,9 +88,12 @@ docs/zh-CN/getting-started/choose-profile.md
 docs/zh-CN/getting-started/quickstart.md
 docs/zh-CN/getting-started/first-application.md
 docs/zh-CN/getting-started/admin-profile.md
+docs/zh-CN/getting-started/oidc-admin.md
 docs/zh-CN/getting-started/governed-profile.md
 docs/zh-CN/concepts/persistence-and-tasks.md
 docs/zh-CN/how-to/run-background-tasks.md
+docs/zh-CN/operations/deployment.md
+docs/zh-CN/operations/observability.md
 .ai-platform/memory/constitution.md
 .ai-platform/docs/product-design.md
 .ai-platform/docs/technology-decision-record.md
@@ -126,6 +143,18 @@ docs/zh-CN/how-to/run-background-tasks.md
 .ai-platform/specs/009-component-boundary-closure/packets/T039.yaml
 .ai-platform/specs/009-component-boundary-closure/packets/T040.yaml
 .ai-platform/specs/009-component-boundary-closure/packets/T041.yaml
+.ai-platform/specs/010-production-foundation/spec.md
+.ai-platform/specs/010-production-foundation/plan.md
+.ai-platform/specs/010-production-foundation/analysis.md
+.ai-platform/specs/010-production-foundation/tasks.md
+.ai-platform/specs/010-production-foundation/checklists/requirements.md
+.ai-platform/specs/010-production-foundation/packets/T042.yaml
+.ai-platform/specs/010-production-foundation/packets/T043.yaml
+.ai-platform/specs/010-production-foundation/packets/T044.yaml
+.ai-platform/specs/010-production-foundation/packets/T045.yaml
+.ai-platform/specs/010-production-foundation/packets/T046.yaml
+.ai-platform/specs/010-production-foundation/packets/T047.yaml
+.ai-platform/specs/010-production-foundation/packets/T048.yaml
 .ai-platform/evidence/T024/summary.md
 .ai-platform/evidence/T024/diff.patch
 .ai-platform/evidence/T024/test-results.md
@@ -202,7 +231,31 @@ docs/zh-CN/how-to/run-background-tasks.md
 .ai-platform/evidence/T041/summary.md
 .ai-platform/evidence/T041/diff.patch
 .ai-platform/evidence/T041/test-results.md
-.ai-platform/evidence/T041/review.md'
+.ai-platform/evidence/T041/review.md
+.ai-platform/evidence/T042/summary.md
+.ai-platform/evidence/T042/diff.patch
+.ai-platform/evidence/T042/test-results.md
+.ai-platform/evidence/T042/review.md
+.ai-platform/evidence/T043/summary.md
+.ai-platform/evidence/T043/diff.patch
+.ai-platform/evidence/T043/test-results.md
+.ai-platform/evidence/T043/review.md
+.ai-platform/evidence/T044/summary.md
+.ai-platform/evidence/T044/diff.patch
+.ai-platform/evidence/T044/test-results.md
+.ai-platform/evidence/T044/review.md
+.ai-platform/evidence/T045/summary.md
+.ai-platform/evidence/T045/diff.patch
+.ai-platform/evidence/T045/test-results.md
+.ai-platform/evidence/T045/review.md
+.ai-platform/evidence/T046/summary.md
+.ai-platform/evidence/T046/diff.patch
+.ai-platform/evidence/T046/test-results.md
+.ai-platform/evidence/T046/review.md
+.ai-platform/evidence/T047/summary.md
+.ai-platform/evidence/T047/diff.patch
+.ai-platform/evidence/T047/test-results.md
+.ai-platform/evidence/T047/review.md'
 
 for file in $required; do
 	require_file "$file"
@@ -211,6 +264,29 @@ done
 work_graph=.ai-platform/specs/005-postgres-task-runtime/tasks.md
 current_graph=.ai-platform/docs/tasks.md
 component_work_graph=.ai-platform/specs/009-component-boundary-closure/tasks.md
+production_work_graph=.ai-platform/specs/010-production-foundation/tasks.md
+for task in T042 T043 T044 T045 T046 T047; do
+	work_status=$(awk -v heading="### $task:" '
+		index($0, heading) == 1 { active=1; next }
+		/^### / { active=0 }
+		active && /^Status: / { print substr($0, 9); exit }
+	' "$production_work_graph")
+	current_status=$(awk -F'|' -v task="$task" '
+		function trim(value) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", value); return value }
+		$0 ~ "^\\| " task " \\|" { count++; value=trim($3) }
+		END { if (count == 1) print value }
+	' "$current_graph")
+	if test "$work_status" != Completed || test "$current_status" != Completed; then
+		fail "$task must be Completed in the production work graph and current task table: $work_status / $current_status"
+	fi
+	require_line ".ai-platform/evidence/$task/summary.md" '- Status: Completed'
+	require_line ".ai-platform/evidence/$task/test-results.md" '- Result: Passed'
+	require_line ".ai-platform/evidence/$task/review.md" '- Verdict: Pass'
+done
+for severity in P0 P1 P2; do
+	require_line .ai-platform/evidence/T047/review.md "- $severity: 0"
+done
+
 for task in T038 T039 T040 T041; do
 	work_status=$(awk -v heading="## $task:" '
 		index($0, heading) == 1 { active=1; next }
@@ -519,29 +595,29 @@ for review in .ai-platform/evidence/T026/review-3.md .ai-platform/evidence/T026/
 done
 
 require_line docs/f0-acceptance-report.md '- Status: Accepted'
-require_line docs/f0-acceptance-report.md '- Distribution status: Released'
-require_line docs/f0-acceptance-report.md '- Target version: v0.2.0-alpha.1'
-require_line docs/f0-acceptance-report.md '- Version tags: v0.2.0-alpha.1, components/postgres/v0.2.0-alpha.1, components/governedpostgres/v0.2.0-alpha.1'
-require_line docs/f0-acceptance-report.md '- Frozen baseline tag: v0.1.0-alpha.3'
-require_line .ai-platform/docs/release-report.md '- Report version: 3.1'
-require_line .ai-platform/docs/release-report.md '- Status: Remote_verified'
+require_match docs/f0-acceptance-report.md '^- Distribution status: (Prepared|Released)$'
+require_line docs/f0-acceptance-report.md '- Target version: v0.3.0-alpha.1'
+require_line docs/f0-acceptance-report.md '- Version tags: v0.3.0-alpha.1, components/postgres/v0.3.0-alpha.1, components/governedpostgres/v0.3.0-alpha.1, components/oidc/v0.3.0-alpha.1, components/otel/v0.3.0-alpha.1'
+require_line docs/f0-acceptance-report.md '- Frozen baseline tag: v0.2.0-alpha.1'
+require_line .ai-platform/docs/release-report.md '- Report version: 4.0'
+require_match .ai-platform/docs/release-report.md '^- Status: (Candidate_accepted|Remote_verified)$'
 require_line .ai-platform/docs/release-report.md '- Technical F0 acceptance: Accepted'
 require_line .ai-platform/docs/release-report.md '- Engineering readiness: Accepted'
-require_line .ai-platform/docs/release-report.md '- Distribution status: Released'
-require_line .ai-platform/docs/release-report.md '- Version tags: v0.2.0-alpha.1, components/postgres/v0.2.0-alpha.1, components/governedpostgres/v0.2.0-alpha.1'
-require_line .ai-platform/docs/release-report.md '- Remote consumer verification: Passed'
+require_match .ai-platform/docs/release-report.md '^- Distribution status: (Prepared|Released)$'
+require_line .ai-platform/docs/release-report.md '- Version tags: v0.3.0-alpha.1, components/postgres/v0.3.0-alpha.1, components/governedpostgres/v0.3.0-alpha.1, components/oidc/v0.3.0-alpha.1, components/otel/v0.3.0-alpha.1'
+require_match .ai-platform/docs/release-report.md '^- Remote consumer verification: (Pending|Passed)$'
 require_line .ai-platform/docs/release-report.md '- Owner-selected redistribution license: Apache-2.0'
-require_line .ai-platform/docs/release-report.md '- Target version: v0.2.0-alpha.1'
+require_line .ai-platform/docs/release-report.md '- Target version: v0.3.0-alpha.1'
 
 require_literal LICENSE 'Apache License'
 require_literal NOTICE 'Modary'
-require_literal README.md '`v0.2.0-alpha.1` is the current component-framework release.'
+require_literal README.md '`v0.3.0-alpha.1` is the current component-framework release.'
 require_literal README.md 'This path is optional. Ordinary Admin CRUD does not need Preview or River.'
 require_literal docs/framework-f0.md 'Core defines composition and lifecycle. Components add capabilities.'
 require_literal docs/framework-f0.md 'This path is optional. Ordinary Admin CRUD does not need Preview or River.'
 require_literal docs/f0-known-limitations.md 'The optional Admin Audit log is a bounded, scope-bound metadata view.'
-require_literal docs/f0-acceptance-report.md '.ai-platform/specs/009-component-boundary-closure/spec.md'
-require_literal docs/f0-acceptance-report.md '.ai-platform/evidence/T041/'
+require_literal docs/f0-acceptance-report.md '.ai-platform/specs/010-production-foundation/spec.md'
+require_literal docs/f0-acceptance-report.md '.ai-platform/evidence/T047/'
 require_literal docs/concepts/persistence-and-tasks.md 'at least once'
 require_literal docs/concepts/persistence-and-tasks.md 'idempotent'
 require_literal docs/how-to/run-background-tasks.md 'RetryDelays'
@@ -555,7 +631,7 @@ require_literal docs/zh-CN/how-to/run-background-tasks.md 'RetryDelays'
 require_literal docs/guides/rulary-bootstrap.md 'Rulary is a separate product repository.'
 require_literal .ai-platform/memory/constitution.md 'The empty Core has no database'
 require_literal .ai-platform/docs/product-design.md 'Start with a small Go application. Add only the components the product needs.'
-require_literal .ai-platform/docs/product-design.md '`v0.2.0-alpha.1` is the current immutable component-framework release.'
+require_literal .ai-platform/docs/product-design.md '`v0.3.0-alpha.1` is the current Production Foundation release.'
 
 legacy_paths='README.md SECURITY.md docs .ai-platform/docs .ai-platform/memory examples/counter'
 if legacy=$(rg -n -i 'use (the )?sqlite|sqlite adapter is (supported|available)|modernc|databasepath|sqlitetest' $legacy_paths \

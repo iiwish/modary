@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/iiwish/modary/action"
 	"github.com/iiwish/modary/appkit"
+	"github.com/iiwish/modary/processkit"
 )
 
 // Command and HTTP server defaults are bounded and local-listener safe.
@@ -69,9 +71,12 @@ type ServerOptions struct {
 type Options struct {
 	// Metadata is the pure command identity used by Run for help and version.
 	// The DefinitionProvider must return this exact value for serve and action.
-	Metadata      appkit.Metadata
-	App           appkit.Options
-	Handler       HandlerFactory
+	Metadata appkit.Metadata
+	App      appkit.Options
+	Handler  HandlerFactory
+	// Process explicitly enables shared readiness probes and pre-shutdown
+	// admission drain. The consumer still owns and mounts the probe handlers.
+	Process       *processkit.Manager
 	Listener      ListenerFactory
 	ListenAddress string
 	// Stdin is closed only when a command context is canceled while an Action
@@ -80,8 +85,11 @@ type Options struct {
 	Stdin io.ReadCloser
 	// Stdout and Stderr are trusted, cooperative dependencies. Write must
 	// return; a context or shutdown timeout cannot interrupt a blocked Writer.
-	Stdout              io.Writer
-	Stderr              io.Writer
+	Stdout io.Writer
+	Stderr io.Writer
+	// Logger receives bounded structured command lifecycle diagnostics. A nil
+	// Logger uses a JSON handler backed by Stderr.
+	Logger              *slog.Logger
 	ShutdownTimeout     time.Duration
 	MaxActionInputBytes int64
 	Server              ServerOptions
@@ -89,7 +97,8 @@ type Options struct {
 
 type normalizedOptions struct {
 	Options
-	server ServerOptions
+	server       ServerOptions
+	loggerOutput *recordingWriter
 }
 
 func normalizeOptions(options Options) (normalizedOptions, error) {
@@ -97,6 +106,16 @@ func normalizeOptions(options Options) (normalizedOptions, error) {
 	if err != nil {
 		return normalizedOptions{}, err
 	}
+	if options.Logger == nil {
+		output := &recordingWriter{destination: options.Stderr, operation: "structured logger writer"}
+		options.Stderr = output
+		options.Logger = slog.New(slog.NewJSONHandler(output, nil))
+		return normalizePreparedOptions(options, output)
+	}
+	return normalizePreparedOptions(options, nil)
+}
+
+func normalizePreparedOptions(options Options, loggerOutput *recordingWriter) (normalizedOptions, error) {
 	if options.ShutdownTimeout < 0 {
 		return normalizedOptions{}, usageError("shutdown timeout cannot be negative")
 	}
@@ -116,7 +135,7 @@ func normalizeOptions(options Options) (normalizedOptions, error) {
 	if err != nil {
 		return normalizedOptions{}, err
 	}
-	return normalizedOptions{Options: options, server: server}, nil
+	return normalizedOptions{Options: options, server: server, loggerOutput: loggerOutput}, nil
 }
 
 func prepareIOOptions(options Options) (Options, error) {

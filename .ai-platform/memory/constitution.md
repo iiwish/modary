@@ -1,9 +1,9 @@
 # Modary Delivery Constitution
 
-- Version: 4.0
+- Version: 5.0
 - Status: Confirmed
-- Last updated: 2026-08-02
-- Approval source: owner-approved lightweight component framework refoundation
+- Last updated: 2026-08-04
+- Approval source: owner-approved lightweight component framework and Production Foundation
 
 ## Product Boundary
 
@@ -54,8 +54,22 @@ deployment, and releases.
 - Public APIs expose narrow capabilities and lifecycle-safe facades, not raw
   registries, transaction control, River internals, or application-global
   variables.
+- Identity proves a stable principal; product scope and authorization remain
+  separate. Production sign-in delegates password, MFA, recovery, and account
+  policy to an external identity provider rather than turning Modary into IAM.
+- Process concerns stay outside the database-free application Core. Health,
+  structured logs, telemetry, migration execution, and deployment are explicit
+  consumer-owned composition; heavy OIDC and OpenTelemetry dependencies live in
+  independently versioned optional modules.
+- Deployment support is container-first and platform-neutral. Modary may emit
+  secure reference artifacts and conformance tests, but does not operate TLS,
+  Kubernetes, PostgreSQL, secret managers, collectors, or backup systems.
+- Production diagnostics are bounded and secret-safe. Liveness never depends on
+  a remote service, readiness becomes false before drain, telemetry uses stable
+  low-cardinality attributes, and operator surfaces are not public by default.
 - Published tags and migrations are immutable. `v0.1.0-alpha.3` remains the
-  frozen accepted release; the v0.2 development contract may break pre-v1 APIs
+  frozen Governed-first release and `v0.2.0-alpha.1` remains the frozen
+  component-framework release. The v0.3 contract may break pre-v1 APIs
   deliberately and documents every retained or replaced surface.
 
 ## Product Quality Gates
@@ -74,6 +88,11 @@ Framework acceptance starts with consumer outcomes:
    copied framework implementation.
 5. Governed applications retain the accepted authorization, transaction,
    audit, and durable-task guarantees through optional components.
+6. A production Admin consumer can select OIDC without adding OIDC to Core,
+   access more than one authorized product scope, and revoke its local session.
+7. A copied-out application can build a non-root container, run migrations as a
+   distinct operation, report liveness/readiness accurately, drain predictably,
+   and emit structured operational signals without a vendor lock-in.
 
 Behavior changes use focused RED/GREEN/REFACTOR tests. Acceptance also requires
 copied-out consumer tests, deterministic generation, dependency and component
@@ -89,5 +108,4 @@ quality reviews before acceptance.
 ## Change Process
 
 Constitution changes require explicit owner approval. The active product and
-acceptance contract is
-`.ai-platform/specs/007-component-framework-refoundation/spec.md`.
+acceptance contract is `.ai-platform/specs/010-production-foundation/spec.md`.

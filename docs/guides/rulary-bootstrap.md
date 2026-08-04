@@ -4,7 +4,7 @@ Rulary is a separate product repository. Modary supplies reusable mechanics;
 Rulary owns rule-domain models, workflows, APIs, UI, deployment, and release
 decisions. No Rulary package should be added to the Modary module.
 
-This guide defines a low-risk adoption path using an exact Modary v0.2 release
+This guide defines a low-risk adoption path using the exact Modary v0.3 release
 or an explicitly coordinated source dependency during framework development.
 
 ## 1. Start With The Admin Profile
@@ -15,7 +15,7 @@ closest baseline:
 
 ```bash
 modary new rulary \
-  --profile admin \
+  --profile admin --with oidc --with otel \
   --module github.com/your-org/rulary \
   --name Rulary
 ```
@@ -24,6 +24,10 @@ Do not start with Governed merely because it is the most capable Profile.
 Most rule browsing, draft editing, metadata maintenance, and validation are
 ordinary product operations. Keeping them on `database.Store` avoids Preview,
 River, audit, and worker complexity where it adds no user value.
+
+Use `--with oidc` when Rulary has a production identity provider; keep local
+password login only for isolated development. `--with otel` is appropriate when
+the deployment has a reviewed Collector. Both remain replaceable components.
 
 ## 2. Establish The Product Boundary
 

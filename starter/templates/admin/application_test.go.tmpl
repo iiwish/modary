@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,10 +14,14 @@ import (
 	"time"
 
 	"{{.ModulePath}}/internal/config"
+	{{if not .HasOIDC}}
 	"github.com/iiwish/modary/authz"
+	{{end}}
 	"github.com/iiwish/modary/database"
+	{{if not .HasOIDC}}
 	"github.com/iiwish/modary/identity"
 	"github.com/iiwish/modary/scope"
+	{{end}}
 )
 
 const (
@@ -32,9 +37,24 @@ func TestAdminBackendProfile(t *testing.T) {
 	if databaseURL == "" {
 		t.Skip("DATABASE_URL is required for the generated Admin integration test")
 	}
+	{{if .HasOIDC}}issuerURL := os.Getenv("MODARY_TEST_OIDC_ISSUER_URL")
+	if issuerURL == "" {
+		t.Skip("MODARY_TEST_OIDC_ISSUER_URL is required for the generated OIDC integration test")
+	}
+	{{end}}
+	{{if .HasOTel}}collector := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer collector.Close()
+	{{end}}
 	runtimeConfig := config.Config{DatabaseURL: databaseURL, Schema: os.Getenv("MODARY_DATABASE_SCHEMA"),
 		{{if .HasTasks}}QueueSchema: os.Getenv("MODARY_QUEUE_SCHEMA"),
-		{{end}}AdminUser: "admin", AdminPassword: "development-password", InsecureCookie: true}
+		{{end}}{{if .HasOIDC}}OIDCIssuerURL: issuerURL, OIDCClientID: os.Getenv("MODARY_TEST_OIDC_CLIENT_ID"),
+		OIDCClientSecret: os.Getenv("MODARY_TEST_OIDC_CLIENT_SECRET"), OIDCRedirectURL: os.Getenv("MODARY_TEST_OIDC_REDIRECT_URL"),
+		OIDCSubject: os.Getenv("MODARY_TEST_OIDC_SUBJECT"), OIDCAllowInsecureHTTP: true,
+		{{else}}AdminUser: "admin", AdminPassword: "development-password", {{end}}InsecureCookie: true, MigrateOnStart: true,
+		{{if .HasOTel}}OTelEndpoint: collector.URL, OTelEnvironment: "acceptance", OTelInsecure: true,
+		{{end}}}
 	if runtimeConfig.Schema == "" {
 		runtimeConfig.Schema = {{quote .TestSchemaID}}
 	}
@@ -54,6 +74,12 @@ func TestAdminBackendProfile(t *testing.T) {
 	{{else}}if application.Core().Tasks() != nil { t.Fatal("unselected task service is available") }
 	{{end}}{{if .HasAudit}}if _, err := application.Core().AuditReader(); err != nil { t.Fatal(err) }
 	{{end}}
+	{{if .HasOIDC}}if _, err := application.Core().BrowserAuthentication(); err != nil { t.Fatal(err) }
+	if _, err := application.Core().Passwords(); err == nil { t.Fatal("OIDC-only composition unexpectedly provides password authentication") }
+	{{end}}
+	{{if .HasOTel}}if _, err := application.Core().Observability(); err != nil { t.Fatal(err) }
+	{{end}}
+	if err := application.Process().MarkReady(); err != nil { t.Fatal(err) }
 	store, err := application.Core().Database()
 	if err != nil {
 		t.Fatal(err)
@@ -74,6 +100,9 @@ func TestAdminBackendProfile(t *testing.T) {
 	client.health()
 	client.web()
 	client.expectAuthenticationRequired("/api/admin/context")
+	{{if .HasOIDC}}client.expectStatus("/api/auth/login", http.StatusNotFound)
+	client.expectRedirect("/api/auth/oidc/login")
+	{{else}}
 	client.login("admin", "development-password")
 	client.expectAdminContext(expectedAdminDescriptors(), expectedAdminGrants())
 	{{if .HasTasks}}client.expectEmptyPage("/api/tasks?limit=10", "tasks")
@@ -114,7 +143,7 @@ func TestAdminBackendProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	executionScope := scope.Must("workspace", "default")
-	decision, err := authorizer.Authorize(context.Background(), authz.Request{Actor: identity.Actor{ID: "admin", Type: "human", DisplayName: "Administrator", Scope: executionScope},
+	decision, err := authorizer.Authorize(context.Background(), authz.Request{Actor: identity.Actor{ID: "admin", Type: "human", DisplayName: "Administrator"},
 		OperationID: "records.forbidden", Permission: "records.forbidden", Scope: executionScope, Phase: authz.PhaseIntent})
 	if err != nil || decision.Allowed {
 		t.Fatalf("default deny decision=%#v error=%v", decision, err)
@@ -128,6 +157,7 @@ func TestAdminBackendProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := restarted.Process().MarkReady(); err != nil { t.Fatal(err) }
 	t.Cleanup(func() { _ = restarted.Shutdown(context.Background()) })
 	restartedStore, err := restarted.Core().Database()
 	if err != nil {
@@ -143,6 +173,7 @@ func TestAdminBackendProfile(t *testing.T) {
 	restartedClient.expectList(record.ID, integrationActiveTitle)
 	restartedClient.remove(record.ID)
 	restartedClient.expectEmpty()
+	{{end}}
 }
 
 func cleanupIntegrationRecords(ctx context.Context, store database.Store) error {
@@ -263,9 +294,11 @@ func newProfileClient(t *testing.T, handler http.Handler) *profileClient {
 }
 
 func (client *profileClient) health() {
-	response := client.request(http.MethodGet, "/healthz", nil, false)
-	if response.Code != http.StatusOK {
-		client.t.Fatalf("health=%d %s", response.Code, response.Body.String())
+	for _, path := range []string{"/livez", "/readyz"} {
+		response := client.request(http.MethodGet, path, nil, false)
+		if response.Code != http.StatusOK {
+			client.t.Fatalf("probe %s=%d %s", path, response.Code, response.Body.String())
+		}
 	}
 }
 
@@ -366,6 +399,14 @@ func (client *profileClient) expectStatus(path string, status int) {
 	}
 }
 
+func (client *profileClient) expectRedirect(path string) {
+	client.t.Helper()
+	response := client.request(http.MethodGet, path, nil, false)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") == "" {
+		client.t.Fatalf("GET %s = %d location=%q body=%s", path, response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+}
+
 func (client *profileClient) create(title, status string) profileRecord {
 	response := client.request(http.MethodPost, "/api/records", map[string]any{"title": title, "status": status}, true)
 	if response.Code != http.StatusCreated {
@@ -432,10 +473,12 @@ func (client *profileClient) expectEmpty() {
 func (client *profileClient) request(method, path string, body any, csrf bool) *httptest.ResponseRecorder {
 	client.t.Helper()
 	var payload []byte
+	var reader io.Reader
 	if body != nil {
 		payload, _ = json.Marshal(body)
+		reader = bytes.NewReader(payload)
 	}
-	request := httptest.NewRequest(method, path, bytes.NewReader(payload))
+	request := httptest.NewRequest(method, path, reader)
 	request.Header.Set("Accept", "application/json")
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
