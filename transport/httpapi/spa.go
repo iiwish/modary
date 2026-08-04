@@ -33,27 +33,33 @@ const (
 	DefaultSPAMaxTotalBytes int64 = 64 << 20
 	MaximumSPAMaxTotalBytes int64 = 512 << 20
 
-	maximumCacheControlLength = 1024
+	maximumCacheControlLength    = 1024
+	maximumSPAFallbackExclusions = 64
 )
 
-// SPAOptions controls the bootstrap document and the cache policy applied to
-// it and to all other static assets. Empty fields select the exported defaults.
+// SPAOptions controls the bootstrap document, static-asset cache policy,
+// fallback namespace boundaries, and snapshot limits. Empty fields select the
+// exported defaults.
 type SPAOptions struct {
 	IndexFile         string
 	IndexCacheControl string
 	AssetCacheControl string
-	MaxFiles          int
-	MaxFileBytes      int64
-	MaxTotalBytes     int64
+	// FallbackExcludedPaths reserves canonical path roots and their descendants
+	// from index fallback while leaving real static assets addressable.
+	FallbackExcludedPaths []string
+	MaxFiles              int
+	MaxFileBytes          int64
+	MaxTotalBytes         int64
 }
 
 type spaServer struct {
-	assets            map[string]spaAsset
-	directories       map[string]struct{}
-	index             spaAsset
-	indexFile         string
-	indexCacheControl string
-	assetCacheControl string
+	assets                map[string]spaAsset
+	directories           map[string]struct{}
+	index                 spaAsset
+	indexFile             string
+	indexCacheControl     string
+	assetCacheControl     string
+	fallbackExcludedPaths []string
 }
 
 type spaAsset struct {
@@ -93,12 +99,13 @@ func NewSPA(content fs.FS, options SPAOptions) (http.Handler, error) {
 	}
 
 	return &spaServer{
-		assets:            snapshot.assets,
-		directories:       snapshot.directories,
-		index:             index,
-		indexFile:         normalized.IndexFile,
-		indexCacheControl: normalized.IndexCacheControl,
-		assetCacheControl: normalized.AssetCacheControl,
+		assets:                snapshot.assets,
+		directories:           snapshot.directories,
+		index:                 index,
+		indexFile:             normalized.IndexFile,
+		indexCacheControl:     normalized.IndexCacheControl,
+		assetCacheControl:     normalized.AssetCacheControl,
+		fallbackExcludedPaths: append([]string(nil), normalized.FallbackExcludedPaths...),
 	}, nil
 }
 
@@ -121,6 +128,11 @@ func normalizeSPAOptions(options SPAOptions) (SPAOptions, error) {
 	if !validCacheControl(options.AssetCacheControl) {
 		return SPAOptions{}, fmt.Errorf("SPA asset Cache-Control value is invalid")
 	}
+	exclusions, err := normalizeSPAFallbackExcludedPaths(options.FallbackExcludedPaths)
+	if err != nil {
+		return SPAOptions{}, err
+	}
+	options.FallbackExcludedPaths = exclusions
 	if options.MaxFiles < 0 {
 		return SPAOptions{}, fmt.Errorf("SPA max files cannot be negative")
 	}
@@ -149,6 +161,33 @@ func normalizeSPAOptions(options SPAOptions) (SPAOptions, error) {
 		return SPAOptions{}, fmt.Errorf("SPA max total bytes cannot exceed %d", MaximumSPAMaxTotalBytes)
 	}
 	return options, nil
+}
+
+func normalizeSPAFallbackExcludedPaths(values []string) ([]string, error) {
+	if len(values) > maximumSPAFallbackExclusions {
+		return nil, fmt.Errorf("SPA fallback exclusion count cannot exceed %d", maximumSPAFallbackExclusions)
+	}
+	result := append([]string(nil), values...)
+	seen := make(map[string]struct{}, len(result))
+	for _, value := range result {
+		if !validSPAFallbackExcludedPath(value) {
+			return nil, fmt.Errorf("SPA fallback excluded path %q is invalid", value)
+		}
+		if _, duplicate := seen[value]; duplicate {
+			return nil, fmt.Errorf("SPA fallback excluded path %q is duplicated", value)
+		}
+		seen[value] = struct{}{}
+	}
+	return result, nil
+}
+
+func validSPAFallbackExcludedPath(value string) bool {
+	if value == "" || len(value) > 2048 || value[0] != '/' || !utf8.ValidString(value) ||
+		strings.ContainsAny(value, `\%?#`) || strings.ContainsRune(value, '\x00') ||
+		strings.ContainsFunc(value, unicode.IsControl) {
+		return false
+	}
+	return path.Clean(value) == value && (value == "/" || !strings.HasSuffix(value, "/"))
 }
 
 func snapshotSPA(content fs.FS, options SPAOptions) (snapshot spaSnapshot, err error) {
@@ -337,12 +376,25 @@ func (server *spaServer) serve(writer http.ResponseWriter, request *http.Request
 		writeSPAStatus(writer, request.Method, http.StatusNotFound)
 		return
 	}
+	if server.excludesFallback(request.URL.Path) {
+		writeSPAStatus(writer, request.Method, http.StatusNotFound)
+		return
+	}
 	writer.Header().Add("Vary", "Accept")
 	if !acceptsHTML(request.Header.Values("Accept")) {
 		writeSPAStatus(writer, request.Method, http.StatusNotFound)
 		return
 	}
 	server.serveIndex(writer, request)
+}
+
+func (server *spaServer) excludesFallback(requestPath string) bool {
+	for _, excluded := range server.fallbackExcludedPaths {
+		if excluded == "/" || requestPath == excluded || strings.HasPrefix(requestPath, excluded+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func (server *spaServer) serveAsset(writer http.ResponseWriter, request *http.Request, name string) bool {

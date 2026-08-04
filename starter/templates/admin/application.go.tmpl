@@ -3,19 +3,25 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"time"
 
-	"{{.ModulePath}}/internal/config"
+	"{{.ModulePath}}/internal/adminapi"
+	{{if .HasAudit}}"{{.ModulePath}}/internal/auditlog"
+	{{end}}"{{.ModulePath}}/internal/config"
 	"{{.ModulePath}}/internal/records"
-	"{{.ModulePath}}/internal/web"
-	"github.com/iiwish/modary/adapters/localidentity"
-	"github.com/iiwish/modary/adapters/postgresdb"
-	"github.com/iiwish/modary/adapters/rbac"
+	{{if .HasTasks}}"{{.ModulePath}}/internal/tasks"
+	{{end}}"{{.ModulePath}}/internal/web"
 	"github.com/iiwish/modary/appkit"
-	"github.com/iiwish/modary/httpkit"
+	"github.com/iiwish/modary/authz"
+	{{if .HasTasks}}governedpostgres "github.com/iiwish/modary/components/governedpostgres"
+	{{else}}postgresdb "github.com/iiwish/modary/components/postgres"
+	{{end}}"github.com/iiwish/modary/components/postgres/localidentity"
+	"github.com/iiwish/modary/components/postgres/rbac"
+	{{if .HasAudit}}"github.com/iiwish/modary/components/postgres/sqlaudit"
+	{{end}}"github.com/iiwish/modary/httpkit"
 	"github.com/iiwish/modary/module"
 	"github.com/iiwish/modary/scope"
 	"github.com/iiwish/modary/transport/httpapi"
@@ -29,80 +35,132 @@ type Application struct {
 
 func Start(ctx context.Context, runtimeConfig config.Config) (*Application, error) {
 	adminScope := scope.Must("workspace", "default")
-	databaseModule, err := postgresdb.Module(postgresdb.Options{URL: runtimeConfig.DatabaseURL, Schema: runtimeConfig.Schema})
-	if err != nil {
+	{{if .HasTasks}}databaseModule, err := governedpostgres.Module(governedpostgres.Options{
+		URL: runtimeConfig.DatabaseURL, ApplicationSchema: runtimeConfig.Schema, QueueSchema: runtimeConfig.QueueSchema,
+	})
+	{{else}}databaseModule, err := postgresdb.Module(postgresdb.Options{URL: runtimeConfig.DatabaseURL, Schema: runtimeConfig.Schema})
+	{{end}}if err != nil {
 		return nil, err
 	}
 	identityModule, err := localidentity.Module(localidentity.Options{
-		Principals: []localidentity.Principal{ {ActorID: "admin", ActorType: "human", DisplayName: "Administrator", Scope: adminScope} },
+		Principals: []localidentity.Principal{ {ActorID: "admin", ActorType: "human", DisplayName: "管理员", Scope: adminScope} },
 		PasswordCredentials: []localidentity.PasswordCredential{ {ActorID: "admin", Username: runtimeConfig.AdminUser, Password: runtimeConfig.AdminPassword} },
 	})
 	if err != nil {
 		return nil, err
 	}
-	rbacModule, err := rbac.Module(rbac.Options{
-		Roles: []rbac.Role{ {ID: "records-admin", Permissions: []string{"records.create", "records.delete", "records.list", "records.update"}} },
+	permissions := []string{"records.create", "records.delete", "records.list", "records.update"}
+	{{if .HasTasks}}permissions = append(permissions, "tasks.read")
+	{{end}}{{if .HasAudit}}permissions = append(permissions, "audit.read")
+	{{end}}rbacModule, err := rbac.Module(rbac.Options{
+		Roles: []rbac.Role{ {ID: "records-admin", Permissions: permissions} },
 		Bindings: []rbac.Binding{ {ActorID: "admin", ActorType: "human", Scope: adminScope, RoleID: "records-admin"} },
 	})
 	if err != nil {
 		return nil, err
 	}
-	core, err := appkit.Start(ctx, appkit.Definition{
+	modules := []module.Registration{databaseModule, identityModule, rbacModule, records.Registration()}
+	{{if .HasAudit}}modules = append(modules, sqlaudit.Module(sqlaudit.Options{}))
+	{{end}}definition := appkit.Definition{
 		Metadata: appkit.Metadata{ID: {{quote .ID}}, Name: {{quote .Name}}, Version: "0.1.0"},
-		Modules: []module.Registration{databaseModule, identityModule, rbacModule, records.Registration()},
-	}, appkit.Options{})
+		Modules: modules,
+	}
+	options := appkit.Options{}
+	var plan *httpkit.Plan
+	contributions := []httpkit.Contribution{
+		platformContribution(runtimeConfig.InsecureCookie, func() []httpkit.AdminDescriptor { return plan.Admin() }),
+		records.Contribution(runtimeConfig.InsecureCookie),
+		{{if .HasTasks}}tasks.Contribution(runtimeConfig.InsecureCookie),
+		{{end}}{{if .HasAudit}}auditlog.Contribution(runtimeConfig.InsecureCookie),
+		{{end}}adminShellContribution(),
+	}
+	plan, err = httpkit.NewPlan(definition, options, contributions...)
 	if err != nil {
 		return nil, err
 	}
-	handler, err := assembleHTTP(core, runtimeConfig.InsecureCookie)
+	core, err := appkit.Start(ctx, definition, options)
+	if err != nil {
+		return nil, err
+	}
+	handler, err := plan.Handler(ctx, core)
 	if err != nil {
 		return nil, errors.Join(err, stopAfterAssemblyFailure(core))
 	}
 	return &Application{core: core, handler: handler}, nil
 }
 
-func assembleHTTP(core *appkit.Application, insecureCookie bool) (http.Handler, error) {
-	health, err := httpapi.NewHealth(core)
-	if err != nil {
-		return nil, err
+func platformContribution(insecureCookie bool, descriptors func() []httpkit.AdminDescriptor) httpkit.Contribution {
+	return httpkit.Contribution{
+		ID: "admin-platform",
+		Requires: []module.Capability{module.CapabilitySessions, module.CapabilityAuthorization},
+		Routes: []httpkit.RouteSpec{
+			{Method: http.MethodGet, Path: "/healthz"},
+			{Method: http.MethodGet, Path: "/api/meta"},
+			{Method: http.MethodPost, Path: "/api/auth/login"},
+			{Method: http.MethodGet, Path: "/api/auth/session"},
+			{Method: http.MethodPost, Path: "/api/auth/logout"},
+			{Method: http.MethodGet, Path: "/api/admin/context"},
+		},
+		Build: func(_ context.Context, core *appkit.Application) ([]httpkit.Route, error) {
+			health, err := httpapi.NewHealth(core)
+			if err != nil { return nil, err }
+			sessions, err := sessionhttp.New(core, sessionhttp.Options{AllowInsecureCookie: insecureCookie})
+			if err != nil { return nil, err }
+			authorizer, err := core.Authorizer()
+			if err != nil { return nil, err }
+			contextHandler, err := sessions.Authenticate(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				actor, ok := sessionhttp.Actor(request.Context())
+				if !ok { adminapi.WriteError(writer, request, http.StatusUnauthorized, "AUTHENTICATION_REQUIRED", "Authentication is required"); return }
+				modules := descriptors()
+				permissionSet := make(map[string]struct{})
+				for _, descriptor := range modules {
+					for _, permission := range descriptor.Permissions { permissionSet[permission] = struct{}{} }
+				}
+				permissions := make([]string, 0, len(permissionSet))
+				for permission := range permissionSet { permissions = append(permissions, permission) }
+				sort.Strings(permissions)
+				grants := make([]string, 0, len(permissions))
+				for _, permission := range permissions {
+					decision, err := authorizer.Authorize(request.Context(), authz.Request{
+						Actor: actor, OperationID: permission, Permission: permission, Scope: actor.Scope, Phase: authz.PhaseIntent,
+					})
+					if err != nil { adminapi.WriteError(writer, request, http.StatusInternalServerError, "AUTHORIZATION_FAILED", "Permissions could not be loaded"); return }
+					if decision.Allowed { grants = append(grants, permission) }
+				}
+				adminapi.WriteJSON(writer, http.StatusOK, struct {
+					Modules []httpkit.AdminDescriptor `json:"modules"`
+					Grants []string `json:"grants"`
+				}{Modules: modules, Grants: grants})
+			}))
+			if err != nil { return nil, err }
+			metadata := core.Metadata()
+			return []httpkit.Route{
+				{Method: http.MethodGet, Path: "/healthz", Handler: health},
+				{Method: http.MethodGet, Path: "/api/meta", Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+					adminapi.WriteJSON(writer, http.StatusOK, struct { Name string `json:"name"`; Version string `json:"version"` }{Name: metadata.Name, Version: metadata.Version})
+				})},
+				{Method: http.MethodPost, Path: "/api/auth/login", Handler: sessions},
+				{Method: http.MethodGet, Path: "/api/auth/session", Handler: sessions},
+				{Method: http.MethodPost, Path: "/api/auth/logout", Handler: sessions},
+				{Method: http.MethodGet, Path: "/api/admin/context", Handler: contextHandler},
+			}, nil
+		},
 	}
-	sessions, err := sessionhttp.New(core, sessionhttp.Options{AllowInsecureCookie: insecureCookie})
-	if err != nil {
-		return nil, err
+}
+
+func adminShellContribution() httpkit.Contribution {
+	return httpkit.Contribution{
+		ID: "admin-shell",
+		Routes: []httpkit.RouteSpec{ {Method: http.MethodGet, Path: "/"} },
+		Build: func(_ context.Context, _ *appkit.Application) ([]httpkit.Route, error) {
+			spa, err := httpapi.NewSPA(web.Assets(), httpapi.SPAOptions{
+				IndexCacheControl: "no-cache", AssetCacheControl: "public, max-age=31536000, immutable",
+				FallbackExcludedPaths: []string{"/api", "/healthz"},
+			})
+			if err != nil { return nil, err }
+			return []httpkit.Route{ {Method: http.MethodGet, Path: "/", Handler: spa} }, nil
+		},
 	}
-	store, err := core.Database()
-	if err != nil {
-		return nil, err
-	}
-	authorizer, err := core.Authorizer()
-	if err != nil {
-		return nil, err
-	}
-	recordRoutes, err := records.Routes(store, authorizer, sessions)
-	if err != nil {
-		return nil, err
-	}
-	spa, err := httpapi.NewSPA(web.Assets(), httpapi.SPAOptions{
-		IndexCacheControl: "no-cache",
-		AssetCacheControl: "public, max-age=31536000, immutable",
-	})
-	if err != nil {
-		return nil, err
-	}
-	metadata := core.Metadata()
-	routes := []httpkit.Route{
-		{Method: http.MethodGet, Path: "/healthz", Handler: health},
-		{Method: http.MethodGet, Path: "/api/meta", Handler: http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-			writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-			_ = json.NewEncoder(writer).Encode(struct { Name string `json:"name"`; Version string `json:"version"` }{Name: metadata.Name, Version: metadata.Version})
-		})},
-		{Method: http.MethodPost, Path: "/api/auth/login", Handler: sessions},
-		{Method: http.MethodGet, Path: "/api/auth/session", Handler: sessions},
-		{Method: http.MethodPost, Path: "/api/auth/logout", Handler: sessions},
-	}
-	routes = append(routes, recordRoutes...)
-	routes = append(routes, httpkit.Route{Method: http.MethodGet, Path: "/", Handler: spa})
-	return httpkit.NewHandler(routes...)
 }
 
 func (application *Application) Handler() http.Handler { return application.handler }

@@ -17,7 +17,8 @@ go run ./cmd/modary new /absolute/path/to/billing-api \
   --name "Billing API"
 ```
 
-目标目录名必须是小写项目 ID，父目录必须存在，符号链接和非空目录会被拒绝。
+目标目录名必须是小写项目 ID，父目录必须存在，符号链接和非空目录会被拒绝。Go
+Module Path 不能包含名为 `vendor` 的路径段，因为 Go 将其保留给 vendored import。
 
 ## 验证独立边界
 

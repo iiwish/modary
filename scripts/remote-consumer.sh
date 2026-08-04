@@ -54,20 +54,30 @@ export GOWORK=off
 GOFLAGS=
 export GOFLAGS
 
-"$GO" mod edit -dropreplace=github.com/iiwish/modary
-"$GO" mod edit -require=github.com/iiwish/modary@"$version"
+for module_path in \
+	github.com/iiwish/modary \
+	github.com/iiwish/modary/components/postgres \
+	github.com/iiwish/modary/components/governedpostgres; do
+	"$GO" mod edit -dropreplace="$module_path"
+	"$GO" mod edit -require="$module_path@$version"
+done
 "$GO" mod tidy
 
-resolved_version=$("$GO" list -m -f '{{.Version}}' github.com/iiwish/modary)
-if test "$resolved_version" != "$version"; then
-	printf 'remote consumer resolved Modary %s, want %s\n' "$resolved_version" "$version" >&2
-	exit 1
-fi
-replacement=$("$GO" list -m -f '{{if .Replace}}{{.Replace.Path}}{{end}}' github.com/iiwish/modary)
-if test -n "$replacement"; then
-	printf 'remote consumer resolved through a replacement: %s\n' "$replacement" >&2
-	exit 1
-fi
+for module_path in \
+	github.com/iiwish/modary \
+	github.com/iiwish/modary/components/postgres \
+	github.com/iiwish/modary/components/governedpostgres; do
+	resolved_version=$("$GO" list -m -f '{{.Version}}' "$module_path")
+	if test "$resolved_version" != "$version"; then
+		printf 'remote consumer resolved %s %s, want %s\n' "$module_path" "$resolved_version" "$version" >&2
+		exit 1
+	fi
+	replacement=$("$GO" list -m -f '{{if .Replace}}{{.Replace.Path}}{{end}}' "$module_path")
+	if test -n "$replacement"; then
+		printf 'remote consumer resolved through a replacement: module=%s path=%s\n' "$module_path" "$replacement" >&2
+		exit 1
+	fi
+done
 
 "$GO" run ./tools/modary verify
 "$GO" run ./tools/modary generate --check
@@ -76,4 +86,4 @@ MODARY_EXTERNAL_CONSUMER_COPIED_OUT=1 "$GO" test -count=1 ./...
 "$GO" build ./...
 "$GO" run ./cmd/counter-console version
 
-printf 'remote consumer passed: module=github.com/iiwish/modary version=%s\n' "$version"
+printf 'remote consumer passed: modules=3 version=%s\n' "$version"

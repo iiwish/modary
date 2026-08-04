@@ -18,7 +18,9 @@ go run ./cmd/modary new /absolute/path/to/billing-api \
 ```
 
 The destination base must be a lowercase project ID. The parent must exist.
-Symlink destinations and non-empty directories are rejected.
+Symlink destinations and non-empty directories are rejected. The Go Module Path
+must not contain a path segment named `vendor`; Go reserves that segment for
+vendored imports.
 
 ## Establish The Independent Boundary
 

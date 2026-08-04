@@ -55,7 +55,7 @@ Install only the components the product path needs.
 ## 4. Separate Ordinary And Governed Data Access
 
 Ordinary repositories use `database.Store` and explicit
-`WithinTransaction`. The official implementation is `adapters/postgresdb`.
+`WithinTransaction`. The official implementation is `components/postgres`.
 
 Governed Action handlers continue to use `database.Access`; they cannot begin a
 transaction. The governed Runtime owns the transaction that joins state,

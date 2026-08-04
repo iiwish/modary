@@ -4,7 +4,7 @@ All notable Modary changes are recorded here. Versioning follows semantic
 versioning terminology; every pre-v1 release remains an Alpha contract unless
 its release notes explicitly state otherwise.
 
-## v0.2.0-alpha.1 - Unreleased
+## v0.2.0-alpha.1 - 2026-08-04
 
 ### Added
 
@@ -16,6 +16,12 @@ its release notes explicitly state otherwise.
   RBAC, responsive navigation, records CRUD, accessible dialogs, and explicit
   frontend Module registration.
 - A separate ordinary PostgreSQL `database.Store` component for business CRUD.
+- Independently versioned ordinary and governed PostgreSQL component modules
+  with one coordinated root/submodule release train.
+- Static HTTP/Admin contribution contracts with side-effect-free bounded
+  preflight, explicit capability requirements, and permission-aware metadata.
+- Optional read-only task and audit Admin surfaces with shared focused React
+  work-surface primitives.
 
 ### Changed
 
@@ -27,6 +33,15 @@ its release notes explicitly state otherwise.
   and Chinese.
 - Release gates scan production frontend advisories and reachable Go
   vulnerabilities with pinned tooling.
+- Browser-session authentication is an explicit capability, and task
+  inspection exposes a closed provider-neutral lifecycle vocabulary.
+- Governed task inspection uses typed filter queries and component-owned
+  queue-schema indexes aligned with its descending cursor.
+- Starter schema defaults use distinct role-prefixed PostgreSQL namespaces,
+  remain within PostgreSQL and River identifier limits, and avoid reserved
+  schemas for every accepted project ID.
+- Starter rejects Go Module Paths containing a `vendor` segment before writing
+  files, because generated imports cannot use Go's vendoring namespace.
 
 ### Removed
 
@@ -40,8 +55,8 @@ its release notes explicitly state otherwise.
 - The v0.2 source target is intentionally breaking and has no automatic Starter
   patch path. Generated source belongs to the consumer and is migrated through
   reviewed application changes.
-- `v0.1.0-alpha.3` remains immutable. Pin `v0.2.0-alpha.1` only after that tag is
-  published and repeat copied-out acceptance without a local replacement.
+- `v0.1.0-alpha.3` remains immutable. Pin `v0.2.0-alpha.1` exactly and repeat
+  copied-out acceptance without a local replacement.
 
 ## v0.1.0-alpha.3 - 2026-08-02
 

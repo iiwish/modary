@@ -1,0 +1,4 @@
+import { recordsModule } from './records'
+import { tasksModule } from './tasks'
+
+export const selectedAdminModules = [recordsModule, tasksModule] as const

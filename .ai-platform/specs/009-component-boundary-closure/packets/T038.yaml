@@ -1,0 +1,46 @@
+schema_version: 1
+packet_id: EP-009-T038
+task_id: T038
+feature_id: 009-component-boundary-closure
+mode: execute_one_task
+adapter: codex
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  spec: .ai-platform/specs/009-component-boundary-closure/spec.md
+  checklist: .ai-platform/specs/009-component-boundary-closure/checklists/requirements.md
+  plan: .ai-platform/specs/009-component-boundary-closure/plan.md
+  work_graph: .ai-platform/specs/009-component-boundary-closure/tasks.md
+  analysis: .ai-platform/specs/009-component-boundary-closure/analysis.md
+  approval: explicit owner instruction on 2026-08-02
+work_unit:
+  title: Heavy module isolation
+  goal: isolate PostgreSQL and River modules from Core and API module graphs
+  requirements: [FR-001, FR-002, FR-003, NFR-002, NFR-005, NFR-006]
+  depends_on: [T037]
+codebase_context:
+  relevant_files: [go.mod, adapters/**, components/**, integration/**, starter/**, examples/counter/**, Makefile, scripts/**, .github/workflows/**]
+  existing_patterns: [static Module registration, provider-neutral root contracts, GOWORK-off consumer acceptance]
+  forbidden_changes: [published Alpha 3 tag, compatibility imports, Core concrete database dependency, Rulary product code]
+execution_constraints:
+  allowed_files: [go.mod, go.sum, go.work, go.work.sum, adapters/**, components/**, integration/**, internal/databasecontrol/**, internal/quality/**, internal/testcomponent/**, module/**, appkit/**, starter/**, examples/counter/**, Makefile, scripts/**, .github/workflows/**, README.md, docs/**, .ai-platform/docs/**, .ai-platform/specs/009-component-boundary-closure/**, .ai-platform/evidence/T038/**]
+  conflicts_with: [T039, T040, T041]
+  worktree: current owner-approved worktree; preserve unrelated changes
+  delegation: direct execution because subagent delegation was not authorized
+tdd_plan:
+  red: generated API module graph rejects PostgreSQL and River before isolation
+  green: nested heavy modules and explicit generated requirements remove unselected dependencies
+  refactor: consolidate all-module commands, release checks, integration ownership, and docs
+validation_loop:
+  commands: [all-module tidy/test/vet/race/vulnerability, generated Profile module graphs, cross-module conformance, neutrality, strict T038 artifacts, git diff --check]
+  retry_budget: 3 per failing gate before scope reassessment
+evidence_contract:
+  summary: .ai-platform/evidence/T038/summary.md
+  diff: .ai-platform/evidence/T038/diff.patch
+  test_results: .ai-platform/evidence/T038/test-results.md
+  review: .ai-platform/evidence/T038/review.md
+review_contract:
+  sequence: [module graph, dependency direction, consumer behavior, release ownership]
+  acceptance: no unresolved P0 through P2 finding
+handoff:
+  next_task: T039
+stop_conditions: [published Alpha 3 mutation, Core requires a heavy module, privileged boundary cannot remain fail-closed]

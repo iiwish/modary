@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/iiwish/modary/action"
+	"github.com/iiwish/modary/audit"
 	"github.com/iiwish/modary/authz"
 	"github.com/iiwish/modary/database"
 	"github.com/iiwish/modary/identity"
@@ -17,13 +18,15 @@ import (
 // mutable service storage, raw Handlers, and transaction control remain
 // Host-private.
 type Assembly struct {
-	runtime    action.Runtime
-	database   database.Store
-	identities identity.Resolver
-	sessions   identity.Authenticator
-	tokens     identity.TokenAuthenticator
-	tasks      task.Service
-	authorizer authz.Authorizer
+	runtime       action.Runtime
+	database      database.Store
+	identities    identity.Resolver
+	sessions      identity.Authenticator
+	tokens        identity.TokenAuthenticator
+	tasks         task.Service
+	taskInspector task.Inspector
+	auditReader   audit.Reader
+	authorizer    authz.Authorizer
 }
 
 // Runtime returns the governed Action execution surface, or nil when no Module
@@ -45,6 +48,12 @@ func (assembly Assembly) Tokens() identity.TokenAuthenticator { return assembly.
 
 // Tasks returns the optional durable task service installed by Modules.
 func (assembly Assembly) Tasks() task.Service { return assembly.tasks }
+
+// TaskInspector returns optional read-only task metadata inspection.
+func (assembly Assembly) TaskInspector() task.Inspector { return assembly.taskInspector }
+
+// AuditReader returns optional scope-bound audit metadata inspection.
+func (assembly Assembly) AuditReader() audit.Reader { return assembly.auditReader }
 
 // Authorizer returns the optional policy evaluator installed by Modules.
 func (assembly Assembly) Authorizer() authz.Authorizer { return assembly.authorizer }
@@ -107,6 +116,14 @@ func (host *Host) assembleLocked() (Assembly, error) {
 	if err != nil {
 		return Assembly{}, err
 	}
+	taskInspector, err := resolveOptionalHostServiceLocked(host, TaskInspector())
+	if err != nil {
+		return Assembly{}, err
+	}
+	auditReader, err := resolveOptionalHostServiceLocked(host, AuditReader())
+	if err != nil {
+		return Assembly{}, err
+	}
 	if identities != nil {
 		assembly.identities = &assemblyResolver{gate: host.facades, next: identities}
 	}
@@ -132,6 +149,12 @@ func (host *Host) assembleLocked() (Assembly, error) {
 	}
 	if tasks != nil {
 		assembly.tasks = &assemblyTaskService{gate: host.facades, next: tasks}
+	}
+	if taskInspector != nil {
+		assembly.taskInspector = &assemblyTaskInspector{gate: host.facades, next: taskInspector}
+	}
+	if auditReader != nil {
+		assembly.auditReader = &assemblyAuditReader{gate: host.facades, next: auditReader}
 	}
 	return assembly, nil
 }

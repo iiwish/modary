@@ -13,8 +13,16 @@ Module starts. Registration order is not dependency order.
 ## Typed Capabilities
 
 `module.Capability` is an open validated name. Standard capabilities include
-database, tasks, Identity, authorization, and audit. Consumers may define
-namespaced capabilities such as `example.clock`.
+database, task enqueue and inspection, Identity, browser sessions,
+authorization, and audit. Consumers may define namespaced capabilities such as
+`example.clock`.
+
+Identity resolution and authentication transports are separate dependencies.
+`module.CapabilityIdentity` owns principal lookup and password/token identity;
+`module.CapabilitySessions` owns browser-session authentication. An HTTP or
+Admin contribution that authenticates a session declares
+`module.CapabilitySessions` directly. Requiring broad Identity is not a
+substitute and cannot make the contribution pass preflight.
 
 A contract package owns one package-level `module.Key[T]`. Provider and
 consumers import that exact key. Recreating the same string and Go type produces

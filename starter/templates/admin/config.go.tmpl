@@ -12,7 +12,8 @@ import (
 type Config struct {
 	DatabaseURL  string
 	Schema       string
-	HTTPAddress  string
+	{{if .HasTasks}}QueueSchema  string
+	{{end}}HTTPAddress  string
 	AdminUser    string
 	AdminPassword string
 	InsecureCookie bool
@@ -22,7 +23,8 @@ func Load() (Config, error) {
 	config := Config{
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		Schema: os.Getenv("MODARY_DATABASE_SCHEMA"),
-		HTTPAddress: os.Getenv("MODARY_HTTP_ADDR"),
+		{{if .HasTasks}}QueueSchema: os.Getenv("MODARY_QUEUE_SCHEMA"),
+		{{end}}HTTPAddress: os.Getenv("MODARY_HTTP_ADDR"),
 		AdminUser: os.Getenv("MODARY_ADMIN_USERNAME"),
 		AdminPassword: os.Getenv("MODARY_ADMIN_PASSWORD"),
 		InsecureCookie: os.Getenv("MODARY_ALLOW_INSECURE_COOKIE") == "true",
@@ -30,6 +32,10 @@ func Load() (Config, error) {
 	if config.Schema == "" {
 		config.Schema = {{quote .SchemaID}}
 	}
+	{{if .HasTasks}}if config.QueueSchema == "" {
+		config.QueueSchema = {{quote .QueueSchemaID}}
+	}
+	{{end}}
 	if config.HTTPAddress == "" {
 		config.HTTPAddress = "127.0.0.1:8080"
 	}

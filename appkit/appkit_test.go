@@ -685,7 +685,7 @@ func runtimeRegistration(options runtimeRegistrationOptions) module.Registration
 		module.CapabilityDatabase,
 	}
 	if options.withIdentity {
-		manifest.Provides = append(manifest.Provides, "identity")
+		manifest.Provides = append(manifest.Provides, module.CapabilityIdentity, module.CapabilitySessions)
 	}
 	definition := module.Definition{Manifest: manifest}
 	if options.withAction {

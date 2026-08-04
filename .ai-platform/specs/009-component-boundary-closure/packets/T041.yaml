@@ -1,0 +1,46 @@
+schema_version: 1
+packet_id: EP-009-T041
+task_id: T041
+feature_id: 009-component-boundary-closure
+mode: execute_one_task
+adapter: codex
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  spec: .ai-platform/specs/009-component-boundary-closure/spec.md
+  checklist: .ai-platform/specs/009-component-boundary-closure/checklists/requirements.md
+  plan: .ai-platform/specs/009-component-boundary-closure/plan.md
+  work_graph: .ai-platform/specs/009-component-boundary-closure/tasks.md
+  analysis: .ai-platform/specs/009-component-boundary-closure/analysis.md
+  approval: explicit owner instruction on 2026-08-02
+work_unit:
+  title: External acceptance and engineering readiness
+  goal: prove closed component boundaries in fresh consumers and complete F0 review
+  requirements: [FR-013, FR-014, AC-001, AC-002, AC-003, AC-004, AC-005, AC-006]
+  depends_on: [T038, T039, T040]
+codebase_context:
+  relevant_files: [starter/**, examples/counter/**, integration/**, components/postgres/**, components/governedpostgres/**, internal/databasecontrol/**, task/**, audit/**, scripts/**, Makefile, .github/workflows/**, README.md, docs/**, .ai-platform/**]
+  existing_patterns: [GOWORK-off copied consumers, deterministic embedded assets, four-pass review, owner-controlled release preflight]
+  forbidden_changes: [published history mutation, remote publication, downstream Rulary implementation, compatibility residue]
+execution_constraints:
+  allowed_files: [tests/**, starter/**, examples/counter/**, integration/**, components/postgres/**, components/governedpostgres/**, internal/databasecontrol/**, task/**, audit/**, scripts/**, Makefile, .github/workflows/**, README.md, docs/**, internal/quality/**, .ai-platform/docs/**, .ai-platform/specs/009-component-boundary-closure/**, .ai-platform/evidence/T041/**]
+  conflicts_with: [T038, T039, T040]
+  worktree: current owner-approved worktree; clean preflight follows owner-controlled commit
+  delegation: direct execution because subagent delegation was not authorized
+tdd_plan:
+  red: copied-out consumers expose dependency or asset/source drift
+  green: fix generation, assets, tests, docs, and boundaries until external acceptance passes
+  refactor: complete spec, engineering, UX/accessibility, and release-readiness review
+validation_loop:
+  commands: [all-module tidy/test/vet/race, copied-out default and operational Admin frontend pipelines, copied-out Counter, PostgreSQL generated tests, docs/links/neutrality, browser desktop/mobile QA, production audit, strict T041 artifacts, git diff --check]
+  retry_budget: 3 per failing gate before scope reassessment
+evidence_contract:
+  summary: .ai-platform/evidence/T041/summary.md
+  diff: .ai-platform/evidence/T041/diff.patch
+  test_results: .ai-platform/evidence/T041/test-results.md
+  review: .ai-platform/evidence/T041/review.md
+review_contract:
+  sequence: [spec compliance, engineering quality, UX and accessibility, release readiness]
+  acceptance: no unresolved P0 through P2 finding
+handoff:
+  next_task: owner-controlled commit and release-candidate preflight
+stop_conditions: [unresolved P0-P2, published history mutation, remote publication requested without owner approval]

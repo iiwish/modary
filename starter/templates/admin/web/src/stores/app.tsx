@@ -7,7 +7,7 @@ type AppContextValue = AppMetadata & { loaded: boolean; load: () => Promise<void
 const AppContext = createContext<AppContextValue | null>(null)
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [metadata, setMetadata] = useState<AppMetadata>({ name: 'Admin', version: '' })
+  const [metadata, setMetadata] = useState<AppMetadata>({ name: '管理后台', version: '' })
   const [loaded, setLoaded] = useState(false)
   const loadPromise = useRef<Promise<void> | null>(null)
 
@@ -15,9 +15,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (loadPromise.current) return loadPromise.current
     const request = api<AppMetadata>('/api/meta')
       .then((result) => {
-        const name = result.name || 'Admin'
+        const name = result.name || '管理后台'
         setMetadata({ name, version: result.version })
-        document.title = `${name} Admin`
+        document.title = `${name} 管理后台`
         setLoaded(true)
       })
       .catch((cause: unknown) => {

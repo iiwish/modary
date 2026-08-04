@@ -2,11 +2,16 @@ package appkit
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/iiwish/modary/action"
+	"github.com/iiwish/modary/audit"
 	"github.com/iiwish/modary/authz"
 	"github.com/iiwish/modary/database"
 	"github.com/iiwish/modary/identity"
@@ -33,6 +38,10 @@ var (
 	ErrDatabaseUnavailable = errors.New("database store is unavailable")
 	// ErrAuthorizerUnavailable reports that no policy evaluator was installed.
 	ErrAuthorizerUnavailable = errors.New("authorizer is unavailable")
+	// ErrTaskInspectorUnavailable reports that task inspection was not selected.
+	ErrTaskInspectorUnavailable = errors.New("task inspector is unavailable")
+	// ErrAuditReaderUnavailable reports that audit inspection was not selected.
+	ErrAuditReaderUnavailable = errors.New("audit reader is unavailable")
 )
 
 // Definition is the consumer-owned application composition source. Inspecting
@@ -69,19 +78,78 @@ type Options struct {
 	RollbackTimeout time.Duration
 }
 
+// ModuleContract is the immutable, callback-free part of one selected Module.
+type ModuleContract struct {
+	ID       string
+	Version  string
+	Type     module.ModuleType
+	Requires []module.Capability
+	Provides []module.Capability
+}
+
+// Contract is a pure, validated application snapshot used by transport plans
+// before lifecycle side effects. Its mutable state is private and every
+// returned slice is a defensive copy.
+type Contract struct {
+	metadata    Metadata
+	modules     []ModuleContract
+	catalog     []action.CatalogEntry
+	providers   map[module.Capability]string
+	fingerprint [sha256.Size]byte
+}
+
+// Metadata returns the validated application identity.
+func (contract Contract) Metadata() Metadata { return contract.metadata }
+
+// Modules returns the selected static Module contracts in stable ID order.
+func (contract Contract) Modules() []ModuleContract {
+	result := make([]ModuleContract, len(contract.modules))
+	for index, item := range contract.modules {
+		result[index] = item
+		result[index].Requires = append([]module.Capability(nil), item.Requires...)
+		result[index].Provides = append([]module.Capability(nil), item.Provides...)
+	}
+	return result
+}
+
+// Catalog returns the validated Action catalog without constructing handlers.
+func (contract Contract) Catalog() []action.CatalogEntry { return cloneCatalog(contract.catalog) }
+
+// Provider returns the sole selected Module that provides capability.
+func (contract Contract) Provider(capability module.Capability) (string, bool) {
+	provider, ok := contract.providers[capability]
+	return provider, ok
+}
+
+// Binds reports whether application was started from the same validated static
+// contract. It does not compare callback identity or inspect dependency values.
+func (contract Contract) Binds(application *Application) bool {
+	return application != nil && contract.fingerprint == application.contractFingerprint
+}
+
 // Application is an opaque, fully assembled modular application.
 type Application struct {
-	metadata   Metadata
-	catalog    []action.CatalogEntry
-	runtime    Runtime
-	database   database.Store
-	identities identity.Resolver
-	sessions   identity.Authenticator
-	tokens     identity.TokenAuthenticator
-	tasks      task.Service
-	authorizer authz.Authorizer
-	ready      func() bool
-	shutdown   func(context.Context) error
+	metadata            Metadata
+	catalog             []action.CatalogEntry
+	runtime             Runtime
+	database            database.Store
+	identities          identity.Resolver
+	sessions            identity.Authenticator
+	tokens              identity.TokenAuthenticator
+	tasks               task.Service
+	taskInspector       task.Inspector
+	auditReader         audit.Reader
+	authorizer          authz.Authorizer
+	contractFingerprint [sha256.Size]byte
+	ready               func() bool
+	shutdown            func(context.Context) error
+}
+
+// Preflight validates a complete application contract and Runtime policy
+// without invoking Module startup, migration, handler, or shutdown callbacks.
+func Preflight(definition Definition, options Options) (Contract, error) {
+	_, contract, _, err := prepare(definition, options)
+	return contract, err
 }
 
 // Start validates the complete static application contract before Module side
@@ -90,31 +158,9 @@ func Start(ctx context.Context, definition Definition, options Options) (*Applic
 	if ctx == nil {
 		return nil, ErrContextRequired
 	}
-	rollbackTimeout, err := validateStartOptions(options)
+	host, contract, rollbackTimeout, err := prepare(definition, options)
 	if err != nil {
 		return nil, err
-	}
-	if err := ValidateMetadata(definition.Metadata); err != nil {
-		return nil, err
-	}
-	if len(definition.Modules) == 0 {
-		return nil, fmt.Errorf("application Definition must contain at least one Module")
-	}
-
-	host, err := module.NewHostWithOptions(module.HostOptions{
-		Shutdown: options.Shutdown,
-		Runtime:  options.Runtime,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create Module Host: %w", err)
-	}
-	registrations := append([]module.Registration(nil), definition.Modules...)
-	if err := host.Register(registrations...); err != nil {
-		return nil, fmt.Errorf("register Modules: %w", err)
-	}
-	catalog, err := host.Catalog()
-	if err != nil {
-		return nil, fmt.Errorf("preflight Module catalog: %w", err)
 	}
 	if err := host.Start(ctx); err != nil {
 		return nil, fmt.Errorf("start Modules: %w", err)
@@ -136,25 +182,92 @@ func Start(ctx context.Context, definition Definition, options Options) (*Applic
 	sessions := assembly.Sessions()
 	tokens := assembly.Tokens()
 	tasks := assembly.Tasks()
+	taskInspector := assembly.TaskInspector()
+	auditReader := assembly.AuditReader()
 	authorizer := assembly.Authorizer()
 	if err := ctx.Err(); err != nil {
 		return nil, rollbackAssembly(host, rollbackTimeout, fmt.Errorf("assemble application: %w", err))
 	}
 
 	application := &Application{
-		metadata:   definition.Metadata,
-		catalog:    cloneCatalog(catalog),
-		runtime:    runtime,
-		database:   store,
-		identities: identities,
-		sessions:   sessions,
-		tokens:     tokens,
-		tasks:      tasks,
-		authorizer: authorizer,
-		ready:      func() bool { return host.State() == module.StateRunning },
-		shutdown:   host.Shutdown,
+		metadata:            definition.Metadata,
+		catalog:             contract.Catalog(),
+		runtime:             runtime,
+		database:            store,
+		identities:          identities,
+		sessions:            sessions,
+		tokens:              tokens,
+		tasks:               tasks,
+		taskInspector:       taskInspector,
+		auditReader:         auditReader,
+		authorizer:          authorizer,
+		contractFingerprint: contract.fingerprint,
+		ready:               func() bool { return host.State() == module.StateRunning },
+		shutdown:            host.Shutdown,
 	}
 	return application, nil
+}
+
+func prepare(definition Definition, options Options) (*module.Host, Contract, time.Duration, error) {
+	rollbackTimeout, err := validateStartOptions(options)
+	if err != nil {
+		return nil, Contract{}, 0, err
+	}
+	if err := ValidateMetadata(definition.Metadata); err != nil {
+		return nil, Contract{}, 0, err
+	}
+	if len(definition.Modules) == 0 {
+		return nil, Contract{}, 0, fmt.Errorf("application Definition must contain at least one Module")
+	}
+	host, err := module.NewHostWithOptions(module.HostOptions{Shutdown: options.Shutdown, Runtime: options.Runtime})
+	if err != nil {
+		return nil, Contract{}, 0, fmt.Errorf("create Module Host: %w", err)
+	}
+	registrations := append([]module.Registration(nil), definition.Modules...)
+	if err := host.Register(registrations...); err != nil {
+		return nil, Contract{}, 0, fmt.Errorf("register Modules: %w", err)
+	}
+	catalog, err := host.Catalog()
+	if err != nil {
+		return nil, Contract{}, 0, fmt.Errorf("preflight Module catalog: %w", err)
+	}
+	contract, err := newContract(definition.Metadata, registrations, catalog)
+	if err != nil {
+		return nil, Contract{}, 0, fmt.Errorf("build application contract: %w", err)
+	}
+	return host, contract, rollbackTimeout, nil
+}
+
+func newContract(metadata Metadata, registrations []module.Registration, catalog []action.CatalogEntry) (Contract, error) {
+	contracts := make([]ModuleContract, len(registrations))
+	providers := make(map[module.Capability]string)
+	for index, registration := range registrations {
+		manifest := registration.Definition.Manifest
+		item := ModuleContract{
+			ID: manifest.ID, Version: manifest.Version, Type: manifest.Type,
+			Requires: append([]module.Capability(nil), manifest.Requires...),
+			Provides: append([]module.Capability(nil), manifest.Provides...),
+		}
+		slices.Sort(item.Requires)
+		slices.Sort(item.Provides)
+		contracts[index] = item
+		for _, capability := range item.Provides {
+			providers[capability] = item.ID
+		}
+	}
+	slices.SortFunc(contracts, func(left, right ModuleContract) int { return strings.Compare(left.ID, right.ID) })
+	fingerprintInput := struct {
+		Metadata Metadata
+		Modules  []ModuleContract
+	}{Metadata: metadata, Modules: contracts}
+	encoded, err := json.Marshal(fingerprintInput)
+	if err != nil {
+		return Contract{}, err
+	}
+	return Contract{
+		metadata: metadata, modules: contracts, catalog: cloneCatalog(catalog), providers: providers,
+		fingerprint: sha256.Sum256(encoded),
+	}, nil
 }
 
 func validateStartOptions(options Options) (time.Duration, error) {
@@ -216,6 +329,22 @@ func (application *Application) Tasks() task.Service {
 		return nil
 	}
 	return application.tasks
+}
+
+// TaskInspector returns selected read-only operational task metadata.
+func (application *Application) TaskInspector() (task.Inspector, error) {
+	if application == nil || application.taskInspector == nil {
+		return nil, ErrTaskInspectorUnavailable
+	}
+	return application.taskInspector, nil
+}
+
+// AuditReader returns selected read-only, scope-bound audit metadata.
+func (application *Application) AuditReader() (audit.Reader, error) {
+	if application == nil || application.auditReader == nil {
+		return nil, ErrAuditReaderUnavailable
+	}
+	return application.auditReader, nil
 }
 
 // Ready reports whether startup completed and shutdown has not begun.

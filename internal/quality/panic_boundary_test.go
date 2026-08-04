@@ -30,7 +30,7 @@ func TestProductionPanicDetectionDoesNotDependOnRecoveredValue(t *testing.T) {
 	}
 	root := filepath.Clean(filepath.Join(filepath.Dir(current), "..", ".."))
 	allowed := map[string]recoverRetentionSpec{
-		"adapters/postgres/executor.go":           {name: "recovered", operator: token.DEFINE},
+		"components/governedpostgres/executor.go": {name: "recovered", operator: token.DEFINE},
 		"internal/databasecontrol/transaction.go": {name: "panicValue", operator: token.ASSIGN},
 	}
 	seen := make(map[string]int, len(allowed))

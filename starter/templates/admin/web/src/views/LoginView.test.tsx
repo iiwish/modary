@@ -11,8 +11,8 @@ describe('Login view', () => {
     const { container } = render(
       <AppProvider><AuthProvider><MemoryRouter><LoginView /></MemoryRouter></AuthProvider></AppProvider>,
     )
-    expect(screen.getByLabelText('Username').tagName).toBe('INPUT')
-    expect(screen.getByLabelText('Password').getAttribute('type')).toBe('password')
+    expect(screen.getByLabelText('用户名').tagName).toBe('INPUT')
+    expect(screen.getByLabelText('密码').getAttribute('type')).toBe('password')
     const result = await axe.run(container)
     expect(result.violations).toEqual([])
   })

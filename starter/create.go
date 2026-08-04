@@ -48,6 +48,16 @@ const (
 	ProfileGoverned Profile = "governed"
 )
 
+// Component identifies one optional Profile-owned component selection.
+type Component string
+
+const (
+	// ComponentTasks adds River-backed task inspection to the Admin Profile.
+	ComponentTasks Component = "tasks"
+	// ComponentAudit adds scope-bound audit inspection to the Admin Profile.
+	ComponentAudit Component = "audit"
+)
+
 // CreateOptions defines one initial project rendering. ModaryReplace is an
 // explicit development and conformance hook; released projects normally leave
 // it empty and use the exact ModaryVersion.
@@ -58,13 +68,15 @@ type CreateOptions struct {
 	Profile       Profile
 	ModaryVersion string
 	ModaryReplace string
+	Components    []Component
 }
 
 // Result identifies the created project and its sorted consumer-owned files.
 type Result struct {
-	Destination string   `json:"destination"`
-	Profile     Profile  `json:"profile"`
-	Files       []string `json:"files"`
+	Destination string      `json:"destination"`
+	Profile     Profile     `json:"profile"`
+	Files       []string    `json:"files"`
+	Components  []Component `json:"components,omitempty"`
 }
 
 type normalizedCreateOptions struct {
@@ -77,11 +89,17 @@ type normalizedCreateOptions struct {
 	profile       Profile
 	modaryVersion string
 	modaryReplace string
+	components    []Component
 }
 
 type renderedFile struct {
 	path string
 	data []byte
+}
+
+func (options normalizedCreateOptions) hasComponent(component Component) bool {
+	index := sort.Search(len(options.components), func(index int) bool { return options.components[index] >= component })
+	return index < len(options.components) && options.components[index] == component
 }
 
 // Create renders and writes a complete Profile only after all input and
@@ -109,7 +127,7 @@ func Create(ctx context.Context, options CreateOptions) (Result, error) {
 	for index, file := range files {
 		paths[index] = file.path
 	}
-	return Result{Destination: normalized.destination, Profile: normalized.profile, Files: paths}, nil
+	return Result{Destination: normalized.destination, Profile: normalized.profile, Files: paths, Components: append([]Component(nil), normalized.components...)}, nil
 }
 
 func normalizeCreateOptions(options CreateOptions) (normalizedCreateOptions, error) {
@@ -136,7 +154,7 @@ func normalizeCreateOptions(options CreateOptions) (normalizedCreateOptions, err
 	if modulePath == "" {
 		modulePath = base
 	}
-	if err := module.CheckPath(modulePath); err != nil {
+	if err := validateModulePath(modulePath); err != nil {
 		return normalizedCreateOptions{}, fmt.Errorf("%w: module path %q: %v", ErrInvalidOptions, modulePath, err)
 	}
 	name := options.Name
@@ -154,6 +172,19 @@ func normalizeCreateOptions(options CreateOptions) (normalizedCreateOptions, err
 	case ProfileAPI, ProfileAdmin, ProfileGoverned:
 	default:
 		return normalizedCreateOptions{}, fmt.Errorf("%w: profile %q is unknown", ErrInvalidOptions, profile)
+	}
+	components := append([]Component(nil), options.Components...)
+	sort.Slice(components, func(left, right int) bool { return components[left] < components[right] })
+	for index, component := range components {
+		if component != ComponentTasks && component != ComponentAudit {
+			return normalizedCreateOptions{}, fmt.Errorf("%w: component %q is unknown", ErrInvalidOptions, component)
+		}
+		if profile != ProfileAdmin {
+			return normalizedCreateOptions{}, fmt.Errorf("%w: component %q requires the Admin Profile", ErrInvalidOptions, component)
+		}
+		if index > 0 && component == components[index-1] {
+			return normalizedCreateOptions{}, fmt.Errorf("%w: component %q was selected more than once", ErrInvalidOptions, component)
+		}
 	}
 	version := options.ModaryVersion
 	if version == "" {
@@ -178,7 +209,20 @@ func normalizeCreateOptions(options CreateOptions) (normalizedCreateOptions, err
 		destination: absolute, parent: parent, base: base, id: base,
 		modulePath: modulePath, name: name, profile: profile,
 		modaryVersion: version, modaryReplace: replace,
+		components: components,
 	}, nil
+}
+
+func validateModulePath(value string) error {
+	if err := module.CheckPath(value); err != nil {
+		return err
+	}
+	for _, segment := range strings.Split(value, "/") {
+		if segment == "vendor" {
+			return fmt.Errorf("path segment %q is reserved by Go vendoring", segment)
+		}
+	}
+	return nil
 }
 
 func displayName(id string) string {

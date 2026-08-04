@@ -44,9 +44,19 @@ func TestReleasePreflightAcceptsCompleteCandidateAndExactTag(t *testing.T) {
 		t.Fatalf("complete candidate failed: %v\n%s", err, output)
 	}
 	finalizeReleaseChangelog(t, repository)
-	runGitFixture(t, repository, "tag", "-a", testReleaseVersion, "-m", testReleaseVersion)
+	tagReleaseTrain(t, repository, testReleaseVersion)
 	if output, err := runReleasePreflight(t, repository, testReleaseVersion, "tag"); err != nil {
 		t.Fatalf("exact tag failed: %v\n%s", err, output)
+	}
+}
+
+func TestReleasePreflightRejectsIncompleteComponentTagTrain(t *testing.T) {
+	repository := newReleaseFixture(t)
+	finalizeReleaseChangelog(t, repository)
+	runGitFixture(t, repository, "tag", "-a", testReleaseVersion, "-m", testReleaseVersion)
+	output, err := runReleasePreflight(t, repository, testReleaseVersion, "tag")
+	if err == nil || !strings.Contains(output, "component release tag") {
+		t.Fatalf("incomplete component tag train = %v, output=%q", err, output)
 	}
 }
 
@@ -57,6 +67,15 @@ func TestReleasePreflightRejectsInvalidVersion(t *testing.T) {
 		if err == nil || !strings.Contains(output, "semantic") {
 			t.Fatalf("invalid version %s check = %v, output=%q", version, err, output)
 		}
+	}
+}
+
+func TestReleasePreflightRejectsComponentVersionDrift(t *testing.T) {
+	repository := newReleaseFixture(t)
+	replaceDocsFixture(t, filepath.Join(repository, "components", "postgres", "go.mod"), testReleaseVersion, "v0.1.0-alpha.2")
+	output, err := runReleasePreflight(t, repository, testReleaseVersion, "candidate")
+	if err == nil || !strings.Contains(output, "must require github.com/iiwish/modary") {
+		t.Fatalf("component version drift = %v, output=%q", err, output)
 	}
 }
 
@@ -146,7 +165,8 @@ func finalizeReleaseChangelog(t *testing.T, repository string) {
 	replaceDocsFixture(t, filepath.Join(repository, "CHANGELOG.md"),
 		"## "+testReleaseVersion+" - Unreleased",
 		"## "+testReleaseVersion+" - 2026-07-31")
-	runGitFixture(t, repository, "add", "CHANGELOG.md")
+	refreshAcceptanceDigest(t, repository)
+	runGitFixture(t, repository, "add", "CHANGELOG.md", ".ai-platform/evidence/T041/summary.md")
 	runGitFixture(t, repository, "-c", "user.name=Modary Test", "-c", "user.email=modary@example.invalid", "commit", "--quiet", "-m", "finalize changelog")
 }
 
@@ -169,7 +189,11 @@ func TestRemoteConsumerRemovesReplacementAndRunsCompleteGate(t *testing.T) {
 	}
 	for _, required := range []string{
 		"mod edit -dropreplace=github.com/iiwish/modary",
+		"mod edit -dropreplace=github.com/iiwish/modary/components/postgres",
+		"mod edit -dropreplace=github.com/iiwish/modary/components/governedpostgres",
 		"mod edit -require=github.com/iiwish/modary@" + testReleaseVersion,
+		"mod edit -require=github.com/iiwish/modary/components/postgres@" + testReleaseVersion,
+		"mod edit -require=github.com/iiwish/modary/components/governedpostgres@" + testReleaseVersion,
 		"mod tidy",
 		"run ./tools/modary verify",
 		"run ./tools/modary generate --check",
@@ -206,14 +230,57 @@ func newReleaseFixture(t *testing.T) string {
 	writeDocsFixtureFile(t, filepath.Join(repository, "LICENSE"), "owner-selected license text\n")
 	writeDocsFixtureFile(t, filepath.Join(repository, "SECURITY.md"), "# Security\n\n- Private reporting channel: https://github.com/iiwish/modary/security/advisories/new\n")
 	writeDocsFixtureFile(t, filepath.Join(repository, "CHANGELOG.md"), "# Changelog\n\n## "+testReleaseVersion+" - Unreleased\n")
-	writeDocsFixtureFile(t, filepath.Join(repository, "docs", "f0-acceptance-report.md"), "# Acceptance\n\n- Status: Accepted\n")
+	writeDocsFixtureFile(t, filepath.Join(repository, "docs", "f0-acceptance-report.md"), "# Acceptance\n\n- Status: Accepted\n- Current closure spec: `.ai-platform/specs/009-component-boundary-closure/spec.md`\n- Current closure evidence: `.ai-platform/evidence/T041/`\n")
+	writeDocsFixtureFile(t, filepath.Join(repository, ".ai-platform", "evidence", "T041", "summary.md"), "# T041\n\n- Source digest: git-hash:0000000000000000000000000000000000000000\n")
+	writeDocsFixtureFile(t, filepath.Join(repository, "components", "postgres", "go.mod"), "module github.com/iiwish/modary/components/postgres\n\ngo 1.26.5\n\nrequire github.com/iiwish/modary "+testReleaseVersion+"\n")
+	writeDocsFixtureFile(t, filepath.Join(repository, "components", "governedpostgres", "go.mod"), "module github.com/iiwish/modary/components/governedpostgres\n\ngo 1.26.5\n\nrequire github.com/iiwish/modary "+testReleaseVersion+"\n")
 	runGitFixture(t, repository, "init", "--quiet")
+	refreshAcceptanceDigest(t, repository)
 	runGitFixture(t, repository, "config", "user.name", "Modary Test")
 	runGitFixture(t, repository, "config", "user.email", "modary@example.invalid")
 	runGitFixture(t, repository, "add", "--all")
 	runGitFixture(t, repository, "-c", "user.name=Modary Test", "-c", "user.email=modary@example.invalid", "commit", "--quiet", "-m", "candidate")
 	runGitFixture(t, repository, "remote", "add", "origin", "https://github.com/iiwish/modary.git")
 	return repository
+}
+
+func refreshAcceptanceDigest(t *testing.T, repository string) {
+	t.Helper()
+	command := exec.Command(filepath.Join(filepath.Dir(repositoryMakefile(t)), "scripts", "acceptance-source-digest.sh"), repository)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("refresh acceptance digest: %v\n%s", err, output)
+	}
+	path := filepath.Join(repository, ".ai-platform", "evidence", "T041", "summary.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	start := strings.Index(text, "- Source digest: ")
+	if start < 0 {
+		t.Fatalf("acceptance summary has no source digest: %s", text)
+	}
+	end := strings.IndexByte(text[start:], '\n')
+	if end < 0 {
+		end = len(text) - start
+	}
+	line := "- Source digest: " + strings.TrimSpace(string(output))
+	text = text[:start] + line + text[start+end:]
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func tagReleaseTrain(t *testing.T, repository, version string) {
+	t.Helper()
+	for _, tag := range []string{
+		version,
+		"components/postgres/" + version,
+		"components/governedpostgres/" + version,
+	} {
+		runGitFixture(t, repository, "tag", "-a", tag, "-m", tag)
+	}
 }
 
 func runReleasePreflight(t *testing.T, repository, version, mode string) (string, error) {
@@ -243,7 +310,16 @@ go 1.26
 
 require github.com/iiwish/modary v0.0.0
 
+require (
+	github.com/iiwish/modary/components/postgres v0.0.0
+	github.com/iiwish/modary/components/governedpostgres v0.0.0
+)
+
 replace github.com/iiwish/modary => ../..
+
+replace github.com/iiwish/modary/components/postgres => ../../components/postgres
+
+replace github.com/iiwish/modary/components/governedpostgres => ../../components/governedpostgres
 `)
 	for _, relative := range []string{"tools/modary/main.go", "cmd/counter-console/main.go", "modary.yaml"} {
 		writeDocsFixtureFile(t, filepath.Join(consumer, relative), "fixture\n")
@@ -254,26 +330,10 @@ replace github.com/iiwish/modary => ../..
 set -eu
 printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$PWD" "${GO111MODULE-}" "${GOTOOLCHAIN-}" "${GOENV-}" "${GOWORK-}" "${GOFLAGS-}" "$PATH" "${MODARY_EXTERNAL_CONSUMER_COPIED_OUT-}" "$*" >>"${MODARY_FAKE_GO_LOG}"
 case "$*" in
-  'mod edit -dropreplace=github.com/iiwish/modary')
-    awk '!/^replace github.com\/iiwish\/modary /' go.mod >go.mod.next
-    mv go.mod.next go.mod
-    ;;
-  'mod edit -require=github.com/iiwish/modary@'*)
-    version=${1#mod}
-    version=${MODARY_FAKE_VERSION}
-    awk -v version="$version" '{
-      if ($1 == "require" && $2 == "github.com/iiwish/modary") {
-        print "require github.com/iiwish/modary " version
-      } else {
-        print
-      }
-    }' go.mod >go.mod.next
-    mv go.mod.next go.mod
-    ;;
-  'list -m -f {{.Version}} github.com/iiwish/modary')
+  'list -m -f {{.Version}} '*)
     printf '%s\n' "${MODARY_FAKE_VERSION}"
     ;;
-  'list -m -f {{if .Replace}}{{.Replace.Path}}{{end}} github.com/iiwish/modary')
+  'list -m -f {{if .Replace}}{{.Replace.Path}}{{end}} '*)
     printf '%s\n' "${MODARY_FAKE_REPLACED-}"
     ;;
 esac

@@ -132,7 +132,7 @@ func request(t *testing.T, handler http.Handler, method, path, body string, cook
 func startTestApplication(t *testing.T, service *testAuthenticator) *appkit.Application {
 	t.Helper()
 	registration := module.Register(module.Manifest{SchemaVersion: module.SchemaVersion, ID: "test-identity", Version: "0.1.0",
-		Type: module.ModuleTypeAdapter, Provides: []module.Capability{module.CapabilityIdentity}}, func(_ context.Context, installation module.Scope) error {
+		Type: module.ModuleTypeAdapter, Provides: []module.Capability{module.CapabilityIdentity, module.CapabilitySessions}}, func(_ context.Context, installation module.Scope) error {
 		if err := module.Provide(installation, module.IdentityResolver(), identity.Resolver(service)); err != nil {
 			return err
 		}

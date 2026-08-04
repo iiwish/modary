@@ -1,9 +1,10 @@
 # {{.Name}}
 
 This project uses Modary's Admin Profile. The composition is explicit in
-`internal/app/application.go`: general PostgreSQL, local development identity,
-RBAC, session HTTP, and the consumer-owned `records` slice. River tasks,
-governed Actions, audit, and MCP are not selected.
+`internal/app/application.go`: PostgreSQL, local development identity, RBAC,
+session HTTP, and the consumer-owned `records` slice.{{if .HasTasks}} River-backed
+task inspection is selected.{{end}}{{if .HasAudit}} Scope-bound SQL audit inspection is selected.{{end}}
+Governed Actions and MCP are not selected.
 
 Set development configuration:
 
@@ -11,6 +12,8 @@ Set development configuration:
 export DATABASE_URL='postgres://user:password@127.0.0.1:5432/app?sslmode=disable'
 export MODARY_ADMIN_USERNAME='admin'
 export MODARY_ADMIN_PASSWORD='replace-with-at-least-12-characters'
+{{if .HasTasks}}export MODARY_QUEUE_SCHEMA={{.QueueSchemaID}}
+{{end}}
 export MODARY_ALLOW_INSECURE_COOKIE='true' # local HTTP only
 ```
 
@@ -22,11 +25,19 @@ go run -mod=mod ./cmd/{{.ID}}
 
 It listens on `127.0.0.1:8080` by default. `MODARY_HTTP_ADDR` and
 `MODARY_DATABASE_SCHEMA` select another address or application schema.
+Generated schema defaults use project-derived role prefixes, keeping application,
+queue, and test namespaces distinct and outside PostgreSQL's reserved schemas.
+Overlong names retain a readable prefix and add a deterministic hash fragment so
+they remain within their PostgreSQL and River limits.
 
 The Go binary embeds the production Admin UI, so running it does not require
 Node.js. The source in `web/` uses React 19, TypeScript, Vite, React Router, and
 an explicit Module registry. `src/App.tsx` composes session and route providers;
-`src/modules/index.ts` selects product routes and navigation.
+`src/modules/active.ts` selects source modules. `src/modules/index.ts` resolves
+them against backend contribution descriptors and current actor grants.
+The generated interface uses Simplified Chinese (`zh-CN`) for application
+chrome and accessibility labels while preserving technical identifiers and
+operational source values.
 
 To customize the UI source, use the pinned pnpm toolchain:
 

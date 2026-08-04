@@ -1,0 +1,9 @@
+go 1.26.5
+
+use (
+	.
+	./components/governedpostgres
+	./components/postgres
+	./examples/counter
+	./integration
+)

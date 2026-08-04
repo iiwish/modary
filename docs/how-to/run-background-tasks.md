@@ -1,7 +1,8 @@
 # Run Durable Background Tasks
 
 This guide adds one transactionally enqueued task and a worker runner. The
-PostgreSQL adapter uses River internally; consumer code imports only `task`.
+Governed PostgreSQL component uses River internally; consumer code imports only
+`task`.
 
 This path requires the Governed PostgreSQL component. The API and Admin
 Profiles do not expose `task.Service` by default.
@@ -91,7 +92,22 @@ attempts beyond a configured list reuse its final delay. On shutdown, call
 `Stop` with a bounded context and
 wait on `Stopped` when coordinating additional process resources.
 
-## 5. Test The Atomic Boundary
+## 5. Inspect Tasks Without Queue Coupling
+
+Operational surfaces use `task.Inspector`, not River tables or River state
+names. A page is bounded to 100 items and accepts an exclusive `BeforeID`
+cursor plus optional queue and state filters. The public constants are
+`StateQueued`, `StatePending`, `StateScheduled`, `StateRunning`,
+`StateRetrying`, `StateSucceeded`, `StateFailed`, and `StateCancelled`. Their
+wire values are the corresponding lowercase names. Treat this list as the
+application contract; the selected queue component owns the mapping from its
+internal lifecycle.
+
+Task summaries deliberately omit payloads and persisted backend error text.
+Inspection is read-only and does not grant enqueue, retry, cancel, or queue
+administration authority.
+
+## 6. Test The Atomic Boundary
 
 Integration tests use a real PostgreSQL instance. Cover both outcomes:
 

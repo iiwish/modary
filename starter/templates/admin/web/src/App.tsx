@@ -2,7 +2,8 @@ import { useEffect } from 'react'
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router'
 import AppShell from '@/components/AppShell'
 import ToastRegion from '@/components/ToastRegion'
-import { adminModules } from '@/modules'
+import { selectedAdminModules } from '@/modules/active'
+import { useAdminModules } from '@/modules'
 import { AppProvider } from '@/stores/app'
 import { AuthProvider, useAuth } from '@/stores/auth'
 import { ToastProvider } from '@/stores/toast'
@@ -12,16 +13,16 @@ function SessionBoundary() {
   const { initializationError, initialize, initialized } = useAuth()
   useEffect(() => { void initialize() }, [initialize])
   if (!initialized) {
-    return <main className="app-loading" aria-label="Loading application"><span /></main>
+    return <main className="app-loading" aria-label="正在加载应用"><span /></main>
   }
   if (initializationError) {
     return (
       <main className="login-page">
         <section className="login-panel initialization-panel" role="alert" aria-labelledby="initialization-title">
           <span className="brand-mark" aria-hidden="true">M</span>
-          <h1 id="initialization-title">Application unavailable</h1>
+          <h1 id="initialization-title">应用暂时不可用</h1>
           <p className="login-subtitle">{initializationError}</p>
-          <button className="primary-button" type="button" onClick={() => void initialize()}>Retry</button>
+          <button className="primary-button" type="button" onClick={() => void initialize()}>重试</button>
         </section>
       </main>
     )
@@ -45,13 +46,14 @@ function LoginRoute() {
 }
 
 export function AdminRoutes() {
+  const adminModules = useAdminModules(selectedAdminModules)
   return (
     <Routes>
       <Route element={<SessionBoundary />}>
         <Route path="/login" element={<LoginRoute />} />
         <Route element={<RequireAuth />}>
           <Route path="/" element={<AppShell />}>
-            <Route index element={<Navigate to={adminModules[0]?.path ?? '/login'} replace />} />
+            <Route index element={adminModules[0] ? <Navigate to={adminModules[0].path} replace /> : <NoAvailableModules />} />
             {adminModules.map((module) => (
               <Route key={module.id} path={module.path.replace(/^\//, '')} element={<module.view />} />
             ))}
@@ -61,6 +63,10 @@ export function AdminRoutes() {
       </Route>
     </Routes>
   )
+}
+
+function NoAvailableModules() {
+  return <section className="empty-state standalone-empty" role="status"><h1>暂无可用模块</h1><p>当前账号没有管理后台权限。</p></section>
 }
 
 export function AdminApp({ router = <BrowserRouter><AdminRoutes /></BrowserRouter> }: { router?: React.ReactNode }) {

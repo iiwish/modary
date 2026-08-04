@@ -19,10 +19,14 @@ go mod tidy
 
 River 不需要独立数据库，但应用与队列 schema 必须不同，并由当前数据库角色拥有：
 
+Starter 根据项目 ID 派生带角色前缀的默认名称，使 application、queue 与 test
+命名空间彼此分离，并避开 PostgreSQL 保留 schema；名称超过 PostgreSQL 或 River
+上限时会保留可读前缀并加入确定性哈希片段。
+
 ```bash
 export DATABASE_URL='postgres://user:password@127.0.0.1:5432/app?sslmode=disable'
-export MODARY_APPLICATION_SCHEMA=policy_control
-export MODARY_QUEUE_SCHEMA=policy_control_queue
+export MODARY_APPLICATION_SCHEMA=modary_app_policy_control
+export MODARY_QUEUE_SCHEMA=modary_queue_policy_control
 export MODARY_OPERATOR_USERNAME=operator
 export MODARY_OPERATOR_PASSWORD='development-password'
 export MODARY_OPERATOR_TOKEN='development-bearer-token-000000000001'

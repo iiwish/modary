@@ -62,6 +62,39 @@ if test "$go_version" != 1.26.5; then
 	exit 1
 fi
 
+validate_component_module() {
+	component_directory=$1
+	component_path=$2
+	component_mod=$component_directory/go.mod
+	if test ! -f "$component_mod" || test -L "$component_mod"; then
+		printf 'release requires regular component module %s\n' "$component_mod" >&2
+		exit 1
+	fi
+	actual_component_path=$(awk '$1 == "module" { count++; path=$2 } END { if (count != 1) exit 1; print path }' "$component_mod") || {
+		printf 'component go.mod must contain exactly one module declaration: %s\n' "$component_mod" >&2
+		exit 1
+	}
+	if test "$actual_component_path" != "$component_path"; then
+		printf 'component module path is %s, want %s\n' "$actual_component_path" "$component_path" >&2
+		exit 1
+	fi
+	component_go_version=$(awk '$1 == "go" { count++; version=$2 } END { if (count != 1) exit 1; print version }' "$component_mod") || {
+		printf 'component go.mod must contain exactly one Go version: %s\n' "$component_mod" >&2
+		exit 1
+	}
+	if test "$component_go_version" != "$go_version"; then
+		printf 'component %s Go baseline is %s, want %s\n' "$component_path" "$component_go_version" "$go_version" >&2
+		exit 1
+	fi
+	if ! awk -v wanted="$version" '($1 == "github.com/iiwish/modary" && $2 == wanted) || ($1 == "require" && $2 == "github.com/iiwish/modary" && $3 == wanted) { count++ } END { exit count == 1 ? 0 : 1 }' "$component_mod"; then
+		printf 'component %s must require github.com/iiwish/modary %s exactly once\n' "$component_path" "$version" >&2
+		exit 1
+	fi
+}
+
+validate_component_module components/postgres github.com/iiwish/modary/components/postgres
+validate_component_module components/governedpostgres github.com/iiwish/modary/components/governedpostgres
+
 license=
 for candidate in LICENSE LICENSE.txt; do
 	if test -e "$candidate" || test -L "$candidate"; then
@@ -111,6 +144,11 @@ if test ! -f docs/f0-acceptance-report.md ||
 	printf '%s\n' 'release requires accepted F0 technical evidence' >&2
 	exit 1
 fi
+if ! grep -q -F '.ai-platform/specs/009-component-boundary-closure/spec.md' docs/f0-acceptance-report.md ||
+	! grep -q -F '.ai-platform/evidence/T041/' docs/f0-acceptance-report.md; then
+	printf '%s\n' 'release acceptance report does not cover the current component-boundary closure' >&2
+	exit 1
+fi
 
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
 	test "$(git rev-parse --show-toplevel)" != "$(pwd -P)"; then
@@ -130,22 +168,32 @@ if test -n "$(git status --porcelain --untracked-files=all)"; then
 	printf '%s\n' 'release requires a clean committed worktree' >&2
 	exit 1
 fi
+script_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+"$script_root/scripts/check-acceptance-evidence.sh" "$root"
 head=$(git rev-parse --verify HEAD)
 
-if git rev-parse --verify --quiet "refs/tags/$version" >/dev/null; then
-	tag_commit=$(git rev-list -n 1 "$version")
-	if test "$tag_commit" != "$head"; then
-		printf 'release tag %s points to %s, not candidate %s\n' "$version" "$tag_commit" "$head" >&2
-		exit 1
+validate_release_tag() {
+	release_tag=$1
+	release_label=$2
+	if git rev-parse --verify --quiet "refs/tags/$release_tag" >/dev/null; then
+		tag_commit=$(git rev-list -n 1 "$release_tag")
+		if test "$tag_commit" != "$head"; then
+			printf '%s %s points to %s, not candidate %s\n' "$release_label" "$release_tag" "$tag_commit" "$head" >&2
+			exit 1
+		fi
 	fi
-fi
-if test "$mode" = tag; then
-	if ! git rev-parse --verify --quiet "refs/tags/$version" >/dev/null ||
-		test "$(git cat-file -t "refs/tags/$version" 2>/dev/null || true)" != tag; then
-		printf 'tag mode requires one annotated exact release tag %s at HEAD\n' "$version" >&2
-		exit 1
+	if test "$mode" = tag; then
+		if ! git rev-parse --verify --quiet "refs/tags/$release_tag" >/dev/null ||
+			test "$(git cat-file -t "refs/tags/$release_tag" 2>/dev/null || true)" != tag; then
+			printf 'tag mode requires one annotated exact %s %s at HEAD\n' "$release_label" "$release_tag" >&2
+			exit 1
+		fi
 	fi
-fi
+}
 
-printf 'release preflight passed: version=%s mode=%s commit=%s license=%s origin=%s\n' \
+validate_release_tag "$version" 'release tag'
+validate_release_tag "components/postgres/$version" 'component release tag'
+validate_release_tag "components/governedpostgres/$version" 'component release tag'
+
+printf 'release preflight passed: version=%s mode=%s commit=%s modules=3 license=%s origin=%s\n' \
 	"$version" "$mode" "$head" "$license" "$origin"

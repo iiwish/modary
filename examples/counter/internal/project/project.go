@@ -11,12 +11,12 @@ import (
 	"example.com/modary-counter-consumer/internal/ui"
 	"example.com/modary-counter-consumer/modules/counter"
 	"example.com/modary-counter-consumer/modules/systemclock"
-	"github.com/iiwish/modary/adapters/localidentity"
-	postgresadapter "github.com/iiwish/modary/adapters/postgres"
-	"github.com/iiwish/modary/adapters/rbac"
-	"github.com/iiwish/modary/adapters/sqlaudit"
 	"github.com/iiwish/modary/appcmd"
 	"github.com/iiwish/modary/appkit"
+	"github.com/iiwish/modary/components/governedpostgres"
+	"github.com/iiwish/modary/components/postgres/localidentity"
+	"github.com/iiwish/modary/components/postgres/rbac"
+	"github.com/iiwish/modary/components/postgres/sqlaudit"
 	"github.com/iiwish/modary/module"
 	"github.com/iiwish/modary/scope"
 	"github.com/iiwish/modary/transport/httpapi"
@@ -84,7 +84,7 @@ func Definition() (appkit.Definition, error) {
 // explicit typed options. It performs no filesystem, database, migration,
 // handler-construction, password-hashing, or random operation.
 func NewDefinition(config Config) (appkit.Definition, error) {
-	postgresModule, err := postgresadapter.Module(postgresadapter.Options{
+	postgresModule, err := governedpostgres.Module(governedpostgres.Options{
 		URL: config.DatabaseURL, ApplicationSchema: config.ApplicationSchema, QueueSchema: config.QueueSchema,
 	})
 	if err != nil {

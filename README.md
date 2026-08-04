@@ -45,20 +45,18 @@ Profiles are creation presets, not runtime modes. After creation the generated
 files belong to the application and the Module list remains the source of truth.
 The Starter never patches an existing project.
 
-## Try The Current v0.2 Source
+## Install v0.2 Alpha 1
 
-The current branch targets `v0.2.0-alpha.1` and has completed F0 acceptance; it
-is not represented as a published tag. `v0.1.0-alpha.3` remains the immutable
-published Governed-only baseline.
+`v0.2.0-alpha.1` is the current component-framework release.
+`v0.1.0-alpha.3` remains the immutable historical Governed-only baseline.
 
-Go 1.26.5 or newer is required. From this checkout:
+Go 1.26.5 or newer is required. Create a database-free API project directly
+from the released Starter:
 
 ```bash
-make bootstrap
-export MODARY_STARTER_REPLACE="$(pwd)"
-go run ./cmd/modary new ../sample-api --profile api \
-  --module example.com/acme/sample-api --name "Sample API"
-cd ../sample-api
+go run github.com/iiwish/modary/cmd/modary@v0.2.0-alpha.1 \
+  new sample-api --profile api --module example.com/acme/sample-api
+cd sample-api
 go mod tidy
 go test ./...
 go run ./cmd/sample-api
@@ -66,13 +64,6 @@ go run ./cmd/sample-api
 
 The API starts on `127.0.0.1:8080` and exposes `/healthz` and `/api/ping`.
 Continue with the [Profile quickstart](docs/getting-started/quickstart.md).
-
-After `v0.2.0-alpha.1` is published, the equivalent create command is:
-
-```bash
-go run github.com/iiwish/modary/cmd/modary@v0.2.0-alpha.1 \
-  new sample-api --profile api --module example.com/acme/sample-api
-```
 
 ## Architecture
 
@@ -112,9 +103,12 @@ module registry. A prebuilt production bundle is
 embedded in the generated Go binary, so deployment does not require Node.js.
 Node.js and pnpm are required only when changing the generated frontend source.
 
-The F0 UI includes login, session restoration, logout, responsive navigation,
-record filtering, and complete scoped CRUD. It is a reference work surface, not
-a framework-owned low-code schema or dynamic menu engine.
+The F0 UI includes login, session restoration, logout, permission-aware
+navigation and commands, responsive scoped CRUD, and optional read-only task
+and audit operations. `--with tasks` and `--with audit` select those components
+at generation time; omitted components contribute no Go dependency, route,
+source module, or production bundle code. It is a reference work surface, not a
+framework-owned low-code schema or dynamic menu engine.
 
 ## Public Layers
 
@@ -122,12 +116,12 @@ a framework-owned low-code schema or dynamic menu engine.
 |---|---|
 | Core | `module`, `appkit`, `appcmd`, `httpkit` |
 | Contracts | `database`, `identity`, `authz`, `scope`, `task`, `action`, `audit` |
-| Standard components | `adapters/postgresdb`, `adapters/postgres`, `adapters/localidentity`, `adapters/rbac`, `adapters/sqlaudit` |
+| Standard components | `components/postgres`, `components/governedpostgres`, `components/postgres/localidentity`, `components/postgres/rbac`, `components/postgres/sqlaudit` |
 | Transports | `transport/httpapi`, `transport/sessionhttp` |
 | Tooling | `starter`, `cmd/modary`, `projecttool` |
 
-`adapters/postgresdb` is the ordinary PostgreSQL component. It has no River or
-governed persistence dependency. `adapters/postgres` is the Governed component
+`components/postgres` is the ordinary PostgreSQL component. It has no River or
+governed persistence dependency. `components/governedpostgres` is the Governed component
 that installs Action persistence and River-backed tasks. They are separate on
 purpose.
 

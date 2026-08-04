@@ -9,12 +9,11 @@ import (
 	"testing"
 
 	"github.com/iiwish/modary/action"
-	"github.com/iiwish/modary/adapters/postgres"
 	"github.com/iiwish/modary/appkit"
 	"github.com/iiwish/modary/audit"
 	"github.com/iiwish/modary/authz"
 	"github.com/iiwish/modary/identity"
-	"github.com/iiwish/modary/internal/testpostgres"
+	"github.com/iiwish/modary/internal/testcomponent"
 	"github.com/iiwish/modary/module"
 	"github.com/iiwish/modary/scope"
 	"github.com/iiwish/modary/task"
@@ -71,16 +70,9 @@ func TestExternalConsumerCanStartExecuteAndShutdown(t *testing.T) {
 			return externalProbeHandler{}, nil
 		},
 	})
-	databaseConfig := testpostgres.New(t)
-	databaseModule, err := postgres.Module(postgres.Options{
-		URL: databaseConfig.URL, ApplicationSchema: databaseConfig.ApplicationSchema, QueueSchema: databaseConfig.QueueSchema,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	application, err := appkit.Start(context.Background(), appkit.Definition{
 		Metadata: appkit.Metadata{ID: "external-app", Name: "External App", Version: "0.1.0"},
-		Modules:  []module.Registration{databaseModule, registration},
+		Modules:  []module.Registration{testcomponent.RuntimeModule(true), registration},
 	}, appkit.Options{})
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)

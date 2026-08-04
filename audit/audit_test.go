@@ -1,6 +1,8 @@
 package audit
 
 import (
+	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 	"unicode"
@@ -8,6 +10,24 @@ import (
 
 	"github.com/iiwish/modary/scope"
 )
+
+func TestInspectionPageEncodesDatabaseIDsWithoutJSONPrecisionLoss(t *testing.T) {
+	encoded, err := json.Marshal(Page{
+		Events: []Summary{{ID: math.MaxInt64}}, NextBeforeID: math.MaxInt64,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"id":"9223372036854775807"`, `"next_before_id":"9223372036854775807"`} {
+		if !strings.Contains(string(encoded), field) {
+			t.Fatalf("inspection page JSON %s does not contain %s", encoded, field)
+		}
+	}
+	empty, err := json.Marshal(Page{Events: []Summary{}})
+	if err != nil || strings.Contains(string(empty), "next_before_id") {
+		t.Fatalf("empty inspection page JSON = %s, %v", empty, err)
+	}
+}
 
 func TestNormalizeBoundsAndSanitizesEnvelopeIdentifiers(t *testing.T) {
 	event := Normalize(Event{

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"regexp"
 	"testing"
 	"time"
@@ -32,17 +33,27 @@ func TestAdminBackendProfile(t *testing.T) {
 		t.Skip("DATABASE_URL is required for the generated Admin integration test")
 	}
 	runtimeConfig := config.Config{DatabaseURL: databaseURL, Schema: os.Getenv("MODARY_DATABASE_SCHEMA"),
-		AdminUser: "admin", AdminPassword: "development-password", InsecureCookie: true}
+		{{if .HasTasks}}QueueSchema: os.Getenv("MODARY_QUEUE_SCHEMA"),
+		{{end}}AdminUser: "admin", AdminPassword: "development-password", InsecureCookie: true}
 	if runtimeConfig.Schema == "" {
-		runtimeConfig.Schema = {{quote .SchemaID}} + "_test"
+		runtimeConfig.Schema = {{quote .TestSchemaID}}
 	}
+	{{if .HasTasks}}if runtimeConfig.QueueSchema == "" {
+		runtimeConfig.QueueSchema = {{quote .TestQueueSchemaID}}
+	}
+	{{end}}
 	application, err := Start(context.Background(), runtimeConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if application.Core().Runtime() != nil || application.Core().Tasks() != nil || len(application.Core().Catalog()) != 0 {
-		t.Fatalf("unselected surfaces runtime=%v tasks=%v catalog=%v", application.Core().Runtime(), application.Core().Tasks(), application.Core().Catalog())
+	if application.Core().Runtime() != nil || len(application.Core().Catalog()) != 0 {
+		t.Fatalf("unselected governed runtime=%v catalog=%v", application.Core().Runtime(), application.Core().Catalog())
 	}
+	{{if .HasTasks}}if application.Core().Tasks() == nil { t.Fatal("selected task service is unavailable") }
+	if _, err := application.Core().TaskInspector(); err != nil { t.Fatal(err) }
+	{{else}}if application.Core().Tasks() != nil { t.Fatal("unselected task service is available") }
+	{{end}}{{if .HasAudit}}if _, err := application.Core().AuditReader(); err != nil { t.Fatal(err) }
+	{{end}}
 	store, err := application.Core().Database()
 	if err != nil {
 		t.Fatal(err)
@@ -62,10 +73,27 @@ func TestAdminBackendProfile(t *testing.T) {
 	client := newProfileClient(t, application.Handler())
 	client.health()
 	client.web()
+	client.expectAuthenticationRequired("/api/admin/context")
 	client.login("admin", "development-password")
+	client.expectAdminContext(expectedAdminDescriptors(), expectedAdminGrants())
+	{{if .HasTasks}}client.expectEmptyPage("/api/tasks?limit=10", "tasks")
+	client.expectStatus("/api/tasks?limit=101", http.StatusBadRequest)
+	client.expectStatus("/api/tasks?state=available", http.StatusBadRequest)
+	{{end}}{{if .HasAudit}}client.expectEmptyPage("/api/audit?limit=10", "events")
+	client.expectStatus("/api/audit?before_id=-1", http.StatusBadRequest)
+	{{end}}
+	{{if or .HasTasks .HasAudit}}setOperationalPermissions(t, store, false)
+	client.expectAdminContext(expectedAdminDescriptors(), []string{
+		"records.create", "records.delete", "records.list", "records.update",
+	})
+	{{if .HasTasks}}client.expectStatus("/api/tasks", http.StatusForbidden)
+	{{end}}{{if .HasAudit}}client.expectStatus("/api/audit", http.StatusForbidden)
+	{{end}}setOperationalPermissions(t, store, true)
+	{{end}}
 	client.expectCSRFDenied()
 	record := client.create(integrationFirstTitle, "draft")
 	client.expectList(record.ID, integrationFirstTitle)
+	expectRecordPermissionDenials(t, store, client, record)
 	createdAt := record.CreatedAt
 	record = client.update(record.ID, integrationActiveTitle, "active", record.Version)
 	if createdAt.IsZero() || !record.CreatedAt.Equal(createdAt) || record.UpdatedAt.Before(createdAt) {
@@ -127,6 +155,93 @@ func cleanupIntegrationRecords(ctx context.Context, store database.Store) error 
 	})
 }
 
+func setPermission(t *testing.T, store database.Store, permission string, enabled bool) {
+	t.Helper()
+	err := store.WithinTransaction(context.Background(), func(txCtx context.Context) error {
+		if !enabled {
+			_, err := store.ExecContext(txCtx, `DELETE FROM modary_rbac_role_permission
+				WHERE role_id = 'records-admin' AND permission = $1`, permission)
+			return err
+		}
+		_, err := store.ExecContext(txCtx, `INSERT INTO modary_rbac_role_permission (role_id, permission)
+			VALUES ('records-admin', $1) ON CONFLICT DO NOTHING`, permission)
+		return err
+	})
+	if err != nil { t.Fatal(err) }
+}
+
+{{if or .HasTasks .HasAudit}}func setOperationalPermissions(t *testing.T, store database.Store, enabled bool) {
+	{{if .HasTasks}}setPermission(t, store, "tasks.read", enabled)
+	{{end}}{{if .HasAudit}}setPermission(t, store, "audit.read", enabled)
+	{{end}}
+}
+{{end}}
+
+func expectRecordPermissionDenials(t *testing.T, store database.Store, client *profileClient, record profileRecord) {
+	t.Helper()
+	tests := []struct {
+		permission string
+		method     string
+		path       string
+		body       any
+		csrf       bool
+	}{
+		{permission: "records.list", method: http.MethodGet, path: "/api/records"},
+		{permission: "records.create", method: http.MethodPost, path: "/api/records", body: map[string]any{"title": "Forbidden create", "status": "draft"}, csrf: true},
+		{permission: "records.update", method: http.MethodPatch, path: "/api/records/" + record.ID, body: map[string]any{"title": "Forbidden update", "status": "active", "version": record.Version}, csrf: true},
+		{permission: "records.delete", method: http.MethodDelete, path: "/api/records/" + record.ID, body: map[string]any{}, csrf: true},
+	}
+	for _, test := range tests {
+		setPermission(t, store, test.permission, false)
+		client.expectAdminContext(expectedAdminDescriptors(), adminGrantsWithout(test.permission))
+		response := client.request(test.method, test.path, test.body, test.csrf)
+		setPermission(t, store, test.permission, true)
+		if response.Code != http.StatusForbidden {
+			t.Fatalf("forbidden %s %s with %s=%d %s", test.method, test.path, test.permission, response.Code, response.Body.String())
+		}
+	}
+	client.expectAdminContext(expectedAdminDescriptors(), expectedAdminGrants())
+	client.expectList(record.ID, record.Title)
+}
+
+type expectedAdminDescriptor struct {
+	ID                  string   `json:"id"`
+	Label               string   `json:"label"`
+	Path                string   `json:"path"`
+	Icon                string   `json:"icon"`
+	Order               int      `json:"order"`
+	Permissions         []string `json:"permissions"`
+	RequiredPermissions []string `json:"requiredPermissions"`
+}
+
+func expectedAdminDescriptors() []expectedAdminDescriptor {
+	return []expectedAdminDescriptor{
+		{ID: "records", Label: "记录", Path: "/records", Icon: "database", Order: 100,
+			Permissions: []string{"records.create", "records.delete", "records.list", "records.update"}, RequiredPermissions: []string{"records.list"}},
+		{{if .HasTasks}}{ID: "tasks", Label: "任务", Path: "/tasks", Icon: "list-todo", Order: 200,
+			Permissions: []string{"tasks.read"}, RequiredPermissions: []string{"tasks.read"}},
+		{{end}}{{if .HasAudit}}{ID: "audit", Label: "审计日志", Path: "/audit", Icon: "history", Order: 300,
+			Permissions: []string{"audit.read"}, RequiredPermissions: []string{"audit.read"}},
+		{{end}}
+	}
+}
+
+func expectedAdminGrants() []string {
+	return []string{
+		{{if .HasAudit}}"audit.read",
+		{{end}}"records.create", "records.delete", "records.list", "records.update"{{if .HasTasks}}, "tasks.read"{{end}},
+	}
+}
+
+func adminGrantsWithout(excluded string) []string {
+	grants := expectedAdminGrants()
+	result := make([]string, 0, len(grants)-1)
+	for _, grant := range grants {
+		if grant != excluded { result = append(result, grant) }
+	}
+	return result
+}
+
 type profileRecord struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`
@@ -183,6 +298,17 @@ func (client *profileClient) web() {
 	if legacy.Code != http.StatusNotFound {
 		client.t.Fatalf("legacy unhashed asset=%d %s", legacy.Code, legacy.Body.String())
 	}
+	for _, accept := range []string{"", "*/*", "text/html", "application/json"} {
+		request = httptest.NewRequest(http.MethodGet, "/api/not-real", nil)
+		if accept != "" {
+			request.Header.Set("Accept", accept)
+		}
+		unknown := httptest.NewRecorder()
+		client.handler.ServeHTTP(unknown, request)
+		if unknown.Code != http.StatusNotFound || bytes.Contains(unknown.Body.Bytes(), []byte(`<div id="root"></div>`)) {
+			client.t.Fatalf("unknown API Accept=%q: status=%d body=%q", accept, unknown.Code, unknown.Body.String())
+		}
+	}
 }
 
 func (client *profileClient) login(username, password string) {
@@ -199,6 +325,45 @@ func (client *profileClient) login(username, password string) {
 		client.t.Fatalf("login cookie=%#v response=%s", cookies, response.Body.String())
 	}
 	client.cookie, client.csrf = cookies[0], result.CSRF
+}
+
+func (client *profileClient) expectAuthenticationRequired(path string) {
+	response := client.request(http.MethodGet, path, nil, false)
+	if response.Code != http.StatusUnauthorized {
+		client.t.Fatalf("unauthenticated %s=%d %s", path, response.Code, response.Body.String())
+	}
+}
+
+func (client *profileClient) expectAdminContext(modules []expectedAdminDescriptor, grants []string) {
+	response := client.request(http.MethodGet, "/api/admin/context", nil, false)
+	if response.Code != http.StatusOK {
+		client.t.Fatalf("Admin context=%d %s", response.Code, response.Body.String())
+	}
+	var result struct {
+		Modules []expectedAdminDescriptor `json:"modules"`
+		Grants []string `json:"grants"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil { client.t.Fatal(err) }
+	if !reflect.DeepEqual(result.Modules, modules) || !reflect.DeepEqual(result.Grants, grants) {
+		client.t.Fatalf("Admin context modules=%#v grants=%v", result.Modules, result.Grants)
+	}
+}
+
+func (client *profileClient) expectEmptyPage(path, field string) {
+	response := client.request(http.MethodGet, path, nil, false)
+	if response.Code != http.StatusOK {
+		client.t.Fatalf("operational page %s=%d %s", path, response.Code, response.Body.String())
+	}
+	var value map[string]json.RawMessage
+	if err := json.Unmarshal(response.Body.Bytes(), &value); err != nil { client.t.Fatal(err) }
+	if string(value[field]) != "[]" { client.t.Fatalf("operational page %s field %s=%s", path, field, value[field]) }
+}
+
+func (client *profileClient) expectStatus(path string, status int) {
+	response := client.request(http.MethodGet, path, nil, false)
+	if response.Code != status {
+		client.t.Fatalf("GET %s=%d want=%d %s", path, response.Code, status, response.Body.String())
+	}
 }
 
 func (client *profileClient) create(title, status string) profileRecord {

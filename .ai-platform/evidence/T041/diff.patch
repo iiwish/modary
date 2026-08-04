@@ -1,0 +1,35 @@
+# T041 Reviewed Diff Manifest
+
+T041 reviews the complete feature 009 implementation recorded by T038 through
+T040 together with copied-out generation, canonical React assets, CI and release
+automation, current documentation, delivery governance, and corrective acceptance
+work. Published Alpha 3 tags and downstream Rulary source are outside the diff.
+
+The reviewed implementation contains:
+
+- separate root, ordinary PostgreSQL, governed PostgreSQL/River, and integration
+  modules with selection-sensitive generated dependency graphs;
+- immutable pre-start HTTP/Admin contribution contracts with bounded capability,
+  route, descriptor, and permission metadata;
+- provider-neutral task/audit readers, schema-role coordination, indexed cursor
+  queries, and precision-safe wire IDs;
+- generated Chinese React Admin records, optional task/audit surfaces, shared
+  work primitives, permission-aware module resolution, deterministic selected
+  assets, and desktop/mobile accessibility behavior;
+- copied-out default and operations Admin CI with real PostgreSQL and frozen
+  frontend pipelines, plus required copied-out Governed PostgreSQL/River tests;
+- full-field backend descriptor assertions and direct records list/create/update/
+  delete denial tests;
+- deterministic role-prefixed Starter schema derivation with separate 63-byte
+  PostgreSQL and 46-byte River limits, reserved-schema avoidance, independently
+  bounded test schemas, stable hash suffixes, and maximum/reserved-sensitive
+  copied-out PostgreSQL/River runtime acceptance;
+- pre-write rejection of Go Module Paths containing a `vendor` segment;
+- early River queue-schema boundary validation; and
+- a canonical-root candidate-source digest that makes stale T041 evidence fail
+  documentation and release gates without caller-root, relative-path, or symlink
+  bypasses.
+
+The repeat plan uses an 8-minute package timeout with explicitly curated Core,
+Starter, component, integration, and copied-out consumer contracts. It does not
+claim blanket repetition of static packages.

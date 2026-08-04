@@ -2,11 +2,31 @@ package task_test
 
 import (
 	"encoding/json"
+	"math"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/iiwish/modary/task"
 )
+
+func TestInspectionPageEncodesDatabaseIDsWithoutJSONPrecisionLoss(t *testing.T) {
+	encoded, err := json.Marshal(task.Page{
+		Tasks: []task.Summary{{ID: math.MaxInt64}}, NextBeforeID: math.MaxInt64,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"id":"9223372036854775807"`, `"next_before_id":"9223372036854775807"`} {
+		if !strings.Contains(string(encoded), field) {
+			t.Fatalf("inspection page JSON %s does not contain %s", encoded, field)
+		}
+	}
+	empty, err := json.Marshal(task.Page{Tasks: []task.Summary{}})
+	if err != nil || strings.Contains(string(empty), "next_before_id") {
+		t.Fatalf("empty inspection page JSON = %s, %v", empty, err)
+	}
+}
 
 func TestNormalizeRequestDefaultsAndCopies(t *testing.T) {
 	payload := json.RawMessage(`{"run":"one"}`)
@@ -67,6 +87,16 @@ func TestNormalizeRunnerOptions(t *testing.T) {
 	}
 	if _, err := task.NormalizeRunnerOptions(task.RunnerOptions{RetryDelays: []time.Duration{0}}); err == nil {
 		t.Fatal("zero retry delay accepted")
+	}
+}
+
+func TestNormalizeListOptionsUsesCanonicalStates(t *testing.T) {
+	options, err := task.NormalizeListOptions(task.ListOptions{State: task.StateQueued})
+	if err != nil || options.State != task.StateQueued {
+		t.Fatalf("NormalizeListOptions(queued) = %#v, %v", options, err)
+	}
+	if _, err := task.NormalizeListOptions(task.ListOptions{State: task.State("available")}); err == nil {
+		t.Fatal("NormalizeListOptions accepted provider-specific state")
 	}
 }
 

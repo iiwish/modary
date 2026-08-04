@@ -23,6 +23,7 @@ done
 for file in \
 	"$admin/package.json" \
 	"$admin/pnpm-lock.yaml" \
+	"$admin/index.html" \
 	"$admin/src/main.tsx" \
 	"$admin/src/App.tsx" \
 	"$admin/src/modules/index.ts" \
@@ -32,6 +33,15 @@ do
 		fail "required React Admin artifact must be a non-empty regular file: $file"
 	fi
 done
+
+if ! grep -Fq '<html lang="zh-CN">' "$admin/index.html" || \
+	! grep -Fq '<title>管理后台</title>' "$admin/index.html"; then
+	fail 'React Admin source must declare Simplified Chinese as its primary document language'
+fi
+
+if ! grep -Fq '<html lang="zh-CN">' starter/templates/admin/internal/web/dist/index.html; then
+	fail 'embedded React Admin build must preserve the Simplified Chinese document language'
+fi
 
 for pattern in 'app-*.js' 'app-*.css'; do
 	assets=$(find starter/templates/admin/internal/web/dist/assets -type f -name "$pattern" -print)

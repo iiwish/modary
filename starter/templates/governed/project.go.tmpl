@@ -8,12 +8,12 @@ import (
 
 	"{{.ModulePath}}/internal/config"
 	"{{.ModulePath}}/internal/limits"
-	"github.com/iiwish/modary/adapters/localidentity"
-	postgresadapter "github.com/iiwish/modary/adapters/postgres"
-	"github.com/iiwish/modary/adapters/rbac"
-	"github.com/iiwish/modary/adapters/sqlaudit"
 	"github.com/iiwish/modary/appcmd"
 	"github.com/iiwish/modary/appkit"
+	"github.com/iiwish/modary/components/governedpostgres"
+	"github.com/iiwish/modary/components/postgres/localidentity"
+	"github.com/iiwish/modary/components/postgres/rbac"
+	"github.com/iiwish/modary/components/postgres/sqlaudit"
 	"github.com/iiwish/modary/identity"
 	"github.com/iiwish/modary/module"
 	"github.com/iiwish/modary/scope"
@@ -54,7 +54,7 @@ func NewDefinition(runtimeConfig config.Config) (appkit.Definition, error) {
 	if err := runtimeConfig.Validate(); err != nil {
 		return appkit.Definition{}, err
 	}
-	databaseModule, err := postgresadapter.Module(postgresadapter.Options{
+	databaseModule, err := governedpostgres.Module(governedpostgres.Options{
 		URL: runtimeConfig.DatabaseURL, ApplicationSchema: runtimeConfig.ApplicationSchema,
 		QueueSchema: runtimeConfig.QueueSchema,
 	})

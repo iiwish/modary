@@ -1,0 +1,46 @@
+schema_version: 1
+packet_id: EP-009-T040
+task_id: T040
+feature_id: 009-component-boundary-closure
+mode: execute_one_task
+adapter: codex
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  spec: .ai-platform/specs/009-component-boundary-closure/spec.md
+  checklist: .ai-platform/specs/009-component-boundary-closure/checklists/requirements.md
+  plan: .ai-platform/specs/009-component-boundary-closure/plan.md
+  work_graph: .ai-platform/specs/009-component-boundary-closure/tasks.md
+  analysis: .ai-platform/specs/009-component-boundary-closure/analysis.md
+  approval: explicit owner instruction on 2026-08-02
+work_unit:
+  title: Operational Admin surface
+  goal: implement permission-aware shared primitives and optional task/audit operations
+  requirements: [FR-007, FR-008, FR-009, FR-010, FR-011, FR-012, NFR-004]
+  depends_on: [T039]
+codebase_context:
+  relevant_files: [task/**, audit/**, module/**, appkit/**, components/**, starter/templates/admin/**, docs/**]
+  existing_patterns: [backend-authoritative RBAC, source-owned React modules, bounded provider-neutral facades]
+  forbidden_changes: [frontend authorization authority, raw River or SQL exposure, maximal default Admin, speculative UI framework]
+execution_constraints:
+  allowed_files: [task/**, audit/**, appkit/**, module/**, components/**, httpkit/**, starter/**, docs/**, README.md, Makefile, scripts/**, .ai-platform/docs/**, .ai-platform/specs/009-component-boundary-closure/**, .ai-platform/evidence/T040/**]
+  conflicts_with: [T038, T039, T041]
+  worktree: current owner-approved worktree; preserve unrelated changes
+  delegation: direct execution because subagent delegation was not authorized
+tdd_plan:
+  red: optional source/module/assets and restricted grant behavior are missing
+  green: add bounded readers, generated contributions, permission context, shared primitives, and task/audit views
+  refactor: extract only proven cross-module primitives and align all asset variants to generated source identity
+validation_loop:
+  commands: [Go reader/API/generator tests, frontend lint/type/test/build/assets/audit, copied-out Admin variants, PostgreSQL integration, browser desktop/mobile QA, strict T040 artifacts, git diff --check]
+  retry_budget: 3 per failing gate before scope reassessment
+evidence_contract:
+  summary: .ai-platform/evidence/T040/summary.md
+  diff: .ai-platform/evidence/T040/diff.patch
+  test_results: .ai-platform/evidence/T040/test-results.md
+  review: .ai-platform/evidence/T040/review.md
+review_contract:
+  sequence: [permission boundary, data minimization, generated absence, UX and accessibility]
+  acceptance: no unresolved P0 through P2 finding
+handoff:
+  next_task: T041
+stop_conditions: [frontend grants become authorization, raw backend handles are exposed, default Admin gains River]

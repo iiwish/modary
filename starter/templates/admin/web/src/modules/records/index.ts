@@ -1,11 +1,10 @@
-import { Files } from 'lucide-react'
+import { Database } from 'lucide-react'
 import RecordsView from './RecordsView'
 import type { AdminModule } from '../types'
 
 export const recordsModule: AdminModule = {
   id: 'records',
-  label: 'Records',
-  path: '/records',
-  icon: Files,
+  iconKey: 'database',
+  icon: Database,
   view: RecordsView
 }

@@ -37,44 +37,43 @@ var allowedDirectLayerImports = map[architectureLayer]map[architectureLayer]bool
 }
 
 var publicProductionPackages = map[string]architectureLayer{
-	modaryImportPath + "/action":                 layerKernel,
-	modaryImportPath + "/audit":                  layerKernel,
-	modaryImportPath + "/authz":                  layerKernel,
-	modaryImportPath + "/database":               layerKernel,
-	modaryImportPath + "/identity":               layerKernel,
-	modaryImportPath + "/module":                 layerKernel,
-	modaryImportPath + "/scope":                  layerKernel,
-	modaryImportPath + "/task":                   layerKernel,
-	modaryImportPath + "/appkit":                 layerAppKit,
-	modaryImportPath + "/httpkit":                layerTransport,
-	modaryImportPath + "/transport/httpapi":      layerTransport,
-	modaryImportPath + "/transport/sessionhttp":  layerTransport,
-	modaryImportPath + "/adapters":               layerAdapter,
-	modaryImportPath + "/adapters/localidentity": layerAdapter,
-	modaryImportPath + "/adapters/rbac":          layerAdapter,
-	modaryImportPath + "/adapters/sqlaudit":      layerAdapter,
-	modaryImportPath + "/adapters/postgres":      layerAdapter,
-	modaryImportPath + "/adapters/postgresdb":    layerAdapter,
-	modaryImportPath + "/projecttool":            layerProjectTool,
-	modaryImportPath + "/starter":                layerProjectTool,
-	modaryImportPath + "/cmd/modary":             layerProjectTool,
-	modaryImportPath + "/appcmd":                 layerCommand,
+	modaryImportPath + "/action":                            layerKernel,
+	modaryImportPath + "/audit":                             layerKernel,
+	modaryImportPath + "/authz":                             layerKernel,
+	modaryImportPath + "/database":                          layerKernel,
+	modaryImportPath + "/identity":                          layerKernel,
+	modaryImportPath + "/module":                            layerKernel,
+	modaryImportPath + "/scope":                             layerKernel,
+	modaryImportPath + "/task":                              layerKernel,
+	modaryImportPath + "/appkit":                            layerAppKit,
+	modaryImportPath + "/httpkit":                           layerTransport,
+	modaryImportPath + "/transport/httpapi":                 layerTransport,
+	modaryImportPath + "/transport/sessionhttp":             layerTransport,
+	modaryImportPath + "/components/postgres":               layerAdapter,
+	modaryImportPath + "/components/postgres/localidentity": layerAdapter,
+	modaryImportPath + "/components/postgres/rbac":          layerAdapter,
+	modaryImportPath + "/components/postgres/sqlaudit":      layerAdapter,
+	modaryImportPath + "/components/governedpostgres":       layerAdapter,
+	modaryImportPath + "/projecttool":                       layerProjectTool,
+	modaryImportPath + "/starter":                           layerProjectTool,
+	modaryImportPath + "/cmd/modary":                        layerProjectTool,
+	modaryImportPath + "/appcmd":                            layerCommand,
 }
 
 var privilegedInternalImporters = map[string]map[string]bool{
 	modaryImportPath + "/internal/actionpersistence": {
-		modaryImportPath + "/adapters/postgres": true,
+		modaryImportPath + "/components/governedpostgres": true,
 	},
 	modaryImportPath + "/internal/actionruntime": {
 		modaryImportPath + "/module": true,
 	},
 	modaryImportPath + "/internal/databasecontrol": {
-		modaryImportPath + "/module":                 true,
-		modaryImportPath + "/adapters/localidentity": true,
-		modaryImportPath + "/adapters/rbac":          true,
-		modaryImportPath + "/adapters/sqlaudit":      true,
-		modaryImportPath + "/adapters/postgres":      true,
-		modaryImportPath + "/adapters/postgresdb":    true,
+		modaryImportPath + "/module":                            true,
+		modaryImportPath + "/components/postgres":               true,
+		modaryImportPath + "/components/postgres/localidentity": true,
+		modaryImportPath + "/components/postgres/rbac":          true,
+		modaryImportPath + "/components/postgres/sqlaudit":      true,
+		modaryImportPath + "/components/governedpostgres":       true,
 	},
 	modaryImportPath + "/internal/filepolicy": {
 		modaryImportPath + "/appcmd":      true,
@@ -89,11 +88,11 @@ var privilegedInternalImporters = map[string]map[string]bool{
 		modaryImportPath + "/transport/httpapi": true,
 	},
 	modaryImportPath + "/internal/moduleassembly": {
-		modaryImportPath + "/adapters/localidentity": true,
-		modaryImportPath + "/adapters/rbac":          true,
-		modaryImportPath + "/adapters/sqlaudit":      true,
-		modaryImportPath + "/adapters/postgres":      true,
-		modaryImportPath + "/adapters/postgresdb":    true,
+		modaryImportPath + "/components/postgres":               true,
+		modaryImportPath + "/components/postgres/localidentity": true,
+		modaryImportPath + "/components/postgres/rbac":          true,
+		modaryImportPath + "/components/postgres/sqlaudit":      true,
+		modaryImportPath + "/components/governedpostgres":       true,
 	},
 	modaryImportPath + "/internal/runtimecontrol": {
 		modaryImportPath + "/module": true,
@@ -102,18 +101,19 @@ var privilegedInternalImporters = map[string]map[string]bool{
 		modaryImportPath + "/action":                true,
 		modaryImportPath + "/database":              true,
 		modaryImportPath + "/module":                true,
+		modaryImportPath + "/httpkit":               true,
 		modaryImportPath + "/appcmd":                true,
 		modaryImportPath + "/projecttool":           true,
 		modaryImportPath + "/transport/httpapi":     true,
 		modaryImportPath + "/transport/sessionhttp": true,
 	},
 	modaryImportPath + "/internal/sqlpolicy": {
-		modaryImportPath + "/adapters/postgres":   true,
-		modaryImportPath + "/adapters/postgresdb": true,
+		modaryImportPath + "/components/postgres":         true,
+		modaryImportPath + "/components/governedpostgres": true,
 	},
 	modaryImportPath + "/internal/transactionoutcome": {
-		modaryImportPath + "/adapters/postgres":   true,
-		modaryImportPath + "/adapters/postgresdb": true,
+		modaryImportPath + "/components/postgres":         true,
+		modaryImportPath + "/components/governedpostgres": true,
 	},
 }
 
@@ -126,7 +126,7 @@ func TestProductionImportsFollowArchitectureLayers(t *testing.T) {
 			return walkErr
 		}
 		if entry.IsDir() {
-			if name != root && (excludedArchitectureDirectory(entry.Name()) || isNestedGoModuleDirectory(name)) {
+			if name != root && (excludedArchitectureDirectory(entry.Name()) || (isNestedGoModuleDirectory(name) && !isOfficialComponentModule(root, name))) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -194,7 +194,7 @@ func TestDirectImportPolicyFixturesDetectLayerAndPrivilegeViolations(t *testing.
 		},
 		{
 			name:     "adapter cannot import project tooling",
-			importer: modaryImportPath + "/adapters/postgres",
+			importer: modaryImportPath + "/components/governedpostgres",
 			imported: modaryImportPath + "/projecttool",
 			rejected: true,
 		},
@@ -205,7 +205,7 @@ func TestDirectImportPolicyFixturesDetectLayerAndPrivilegeViolations(t *testing.
 		},
 		{
 			name:     "official adapter may use module assembly",
-			importer: modaryImportPath + "/adapters/rbac",
+			importer: modaryImportPath + "/components/postgres/rbac",
 			imported: modaryImportPath + "/internal/moduleassembly",
 		},
 		{
@@ -228,8 +228,8 @@ func TestDirectImportPolicyFixturesDetectLayerAndPrivilegeViolations(t *testing.
 		},
 		{
 			name:     "adapter cannot import sibling adapter",
-			importer: modaryImportPath + "/adapters/rbac",
-			imported: modaryImportPath + "/adapters/postgres",
+			importer: modaryImportPath + "/components/postgres/rbac",
+			imported: modaryImportPath + "/components/governedpostgres",
 			rejected: true,
 		},
 		{
@@ -315,7 +315,7 @@ func collectPublicInternalImports(t *testing.T) map[string]map[string]bool {
 			return walkErr
 		}
 		if entry.IsDir() {
-			if name != root && (excludedArchitectureDirectory(entry.Name()) || isNestedGoModuleDirectory(name)) {
+			if name != root && (excludedArchitectureDirectory(entry.Name()) || (isNestedGoModuleDirectory(name) && !isOfficialComponentModule(root, name))) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -429,6 +429,15 @@ func excludedArchitectureDirectory(name string) bool {
 func isNestedGoModuleDirectory(name string) bool {
 	info, err := os.Lstat(filepath.Join(name, "go.mod"))
 	return err == nil && info.Mode().IsRegular()
+}
+
+func isOfficialComponentModule(root, name string) bool {
+	relative, err := filepath.Rel(root, name)
+	if err != nil {
+		return false
+	}
+	relative = filepath.ToSlash(relative)
+	return relative == "components/postgres" || relative == "components/governedpostgres"
 }
 
 func TestNestedGoModuleDirectoryDetection(t *testing.T) {

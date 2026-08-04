@@ -8,6 +8,12 @@ import (
 	"unicode/utf8"
 )
 
+const (
+	maxHandlerRoutes = 1024
+	maxMethodBytes   = 32
+	maxPathBytes     = 2048
+)
+
 // Route is one explicitly selected HTTP method, path, and handler.
 type Route struct {
 	Method  string
@@ -19,14 +25,17 @@ type Route struct {
 // HTTP handler. Duplicate method and path pairs fail instead of replacing an
 // earlier component route.
 func NewHandler(routes ...Route) (http.Handler, error) {
+	if len(routes) > maxHandlerRoutes {
+		return nil, fmt.Errorf("http route count exceeds %d", maxHandlerRoutes)
+	}
 	mux := http.NewServeMux()
 	seen := make(map[string]struct{}, len(routes))
 	for index, route := range routes {
 		if !validMethod(route.Method) {
-			return nil, fmt.Errorf("http route %d method %q is invalid", index, route.Method)
+			return nil, fmt.Errorf("http route %d method is invalid", index)
 		}
 		if !validPath(route.Path) {
-			return nil, fmt.Errorf("http route %d path %q is invalid", index, route.Path)
+			return nil, fmt.Errorf("http route %d path is invalid", index)
 		}
 		if isNilHandler(route.Handler) {
 			return nil, fmt.Errorf("http route %d handler is required", index)
@@ -36,7 +45,7 @@ func NewHandler(routes ...Route) (http.Handler, error) {
 			return nil, fmt.Errorf("duplicate http route %s", pattern)
 		}
 		if err := register(mux, pattern, route.Handler); err != nil {
-			return nil, fmt.Errorf("http route %d path %q is invalid: %w", index, route.Path, err)
+			return nil, fmt.Errorf("http route %d path is invalid: %w", index, err)
 		}
 		seen[pattern] = struct{}{}
 	}
@@ -53,7 +62,7 @@ func register(mux *http.ServeMux, pattern string, handler http.Handler) (err err
 }
 
 func validMethod(method string) bool {
-	if method == "" || method != strings.ToUpper(method) {
+	if method == "" || len(method) > maxMethodBytes || method != strings.ToUpper(method) {
 		return false
 	}
 	for index := 0; index < len(method); index++ {
@@ -67,7 +76,7 @@ func validMethod(method string) bool {
 }
 
 func validPath(value string) bool {
-	if value == "" || value[0] != '/' || !utf8.ValidString(value) {
+	if value == "" || len(value) > maxPathBytes || value[0] != '/' || !utf8.ValidString(value) {
 		return false
 	}
 	return !strings.ContainsFunc(value, func(character rune) bool {

@@ -1,0 +1,56 @@
+// Package tasks contributes read-only durable task operations to Admin.
+package tasks
+
+import (
+	"context"
+	"net/http"
+
+	"{{.ModulePath}}/internal/adminapi"
+	"github.com/iiwish/modary/appkit"
+	"github.com/iiwish/modary/httpkit"
+	"github.com/iiwish/modary/module"
+	"github.com/iiwish/modary/task"
+	"github.com/iiwish/modary/transport/sessionhttp"
+)
+
+const permissionRead = "tasks.read"
+
+func Contribution(insecureCookie bool) httpkit.Contribution {
+	return httpkit.Contribution{
+		ID: "tasks",
+		Requires: []module.Capability{
+			module.CapabilityTaskInspection, module.CapabilitySessions, module.CapabilityAuthorization,
+		},
+		Routes: []httpkit.RouteSpec{ {Method: http.MethodGet, Path: "/api/tasks"} },
+		Admin: &httpkit.AdminDescriptor{
+			Label: "任务", Path: "/tasks", Icon: "list-todo", Order: 200,
+			Permissions: []string{permissionRead}, RequiredPermissions: []string{permissionRead},
+		},
+		Build: func(_ context.Context, application *appkit.Application) ([]httpkit.Route, error) {
+			inspector, err := application.TaskInspector()
+			if err != nil { return nil, err }
+			authorizer, err := application.Authorizer()
+			if err != nil { return nil, err }
+			sessions, err := sessionhttp.New(application, sessionhttp.Options{AllowInsecureCookie: insecureCookie})
+			if err != nil { return nil, err }
+			handler, err := sessions.Authenticate(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if _, err := adminapi.Authorize(request.Context(), authorizer, permissionRead); err != nil {
+					adminapi.WriteAuthorizationError(writer, request, err); return
+				}
+				limit, before, err := adminapi.ListCursor(request.URL.Query(), task.MaxListLimit)
+				if err != nil { adminapi.WriteError(writer, request, http.StatusBadRequest, "INVALID_QUERY", err.Error()); return }
+				queue, err := adminapi.Value(request.URL.Query(), "queue", 64)
+				if err != nil { adminapi.WriteError(writer, request, http.StatusBadRequest, "INVALID_QUERY", err.Error()); return }
+				stateValue, err := adminapi.Value(request.URL.Query(), "state", 32)
+				if err != nil { adminapi.WriteError(writer, request, http.StatusBadRequest, "INVALID_QUERY", err.Error()); return }
+				options, err := task.NormalizeListOptions(task.ListOptions{Limit: limit, BeforeID: before, Queue: queue, State: task.State(stateValue)})
+				if err != nil { adminapi.WriteError(writer, request, http.StatusBadRequest, "INVALID_QUERY", err.Error()); return }
+				page, err := inspector.List(request.Context(), options)
+				if err != nil { adminapi.WriteError(writer, request, http.StatusInternalServerError, "TASKS_UNAVAILABLE", "Task metadata could not be loaded"); return }
+				adminapi.WriteJSON(writer, http.StatusOK, page)
+			}))
+			if err != nil { return nil, err }
+			return []httpkit.Route{ {Method: http.MethodGet, Path: "/api/tasks", Handler: handler} }, nil
+		},
+	}
+}

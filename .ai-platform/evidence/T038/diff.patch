@@ -1,0 +1,10 @@
+# T038 Reviewed Diff Manifest
+
+- Root module and workspace: `go.mod`, `go.sum`, `go.work`, `go.work.sum`
+- Published components: `components/postgres/**`, `components/governedpostgres/**`
+- Cross-module acceptance: `integration/**`, `internal/testcomponent/**`
+- Removed root concrete adapters: `adapters/**`, `internal/testpostgres/**`
+- Consumer composition: `starter/**`, `examples/counter/**`
+- Multi-module gates: `Makefile`, `scripts/**`, `.github/workflows/ci.yml`
+- Architecture documentation and feature 009 governance under `docs/**` and
+  `.ai-platform/**`

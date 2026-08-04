@@ -32,6 +32,41 @@ func TestMakeDocsCheckRunsCanonicalAndLinkChecks(t *testing.T) {
 	}
 }
 
+func TestMakeDocsCheckPinsCanonicalRootAgainstCallerOverride(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the F0 Make gate requires a POSIX shell")
+	}
+	repository := t.TempDir()
+	scriptsDirectory := filepath.Join(repository, "scripts")
+	if err := os.MkdirAll(scriptsDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, contents := range map[string]string{
+		"check-docs.sh": `#!/bin/sh
+set -eu
+test "${MODARY_DOCS_ROOT-}" = .
+`,
+		"check-doc-links.sh": "#!/bin/sh\nset -eu\n",
+	} {
+		if err := os.WriteFile(filepath.Join(scriptsDirectory, name), []byte(contents), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), makeCommandTestTimeout)
+	defer cancel()
+	command := exec.CommandContext(ctx, "make", "-f", repositoryMakefile(t), "docs-check")
+	command.Dir = repository
+	command.Env = replaceMakeEnvironment(os.Environ(), "MODARY_DOCS_ROOT=/tmp/untrusted-modary-docs")
+	output, err := command.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("make docs-check did not terminate: %v", ctx.Err())
+	}
+	if err != nil {
+		t.Fatalf("make docs-check inherited the caller root override: %v\n%s", err, output)
+	}
+}
+
 func TestMakeAcceptanceRunsReactAdminResidueGate(t *testing.T) {
 	data, err := os.ReadFile(repositoryMakefile(t))
 	if err != nil {
@@ -41,7 +76,7 @@ func TestMakeAcceptanceRunsReactAdminResidueGate(t *testing.T) {
 	if !strings.Contains(makefile, "react-admin-check:\n\t./scripts/check-react-admin.sh") {
 		t.Fatal("Makefile does not define the React Admin residue gate")
 	}
-	if !strings.Contains(makefile, "acceptance: format-check tidy-check diff-check docs-check react-admin-check") {
+	if !strings.Contains(makefile, "acceptance-core: format-check tidy-check diff-check docs-check react-admin-check") {
 		t.Fatal("acceptance does not run the React Admin residue gate")
 	}
 	for _, command := range []string{
@@ -49,7 +84,7 @@ func TestMakeAcceptanceRunsReactAdminResidueGate(t *testing.T) {
 		"pnpm lint",
 		"pnpm typecheck",
 		"pnpm test",
-		"pnpm build",
+		"pnpm build:variants",
 		"pnpm assets:check",
 		"pnpm audit:prod",
 	} {
@@ -57,8 +92,22 @@ func TestMakeAcceptanceRunsReactAdminResidueGate(t *testing.T) {
 			t.Errorf("React Admin frontend gate invocation count for %q is not one", command)
 		}
 	}
-	if !strings.Contains(makefile, "acceptance: format-check tidy-check diff-check docs-check react-admin-check admin-frontend") {
+	if !strings.Contains(makefile, "acceptance-core: format-check tidy-check diff-check docs-check react-admin-check admin-frontend") {
 		t.Fatal("acceptance does not run the complete React Admin frontend gate")
+	}
+	for _, required := range []string{
+		"copied-admin-acceptance:",
+		"MODARY_EXTERNAL_ADMIN_ACCEPTANCE=1",
+		"-run='^TestCopiedOutAdminProfiles$$'",
+		"copied-governed-acceptance:",
+		"MODARY_TEST_DATABASE_URL is required for copied-out Governed acceptance",
+		"-run='^TestCreateGovernedProfileBuildsAndConsumesTransactionalWork$$'",
+		"copied-profile-acceptance: copied-admin-acceptance copied-governed-acceptance",
+		"acceptance: acceptance-core copied-profile-acceptance",
+	} {
+		if !strings.Contains(makefile, required) {
+			t.Errorf("acceptance does not contain copied-out Admin contract %q", required)
+		}
 	}
 }
 
@@ -69,10 +118,10 @@ func TestMakeAcceptanceRunsPinnedVulnerabilityScans(t *testing.T) {
 	}
 	makefile := string(data)
 	const command = "$(GO_COMMAND_ENV) $(GO) run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./..."
-	if strings.Count(makefile, command) != 2 {
-		t.Fatalf("govulncheck command count = %d, want framework and consumer", strings.Count(makefile, command))
+	if strings.Count(makefile, command) != 4 {
+		t.Fatalf("govulncheck command count = %d, want Core, component loop, integration, and consumer", strings.Count(makefile, command))
 	}
-	if !strings.Contains(makefile, "acceptance: format-check tidy-check diff-check docs-check react-admin-check admin-frontend test panicnil vet vulncheck") {
+	if !strings.Contains(makefile, "acceptance-core: format-check tidy-check diff-check docs-check react-admin-check admin-frontend test panicnil vet vulncheck") {
 		t.Fatal("acceptance does not run the pinned vulnerability scans")
 	}
 }
@@ -131,8 +180,10 @@ func TestMakeTestConsumerOverridesHostileGoEnvironmentAndExecutesGate(t *testing
 	}
 
 	repository := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repository, "examples", "counter"), 0o755); err != nil {
-		t.Fatal(err)
+	for _, directory := range []string{"examples/counter", "components/postgres", "components/governedpostgres", "integration"} {
+		if err := os.MkdirAll(filepath.Join(repository, filepath.FromSlash(directory)), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	logFile := filepath.Join(repository, "go-invocation.log")
 	fakeGo := filepath.Join(repository, "fake-go")
@@ -186,8 +237,10 @@ func TestMakeCrossBuildCompilesUnsupportedPlatformTestsOutsideRepository(t *test
 	}
 
 	repository := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repository, "examples", "counter"), 0o755); err != nil {
-		t.Fatal(err)
+	for _, directory := range []string{"examples/counter", "components/postgres", "components/governedpostgres", "integration"} {
+		if err := os.MkdirAll(filepath.Join(repository, filepath.FromSlash(directory)), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	logFile := filepath.Join(repository, "cross-invocations.log")
 	fakeGo := filepath.Join(repository, "fake-go")
@@ -260,12 +313,12 @@ fi
 		"darwin/amd64", "darwin/arm64",
 		"windows/amd64", "windows/arm64",
 	} {
-		if builds[platform] != 2 {
-			t.Errorf("%s build invocations = %d, want framework and consumer; log:\n%s", platform, builds[platform], data)
+		if builds[platform] != 5 {
+			t.Errorf("%s build invocations = %d, want Core, two components, integration, and consumer; log:\n%s", platform, builds[platform], data)
 		}
 	}
 	if len(compiledTests) != 8 {
-		t.Fatalf("unsupported-platform test compile invocations = %d, want Windows appcmd/projecttool/postgres and Darwin filepolicy for two architectures:\n%s", len(compiledTests), data)
+		t.Fatalf("unsupported-platform test compile invocations = %d, want Windows appcmd/projecttool/governed PostgreSQL and Darwin filepolicy for two architectures:\n%s", len(compiledTests), data)
 	}
 	for _, outputPath := range compiledTests {
 		if !strings.HasPrefix(outputPath, "/tmp/modary-cross-tests.") {
@@ -275,7 +328,7 @@ fi
 			t.Errorf("cross-test output %q was not removed, stat error = %v", outputPath, statErr)
 		}
 	}
-	for _, packagePath := range []string{"./appcmd", "./projecttool", "./adapters/postgres", "./internal/filepolicy"} {
+	for _, packagePath := range []string{"./appcmd", "./projecttool", "governedpostgres-", "./internal/filepolicy"} {
 		if !strings.Contains(string(data), packagePath) {
 			t.Fatalf("cross-build did not compile %s tests:\n%s", packagePath, data)
 		}
@@ -288,19 +341,21 @@ func TestMakeCIComparesCompleteSourceStateAroundEveryGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	makefile := string(data)
-	start := strings.Index(makefile, "\nci:\n")
-	if start < 0 {
-		t.Fatal("Makefile has no ci recipe")
-	}
-	recipe := makefile[start:]
-	for _, required := range []string{
-		"./scripts/source-state.sh >\"$$before\"",
-		"$(MAKE) ci-gates",
-		"./scripts/source-state.sh >\"$$after\"",
-		"cmp -s \"$$before\" \"$$after\"",
-	} {
-		if !strings.Contains(recipe, required) {
-			t.Errorf("ci recipe does not contain %q", required)
+	for _, target := range []struct{ name, gates string }{{"ci-core", "ci-core-gates"}, {"ci", "ci-gates"}} {
+		start := strings.Index(makefile, "\n"+target.name+":\n")
+		if start < 0 {
+			t.Fatalf("Makefile has no %s recipe", target.name)
+		}
+		recipe := makefile[start:]
+		for _, required := range []string{
+			"./scripts/source-state.sh >\"$$before\"",
+			"$(MAKE) " + target.gates,
+			"./scripts/source-state.sh >\"$$after\"",
+			"cmp -s \"$$before\" \"$$after\"",
+		} {
+			if !strings.Contains(recipe, required) {
+				t.Errorf("%s recipe does not contain %q", target.name, required)
+			}
 		}
 	}
 }
@@ -326,7 +381,7 @@ func TestMakeRepeatTargetsOnlyStatefulHighRiskPackages(t *testing.T) {
 		t.Fatal("Makefile has no bounded repeat recipe")
 	}
 	recipe := makefile[start : start+1+end]
-	const frameworkRepeat = "$(GO_COMMAND_ENV) $(GO) test -shuffle=on -count=20 $$packages"
+	const frameworkRepeat = "$(GO_COMMAND_ENV) $(GO) test -timeout=$(REPEAT_TIMEOUT) -shuffle=on -count=20 $$packages"
 	if strings.Count(recipe, frameworkRepeat) != 1 {
 		t.Fatalf("framework repeat gate is not the curated package command:\n%s", recipe)
 	}
@@ -338,7 +393,15 @@ func TestMakeRepeatTargetsOnlyStatefulHighRiskPackages(t *testing.T) {
 	}
 	for _, required := range []string{
 		"REPEAT_PACKAGES",
+		"REPEAT_STARTER_TESTS",
+		"REPEAT_IDENTITY_TESTS",
+		"REPEAT_RBAC_TESTS",
+		"REPEAT_AUDIT_TESTS",
+		"REPEAT_GOVERNED_TESTS",
+		"REPEAT_CONSUMER_TESTS",
+		"-timeout=$(REPEAT_TIMEOUT)",
 		"-shuffle=on -count=20",
+		"./starter -run='$(REPEAT_STARTER_TESTS)'",
 		"MODARY_EXTERNAL_CONSUMER_COPIED_OUT=1",
 		`if test "$$($(GO_COMMAND_ENV) $(GO) env GOOS)" = darwin`,
 		`packages="$$packages ./internal/filepolicy"`,
@@ -347,19 +410,40 @@ func TestMakeRepeatTargetsOnlyStatefulHighRiskPackages(t *testing.T) {
 			t.Errorf("repeat recipe does not contain %q", required)
 		}
 	}
+	if !strings.Contains(makefile, "REPEAT_TIMEOUT ?= 8m") {
+		t.Error("Makefile does not define the bounded framework repeat timeout")
+	}
 	for _, required := range []string{
-		"./action", "./adapters/...", "./appcmd", "./appkit", "./database", "./httpkit",
+		"./action", "./appcmd", "./appkit", "./database", "./httpkit",
 		"./internal/actionruntime", "./internal/callbackcontract", "./internal/databasecontrol",
 		"./internal/jsonschema/...", "./internal/jsonvalue", "./internal/runtimecontrol",
-		"./internal/safeerr", "./internal/sqlpolicy", "./internal/transactionoutcome", "./module", "./projecttool", "./starter",
+		"./internal/safeerr", "./internal/sqlpolicy", "./internal/transactionoutcome", "./module", "./projecttool",
 		"./transport/httpapi",
 	} {
 		if !strings.Contains(packages, required) {
 			t.Errorf("REPEAT_PACKAGES does not include %s", required)
 		}
 	}
+	for _, required := range []string{
+		"cd components/postgres",
+		"./localidentity -run='$(REPEAT_IDENTITY_TESTS)'",
+		"./rbac -run='$(REPEAT_RBAC_TESTS)'",
+		"./sqlaudit -run='$(REPEAT_AUDIT_TESTS)'",
+		"cd components/governedpostgres",
+		"-run='$(REPEAT_GOVERNED_TESTS)'",
+		"cd integration",
+		"-shuffle=on -count=5",
+		"-shuffle=on -count=10 ./... -run='$(REPEAT_CONSUMER_TESTS)'",
+	} {
+		if !strings.Contains(recipe, required) {
+			t.Errorf("repeat recipe does not contain focused stateful gate %q", required)
+		}
+	}
 	if strings.Contains(packages, "./internal/filepolicy") {
 		t.Error("Darwin-only filepolicy package is unconditional in REPEAT_PACKAGES")
+	}
+	if strings.Contains(packages, "./starter") {
+		t.Error("the complete copied-out Starter suite is repeated instead of the focused filesystem contract")
 	}
 }
 
@@ -418,9 +502,9 @@ func TestCIUsesCompleteHistoryAndCurrentNode24Actions(t *testing.T) {
 		needle string
 		count  int
 	}{
-		"checkout": {needle: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1", count: 3},
-		"setup-go": {needle: "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0", count: 3},
-		"history":  {needle: "fetch-depth: 0", count: 3},
+		"checkout": {needle: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1", count: 4},
+		"setup-go": {needle: "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0", count: 4},
+		"history":  {needle: "fetch-depth: 0", count: 4},
 		"linux-rg": {needle: "sudo apt-get update && sudo apt-get install --no-install-recommends -y ripgrep", count: 2},
 	} {
 		if count := strings.Count(contents, contract.needle); count != contract.count {
@@ -434,6 +518,17 @@ func TestCIUsesCompleteHistoryAndCurrentNode24Actions(t *testing.T) {
 	} {
 		if !strings.Contains(contents, required) {
 			t.Errorf("CI React Admin toolchain does not contain %q", required)
+		}
+	}
+	for _, required := range []string{
+		"copied-profiles:",
+		"timeout-minutes: 30",
+		"run: make ci-core",
+		"run: make copied-profile-acceptance",
+		"Verify copied-out acceptance leaves source unchanged",
+	} {
+		if !strings.Contains(contents, required) {
+			t.Errorf("CI copied-out Admin contract does not contain %q", required)
 		}
 	}
 }
@@ -452,7 +547,7 @@ func TestCITagReleaseWaitsForPlatformGatesAndVerifiesRemoteConsumer(t *testing.T
 	release = release[start:]
 	for _, required := range []string{
 		"if: startsWith(github.ref, 'refs/tags/v')",
-		"needs: [quality, darwin-arm64]",
+		"needs: [quality, copied-profiles, darwin-arm64]",
 		"fetch-depth: 0",
 		"permissions:\n      contents: read",
 		"make release-preflight VERSION=\"${GITHUB_REF_NAME}\" RELEASE_MODE=tag",

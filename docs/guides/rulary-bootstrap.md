@@ -4,8 +4,8 @@ Rulary is a separate product repository. Modary supplies reusable mechanics;
 Rulary owns rule-domain models, workflows, APIs, UI, deployment, and release
 decisions. No Rulary package should be added to the Modary module.
 
-This guide defines a low-risk adoption path after the Modary v0.2 candidate is
-released or pinned as an explicitly coordinated source dependency.
+This guide defines a low-risk adoption path using an exact Modary v0.2 release
+or an explicitly coordinated source dependency during framework development.
 
 ## 1. Start With The Admin Profile
 

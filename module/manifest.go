@@ -31,12 +31,18 @@ const (
 	CapabilityDatabase Capability = "database"
 	// CapabilityIdentity identifies canonical identity services.
 	CapabilityIdentity Capability = "identity"
+	// CapabilitySessions identifies browser-session authentication.
+	CapabilitySessions Capability = "identity.sessions"
 	// CapabilityAuthorization identifies the canonical authorization service.
 	CapabilityAuthorization Capability = "authorization"
 	// CapabilityAudit identifies the canonical audit service.
 	CapabilityAudit Capability = "audit"
 	// CapabilityTasks identifies the canonical durable task service.
 	CapabilityTasks Capability = "tasks"
+	// CapabilityTaskInspection identifies read-only operational task metadata.
+	CapabilityTaskInspection Capability = "tasks.read"
+	// CapabilityAuditInspection identifies read-only, scope-bound audit metadata.
+	CapabilityAuditInspection Capability = "audit.read"
 )
 
 var (

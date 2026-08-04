@@ -60,6 +60,11 @@ func TestNewSPAValidatesFilesystemIndexAndOptions(t *testing.T) {
 		{name: "excessive file bytes", content: valid, options: SPAOptions{MaxFileBytes: MaximumSPAMaxFileBytes + 1}},
 		{name: "negative total bytes", content: valid, options: SPAOptions{MaxTotalBytes: -1}},
 		{name: "excessive total bytes", content: valid, options: SPAOptions{MaxTotalBytes: MaximumSPAMaxTotalBytes + 1}},
+		{name: "excessive fallback exclusions", content: valid, options: SPAOptions{FallbackExcludedPaths: make([]string, maximumSPAFallbackExclusions+1)}},
+		{name: "relative fallback exclusion", content: valid, options: SPAOptions{FallbackExcludedPaths: []string{"api"}}},
+		{name: "trailing fallback exclusion slash", content: valid, options: SPAOptions{FallbackExcludedPaths: []string{"/api/"}}},
+		{name: "encoded fallback exclusion", content: valid, options: SPAOptions{FallbackExcludedPaths: []string{"/api%2Fprivate"}}},
+		{name: "duplicate fallback exclusion", content: valid, options: SPAOptions{FallbackExcludedPaths: []string{"/api", "/api"}}},
 		{name: "file count limit", content: valid, options: SPAOptions{MaxFiles: 2}},
 		{name: "directory count limit", content: fstest.MapFS{
 			"index.html": &fstest.MapFile{Data: []byte(spaTestIndex)},
@@ -86,6 +91,24 @@ func TestNewSPAValidatesFilesystemIndexAndOptions(t *testing.T) {
 	})
 	if err != nil || handler == nil {
 		t.Fatalf("NewSPA(valid options) = %#v, %v", handler, err)
+	}
+}
+
+func TestSPAFallbackExclusionsReserveCohostedNamespaces(t *testing.T) {
+	handler := spaTestHandler(t, spaTestFiles(), SPAOptions{FallbackExcludedPaths: []string{"/api", "/healthz"}})
+	for _, target := range []string{"/api", "/api/tasks", "/healthz/status"} {
+		for _, accept := range []string{"", "*/*", "text/html", "application/json"} {
+			response := spaDoRequest(handler, http.MethodGet, target, accept, nil)
+			if response.Code != http.StatusNotFound || response.Body.String() == spaTestIndex {
+				t.Fatalf("fallback target=%q Accept=%q: status=%d body=%q", target, accept, response.Code, response.Body.String())
+			}
+			spaAssertErrorHeaders(t, response)
+		}
+	}
+
+	neighbor := spaDoRequest(handler, http.MethodGet, "/apiary", "text/html", nil)
+	if neighbor.Code != http.StatusOK || neighbor.Body.String() != spaTestIndex {
+		t.Fatalf("segment-neighbor fallback = %d %q", neighbor.Code, neighbor.Body.String())
 	}
 }
 

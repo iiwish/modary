@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/iiwish/modary/action"
+	"github.com/iiwish/modary/audit"
 	"github.com/iiwish/modary/authz"
 	"github.com/iiwish/modary/database"
 	"github.com/iiwish/modary/identity"
@@ -413,4 +414,38 @@ func (service *assemblyTaskService) NewRunner(handler task.Handler, options task
 	}
 	defer release()
 	return service.next.NewRunner(handler, options)
+}
+
+type assemblyTaskInspector struct {
+	gate *assemblyGate
+	next task.Inspector
+}
+
+func (inspector *assemblyTaskInspector) List(ctx context.Context, options task.ListOptions) (task.Page, error) {
+	if inspector == nil || inspector.gate == nil || inspector.next == nil {
+		return task.Page{}, task.ErrUnavailable
+	}
+	callCtx, release, err := inspector.gate.acquire(ctx)
+	if err != nil {
+		return task.Page{}, task.ErrUnavailable
+	}
+	defer release()
+	return inspector.next.List(callCtx, options)
+}
+
+type assemblyAuditReader struct {
+	gate *assemblyGate
+	next audit.Reader
+}
+
+func (reader *assemblyAuditReader) List(ctx context.Context, options audit.ListOptions) (audit.Page, error) {
+	if reader == nil || reader.gate == nil || reader.next == nil {
+		return audit.Page{}, ErrApplicationUnavailable
+	}
+	callCtx, release, err := reader.gate.acquire(ctx)
+	if err != nil {
+		return audit.Page{}, ErrApplicationUnavailable
+	}
+	defer release()
+	return reader.next.List(callCtx, options)
 }

@@ -14,7 +14,7 @@ that fails closed.
 ## Decision
 
 The ordinary PostgreSQL component implements `database.Store` in
-`adapters/postgresdb`. It owns application connectivity and Module migrations,
+`components/postgres`. It owns application connectivity and Module migrations,
 but installs no River, governed Action, idempotency, or audit storage.
 
 The official Governed component uses one PostgreSQL control database. Modary and
@@ -26,7 +26,7 @@ atomicity and is not the supported profile.
 
 The public `task` package contains framework-neutral enqueue and worker
 contracts. River, pgx, schema migration, and raw transaction types stay inside
-`adapters/postgres`. Delivery is at least once. Task handlers use stable job
+`components/governedpostgres`. Delivery is at least once. Task handlers use stable job
 identity and make external effects idempotent.
 
 The framework migration controller validates the complete ordered migration set
@@ -46,7 +46,9 @@ are rejected. PostgreSQL search paths are pinned to the application schema;
 River receives its schema explicitly. Each physical schema stores the same
 role-aware profile marker, and bootstrap locks are keyed by physical schema
 rather than role. Re-pairing, sharing, and application/queue role exchange fail
-closed while identical profile pairs may start concurrently.
+closed across both official PostgreSQL components while identical profile pairs
+may start concurrently. An ordinary application marker has no queue peer; the
+governed component may atomically complete that marker with its queue peer.
 
 ## Consequences
 

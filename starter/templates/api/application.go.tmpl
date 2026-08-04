@@ -22,28 +22,40 @@ type Application struct {
 
 // Start assembles only the components imported and listed here.
 func Start(ctx context.Context) (*Application, error) {
-	core, err := appkit.Start(ctx, appkit.Definition{
+	definition := appkit.Definition{
 		Metadata: appkit.Metadata{ID: {{quote .ID}}, Name: {{quote .Name}}, Version: "0.1.0"},
 		Modules: []module.Registration{
 			ping.Registration(),
 		},
-	}, appkit.Options{})
+	}
+	options := appkit.Options{}
+	plan, err := httpkit.NewPlan(definition, options, healthContribution(), ping.Contribution())
 	if err != nil {
 		return nil, err
 	}
-	health, err := httpapi.NewHealth(core)
+	core, err := appkit.Start(ctx, definition, options)
 	if err != nil {
-		return nil, errors.Join(err, stopAfterAssemblyFailure(core))
+		return nil, err
 	}
-	routes := []httpkit.Route{
-		{Method: http.MethodGet, Path: "/healthz", Handler: health},
-	}
-	routes = append(routes, ping.Routes()...)
-	handler, err := httpkit.NewHandler(routes...)
+	handler, err := plan.Handler(ctx, core)
 	if err != nil {
 		return nil, errors.Join(err, stopAfterAssemblyFailure(core))
 	}
 	return &Application{core: core, handler: handler}, nil
+}
+
+func healthContribution() httpkit.Contribution {
+	return httpkit.Contribution{
+		ID: "health",
+		Routes: []httpkit.RouteSpec{ {Method: http.MethodGet, Path: "/healthz"} },
+		Build: func(_ context.Context, core *appkit.Application) ([]httpkit.Route, error) {
+			health, err := httpapi.NewHealth(core)
+			if err != nil {
+				return nil, err
+			}
+			return []httpkit.Route{ {Method: http.MethodGet, Path: "/healthz", Handler: health} }, nil
+		},
+	}
 }
 
 // Handler returns the complete explicitly composed HTTP surface.

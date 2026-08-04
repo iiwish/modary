@@ -13,12 +13,12 @@ composition helpers. An empty Core has no database and no Action Runtime.
 A component is an ordinary Module registration plus public contracts or
 transport helpers. Examples include:
 
-- `adapters/postgresdb`: ordinary PostgreSQL business Store;
-- `adapters/localidentity`: explicit local principals and credentials;
-- `adapters/rbac`: scope-aware backend authorization;
+- `components/postgres`: ordinary PostgreSQL business Store;
+- `components/postgres/localidentity`: explicit local principals and credentials;
+- `components/postgres/rbac`: scope-aware backend authorization;
 - `transport/sessionhttp`: session routes and CSRF middleware;
-- `adapters/postgres`: governed persistence plus River tasks;
-- `adapters/sqlaudit`: SQL-backed governed audit.
+- `components/governedpostgres`: governed persistence plus River tasks;
+- `components/postgres/sqlaudit`: SQL-backed governed audit.
 
 Components declare what they require and provide. They do not auto-register
 themselves and official Adapters do not import sibling Adapters.
@@ -36,7 +36,8 @@ initial component graph and example vertical slice. It is not a package, base
 class, runtime flag, or compatibility layer.
 
 ```text
-Profile -> generated consumer source -> appkit.Definition -> Module graph
+Profile + component selections -> generated consumer source
+-> appkit.Definition + httpkit.Contribution plan -> Module and route graph
 ```
 
 The create-only Starter renders every output before writing, creates only an
@@ -50,6 +51,8 @@ migrations, routes, dependency packages, and generated frontend surface.
 Feature flags that merely hide a route while retaining database and package
 coupling do not satisfy this rule.
 
-The API and Admin Profile tests inspect their complete Go dependency graphs to
-prove River and governed components are absent. The Admin frontend registry is
-also explicit, so omitted modules do not leave navigation or bundle artifacts.
+The API and default Admin Profile tests inspect their complete Go dependency
+graphs to prove River and governed components are absent. Admin operational
+selections generate backend contributions, source registries, and distinct
+production bundles. Omitted modules leave no route, navigation, source module,
+or bundle artifact.

@@ -1,0 +1,9 @@
+import { describe, expect, it } from 'vitest'
+import { selectedAdminModules } from './active'
+
+describe('selected Admin modules', () => {
+  it('contains exactly the generated component selection', () => {
+    expect(selectedAdminModules.map(({ id }) => id)).toEqual(['records'{{if .HasTasks}}, 'tasks'{{end}}{{if .HasAudit}}, 'audit'{{end}}])
+    expect(selectedAdminModules.map(({ iconKey }) => iconKey)).toEqual(['database'{{if .HasTasks}}, 'list-todo'{{end}}{{if .HasAudit}}, 'history'{{end}}])
+  })
+})

@@ -2,7 +2,8 @@
 set -eu
 
 script_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
-root=${MODARY_DOCS_ROOT:-$script_root}
+configured_root=${MODARY_DOCS_ROOT:-$script_root}
+root=$(CDPATH= cd -- "$configured_root" && pwd -P)
 cd "$root"
 
 status=0
@@ -116,6 +117,15 @@ docs/zh-CN/how-to/run-background-tasks.md
 .ai-platform/specs/008-react-admin-starter/packets/T035.yaml
 .ai-platform/specs/008-react-admin-starter/packets/T036.yaml
 .ai-platform/specs/008-react-admin-starter/packets/T037.yaml
+.ai-platform/specs/009-component-boundary-closure/spec.md
+.ai-platform/specs/009-component-boundary-closure/plan.md
+.ai-platform/specs/009-component-boundary-closure/analysis.md
+.ai-platform/specs/009-component-boundary-closure/tasks.md
+.ai-platform/specs/009-component-boundary-closure/checklists/requirements.md
+.ai-platform/specs/009-component-boundary-closure/packets/T038.yaml
+.ai-platform/specs/009-component-boundary-closure/packets/T039.yaml
+.ai-platform/specs/009-component-boundary-closure/packets/T040.yaml
+.ai-platform/specs/009-component-boundary-closure/packets/T041.yaml
 .ai-platform/evidence/T024/summary.md
 .ai-platform/evidence/T024/diff.patch
 .ai-platform/evidence/T024/test-results.md
@@ -176,7 +186,23 @@ docs/zh-CN/how-to/run-background-tasks.md
 .ai-platform/evidence/T037/diff.patch
 .ai-platform/evidence/T037/test-results.md
 .ai-platform/evidence/T037/review.md
-.ai-platform/evidence/T037/external-acceptance.md'
+.ai-platform/evidence/T037/external-acceptance.md
+.ai-platform/evidence/T038/summary.md
+.ai-platform/evidence/T038/diff.patch
+.ai-platform/evidence/T038/test-results.md
+.ai-platform/evidence/T038/review.md
+.ai-platform/evidence/T039/summary.md
+.ai-platform/evidence/T039/diff.patch
+.ai-platform/evidence/T039/test-results.md
+.ai-platform/evidence/T039/review.md
+.ai-platform/evidence/T040/summary.md
+.ai-platform/evidence/T040/diff.patch
+.ai-platform/evidence/T040/test-results.md
+.ai-platform/evidence/T040/review.md
+.ai-platform/evidence/T041/summary.md
+.ai-platform/evidence/T041/diff.patch
+.ai-platform/evidence/T041/test-results.md
+.ai-platform/evidence/T041/review.md'
 
 for file in $required; do
 	require_file "$file"
@@ -184,6 +210,36 @@ done
 
 work_graph=.ai-platform/specs/005-postgres-task-runtime/tasks.md
 current_graph=.ai-platform/docs/tasks.md
+component_work_graph=.ai-platform/specs/009-component-boundary-closure/tasks.md
+for task in T038 T039 T040 T041; do
+	work_status=$(awk -v heading="## $task:" '
+		index($0, heading) == 1 { active=1; next }
+		/^## / { active=0 }
+		active && /^Status: / { print substr($0, 9); exit }
+	' "$component_work_graph")
+	current_status=$(awk -F'|' -v task="$task" '
+		function trim(value) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", value); return value }
+		$0 ~ "^\\| " task " \\|" { count++; value=trim($3) }
+		END { if (count == 1) print value }
+	' "$current_graph")
+	if test "$work_status" != "$current_status"; then
+		fail "$task must have one consistent current state: $work_status / $current_status"
+	fi
+	case "$work_status" in
+		Completed)
+			require_line ".ai-platform/evidence/$task/summary.md" '- Status: Completed'
+			require_line ".ai-platform/evidence/$task/test-results.md" '- Result: Passed'
+			require_line ".ai-platform/evidence/$task/review.md" '- Verdict: Pass'
+			if test "$task" = T041; then
+				for severity in P0 P1 P2; do
+					require_line ".ai-platform/evidence/T041/review.md" "- $severity: 0"
+				done
+			fi
+			;;
+		*) fail "$task has an invalid delivery state: $work_status" ;;
+	esac
+done
+
 t028_work_status=$(awk '
 	index($0, "## T028:") == 1 { active=1; next }
 	/^## / { active=0 }
@@ -466,26 +522,31 @@ require_line docs/f0-acceptance-report.md '- Status: Accepted'
 require_line docs/f0-acceptance-report.md '- Distribution status: Not released'
 require_line docs/f0-acceptance-report.md '- Target version: v0.2.0-alpha.1'
 require_line docs/f0-acceptance-report.md '- Frozen baseline tag: v0.1.0-alpha.3'
-require_line .ai-platform/docs/release-report.md '- Report version: 2.2'
-require_line .ai-platform/docs/release-report.md '- Status: Remote_verified'
+require_line .ai-platform/docs/release-report.md '- Report version: 3.0'
+require_line .ai-platform/docs/release-report.md '- Status: Distribution_ready'
 require_line .ai-platform/docs/release-report.md '- Technical F0 acceptance: Accepted'
 require_line .ai-platform/docs/release-report.md '- Engineering readiness: Accepted'
-require_line .ai-platform/docs/release-report.md '- Distribution status: Released'
-require_line .ai-platform/docs/release-report.md '- Version tag: v0.1.0-alpha.3'
-require_line .ai-platform/docs/release-report.md '- Remote consumer verification: Passed'
+require_line .ai-platform/docs/release-report.md '- Distribution status: Not_released'
+require_line .ai-platform/docs/release-report.md '- Version tags: None'
+require_line .ai-platform/docs/release-report.md '- Remote consumer verification: Not_run'
 require_line .ai-platform/docs/release-report.md '- Owner-selected redistribution license: Apache-2.0'
-require_line .ai-platform/docs/release-report.md '- Target version: v0.1.0-alpha.3'
+require_line .ai-platform/docs/release-report.md '- Target version: v0.2.0-alpha.1'
 
 require_literal LICENSE 'Apache License'
 require_literal NOTICE 'Modary'
-require_literal README.md 'The current branch targets `v0.2.0-alpha.1`'
+require_literal README.md '`v0.2.0-alpha.1` is the current component-framework release.'
 require_literal README.md 'This path is optional. Ordinary Admin CRUD does not need Preview or River.'
 require_literal docs/framework-f0.md 'Core defines composition and lifecycle. Components add capabilities.'
 require_literal docs/framework-f0.md 'This path is optional. Ordinary Admin CRUD does not need Preview or River.'
+require_literal docs/f0-known-limitations.md 'The optional Admin Audit log is a bounded, scope-bound metadata view.'
+require_literal docs/f0-acceptance-report.md '.ai-platform/specs/009-component-boundary-closure/spec.md'
+require_literal docs/f0-acceptance-report.md '.ai-platform/evidence/T041/'
 require_literal docs/concepts/persistence-and-tasks.md 'at least once'
 require_literal docs/concepts/persistence-and-tasks.md 'idempotent'
 require_literal docs/how-to/run-background-tasks.md 'RetryDelays'
+require_literal docs/how-to/run-background-tasks.md 'StateQueued'
 require_literal docs/operations/security.md 'Handler error text'
+require_literal docs/reference/packages.md 'Governed uses `governedpostgres`'
 require_literal docs/reference/support-matrix.md '| PostgreSQL | 17 used by integration acceptance |'
 require_literal docs/reference/support-matrix.md '| Go | 1.26.5 or newer |'
 require_literal docs/zh-CN/concepts/persistence-and-tasks.md 'at least once'
@@ -507,5 +568,9 @@ case "$final_mode" in
 	0 | 1) ;;
 	*) fail 'MODARY_DOCS_FINAL must be 0 or 1' ;;
 esac
+
+if test "$root" = "$script_root" && ! "$script_root/scripts/check-acceptance-evidence.sh" "$root"; then
+	status=1
+fi
 
 exit "$status"

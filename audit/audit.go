@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 	"unicode"
@@ -29,6 +30,10 @@ const (
 	MaxScopeKindRunes = 64
 	MaxScopeIDRunes   = 256
 	MaxCodeRunes      = 64
+	// DefaultListLimit bounds one operational audit page by default.
+	DefaultListLimit = 50
+	// MaxListLimit is the largest operational audit page.
+	MaxListLimit = 100
 )
 
 // Impact is the bounded mutation footprint attached to a detailed event.
@@ -67,6 +72,58 @@ type Event struct {
 	Reason        string          `json:"reason,omitempty"`
 	StartedAt     time.Time       `json:"started_at"`
 	FinishedAt    time.Time       `json:"finished_at"`
+}
+
+// Summary is bounded operational audit metadata. It excludes inputs, result
+// summaries, impact resources, references, and free-form reasons.
+type Summary struct {
+	ID         int64           `json:"id,string"`
+	RequestID  string          `json:"request_id"`
+	ActorID    string          `json:"actor_id,omitempty"`
+	ActorType  string          `json:"actor_type,omitempty"`
+	Channel    string          `json:"channel,omitempty"`
+	ActionID   string          `json:"action_id"`
+	Decision   string          `json:"decision"`
+	ErrorCode  string          `json:"error_code,omitempty"`
+	Scope      scope.Execution `json:"scope"`
+	StartedAt  time.Time       `json:"started_at"`
+	FinishedAt time.Time       `json:"finished_at"`
+}
+
+// ListOptions selects one descending, scope-bound audit page. BeforeID is an
+// exclusive cursor returned by the previous Page.
+type ListOptions struct {
+	Scope    scope.Execution
+	Limit    int
+	BeforeID int64
+}
+
+// Page is one bounded audit inspection result.
+type Page struct {
+	Events       []Summary `json:"events"`
+	NextBeforeID int64     `json:"next_before_id,omitempty,string"`
+}
+
+// Reader exposes scope-bound audit metadata without write or raw SQL access.
+type Reader interface {
+	List(context.Context, ListOptions) (Page, error)
+}
+
+// NormalizeListOptions validates one provider-neutral audit query.
+func NormalizeListOptions(options ListOptions) (ListOptions, error) {
+	if err := options.Scope.Validate(); err != nil {
+		return ListOptions{}, err
+	}
+	if options.Limit < 0 || options.Limit > MaxListLimit {
+		return ListOptions{}, fmt.Errorf("audit list limit must be between 1 and %d", MaxListLimit)
+	}
+	if options.Limit == 0 {
+		options.Limit = DefaultListLimit
+	}
+	if options.BeforeID < 0 {
+		return ListOptions{}, fmt.Errorf("audit list cursor cannot be negative")
+	}
+	return options, nil
 }
 
 // Normalize applies the persistence boundary for audit data. Metadata events
@@ -169,7 +226,7 @@ func truncate(value string, limit int) string {
 // may be called inside the Action transaction and implementations must honor its
 // context-bound executor. A returned error is an operational dependency failure
 // classified as action.CodeInternal by Runtime. The official F0 implementation
-// is adapters/sqlaudit. The same Hook may be called concurrently;
+// is components/postgres/sqlaudit. The same Hook may be called concurrently;
 // implementations must be safe for concurrent use, honor context cancellation
 // and deadlines, return promptly after cancellation, and treat Event as
 // immutable for the duration of the call.

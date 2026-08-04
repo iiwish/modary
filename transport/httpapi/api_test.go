@@ -718,7 +718,7 @@ func newHTTPTestApplicationWithInputSchema(t *testing.T, withSessions bool, inpu
 		"example",
 	}
 	if withSessions {
-		provides = append(provides, module.CapabilityIdentity)
+		provides = append(provides, module.CapabilityIdentity, module.CapabilitySessions)
 	}
 	manifest := module.Manifest{
 		SchemaVersion: module.SchemaVersion, ID: "unrelated-module-name", Version: "1.0.0", Type: module.ModuleTypeFeature, Provides: provides,

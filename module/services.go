@@ -162,11 +162,13 @@ var (
 	databaseStoreKey        = MustKey[database.Store]("database.store", CapabilityDatabase)
 	actionDatabaseKey       = MustKey[database.Access]("database.governed-access", CapabilityDatabase)
 	identityResolverKey     = MustKey[identity.Resolver]("identity.resolver", CapabilityIdentity)
-	sessionAuthenticatorKey = MustKey[identity.Authenticator]("identity.session-authenticator", CapabilityIdentity)
+	sessionAuthenticatorKey = MustKey[identity.Authenticator]("identity.session-authenticator", CapabilitySessions)
 	tokenAuthKey            = MustKey[identity.TokenAuthenticator]("identity.token-authenticator", CapabilityIdentity)
 	authorizerKey           = MustKey[authz.Authorizer]("authorization.authorizer", CapabilityAuthorization)
 	auditHookKey            = MustKey[audit.Hook]("audit.hook", CapabilityAudit)
+	auditReaderKey          = MustKey[audit.Reader]("audit.reader", CapabilityAuditInspection)
 	taskServiceKey          = MustKey[task.Service]("tasks.service", CapabilityTasks)
+	taskInspectorKey        = MustKey[task.Inspector]("tasks.inspector", CapabilityTaskInspection)
 )
 
 func canonicalServiceIdentity(name string) *keyIdentity {
@@ -185,8 +187,12 @@ func canonicalServiceIdentity(name string) *keyIdentity {
 		return authorizerKey.spec.identity
 	case auditHookKey.Name():
 		return auditHookKey.spec.identity
+	case auditReaderKey.Name():
+		return auditReaderKey.spec.identity
 	case taskServiceKey.Name():
 		return taskServiceKey.spec.identity
+	case taskInspectorKey.Name():
+		return taskInspectorKey.spec.identity
 	default:
 		return nil
 	}
@@ -218,5 +224,11 @@ func Authorizer() Key[authz.Authorizer] { return authorizerKey }
 // AuditHook returns the canonical audit Hook service key.
 func AuditHook() Key[audit.Hook] { return auditHookKey }
 
+// AuditReader returns the canonical bounded audit Reader key.
+func AuditReader() Key[audit.Reader] { return auditReaderKey }
+
 // Tasks returns the canonical durable task service key.
 func Tasks() Key[task.Service] { return taskServiceKey }
+
+// TaskInspector returns the canonical bounded task Inspector key.
+func TaskInspector() Key[task.Inspector] { return taskInspectorKey }

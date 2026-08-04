@@ -17,13 +17,12 @@ import (
 	"time"
 
 	"github.com/iiwish/modary/action"
-	"github.com/iiwish/modary/adapters/postgres"
 	"github.com/iiwish/modary/appcmd"
 	"github.com/iiwish/modary/appkit"
 	"github.com/iiwish/modary/audit"
 	"github.com/iiwish/modary/authz"
 	"github.com/iiwish/modary/identity"
-	"github.com/iiwish/modary/internal/testpostgres"
+	"github.com/iiwish/modary/internal/testcomponent"
 	"github.com/iiwish/modary/module"
 	"github.com/iiwish/modary/scope"
 	"github.com/iiwish/modary/transport/httpapi"
@@ -574,16 +573,9 @@ func externalDefinition(t *testing.T) appkit.Definition {
 			return commandProbeHandler{}, nil
 		},
 	})
-	databaseConfig := testpostgres.New(t)
-	databaseRegistration, err := postgres.Module(postgres.Options{
-		URL: databaseConfig.URL, ApplicationSchema: databaseConfig.ApplicationSchema, QueueSchema: databaseConfig.QueueSchema,
-	})
-	if err != nil {
-		panic(err)
-	}
 	return appkit.Definition{
 		Metadata: externalMetadata(),
-		Modules:  []module.Registration{databaseRegistration, registration},
+		Modules:  []module.Registration{testcomponent.RuntimeModule(false), registration},
 	}
 }
 

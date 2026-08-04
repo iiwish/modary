@@ -46,7 +46,7 @@ export function RecordsProvider({ children }: { children: ReactNode }) {
         setLoaded(true)
       })
       .catch((cause: unknown) => {
-        setError(cause instanceof Error ? cause.message : 'Records could not be loaded')
+        setError(cause instanceof Error ? cause.message : '记录加载失败，请重试。')
         setErrorStatus(cause instanceof APIError ? cause.status : null)
         throw cause
       })

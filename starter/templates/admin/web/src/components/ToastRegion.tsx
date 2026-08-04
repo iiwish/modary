@@ -11,7 +11,7 @@ export default function ToastRegion() {
             ? <CheckCircle2 size={18} aria-hidden="true" />
             : <CircleAlert size={18} aria-hidden="true" />}
           <span>{item.message}</span>
-          <button className="icon-button compact" type="button" aria-label="Dismiss notification" onClick={() => toast.dismiss(item.id)}>
+          <button className="icon-button compact" type="button" aria-label="关闭通知" onClick={() => toast.dismiss(item.id)}>
             <X size={15} aria-hidden="true" />
           </button>
         </div>

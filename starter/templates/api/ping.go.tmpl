@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/iiwish/modary/appkit"
 	"github.com/iiwish/modary/httpkit"
 	"github.com/iiwish/modary/module"
 )
@@ -20,17 +21,22 @@ func Registration() module.Registration {
 	}, func(context.Context, module.Scope) error { return nil })
 }
 
-// Routes returns the HTTP contribution selected by the application.
-func Routes() []httpkit.Route {
-	return []httpkit.Route{
-		{
-			Method: http.MethodGet,
-			Path:   "/api/ping",
-			Handler: http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-				writer.Header().Set("Content-Type", "application/json")
-				writer.WriteHeader(http.StatusOK)
-				_, _ = writer.Write([]byte(`{"message":"pong"}`))
-			}),
+// Contribution declares the feature route before application startup.
+func Contribution() httpkit.Contribution {
+	return httpkit.Contribution{
+		ID: "ping-http",
+		Requires: []module.Capability{"ping"},
+		Routes: []httpkit.RouteSpec{ {Method: http.MethodGet, Path: "/api/ping"} },
+		Build: func(context.Context, *appkit.Application) ([]httpkit.Route, error) {
+			return []httpkit.Route{ {
+				Method: http.MethodGet,
+				Path:   "/api/ping",
+				Handler: http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+					writer.Header().Set("Content-Type", "application/json")
+					writer.WriteHeader(http.StatusOK)
+					_, _ = writer.Write([]byte(`{"message":"pong"}`))
+				}),
+			} }, nil
 		},
 	}
 }

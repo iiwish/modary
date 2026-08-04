@@ -17,7 +17,12 @@ replace it at the composition root before production deployment.
 ## Configure
 
 Use one PostgreSQL database and two schemas. River uses the queue schema; a
-separate database is not required.
+separate database is not required. Use lowercase ASCII identifiers; the
+application schema is at most 63 bytes and the queue schema is at most 46 bytes.
+Generated defaults use project-derived role prefixes, keeping application,
+queue, and test namespaces distinct and outside PostgreSQL's reserved schemas.
+Overlong names retain a readable prefix and add a deterministic hash fragment
+within those limits.
 
 ```sh
 export DATABASE_URL='postgres://user:password@127.0.0.1:5432/app?sslmode=disable'

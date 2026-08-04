@@ -1,0 +1,12 @@
+# T040 Reviewed Diff Manifest
+
+- Read contracts/facades: `task/task.go`, `audit/audit.go`, `module/**`,
+  `appkit/appkit.go`
+- Concrete readers: `components/governedpostgres/task_inspector.go`,
+  `components/postgres/sqlaudit/reader.go` and tests
+- Component selection and backend templates: `starter/create.go`,
+  `starter/run.go`, `starter/templates/admin/*.tmpl`
+- Permission-aware React and shared primitives:
+  `starter/templates/admin/web/src/**`
+- Deterministic selected bundles: `starter/templates/admin/internal/web/dist*/**`
+- English/Chinese onboarding and current architecture documentation

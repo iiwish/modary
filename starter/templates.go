@@ -3,23 +3,26 @@ package starter
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"embed"
 	"fmt"
 	"go/format"
 	"io/fs"
 	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"text/template"
 )
 
-//go:embed templates/api templates/admin/*.tmpl templates/admin/web/*.json templates/admin/web/*.yaml templates/admin/web/*.js templates/admin/web/*.ts templates/admin/web/*.html templates/admin/web/src templates/admin/web/scripts templates/admin/internal/web/dist templates/governed
+//go:embed templates/api templates/admin/*.tmpl templates/admin/web/*.json templates/admin/web/*.yaml templates/admin/web/*.js templates/admin/web/*.ts templates/admin/web/*.html templates/admin/web/src templates/admin/web/scripts templates/admin/internal/web/dist* templates/governed
 var profileTemplates embed.FS
 
 type profileTemplate struct {
 	source      string
 	destination func(normalizedCreateOptions) string
+	condition   func(normalizedCreateOptions) bool
 }
 
 var apiTemplates = []profileTemplate{
@@ -40,8 +43,16 @@ var adminTemplates = []profileTemplate{
 	{source: "application.go.tmpl", destination: fixedDestination("internal/app/application.go")},
 	{source: "application_test.go.tmpl", destination: fixedDestination("internal/app/application_test.go")},
 	{source: "config.go.tmpl", destination: fixedDestination("internal/config/config.go")},
+	{source: "adminapi.go.tmpl", destination: fixedDestination("internal/adminapi/adminapi.go")},
 	{source: "records.go.tmpl", destination: fixedDestination("internal/records/component.go")},
 	{source: "records.sql.tmpl", destination: fixedDestination("internal/records/migrations/postgres/0001_records.sql")},
+	{source: "tasks.go.tmpl", destination: fixedDestination("internal/tasks/component.go"), condition: withComponent(ComponentTasks)},
+	{source: "audit.go.tmpl", destination: fixedDestination("internal/auditlog/component.go"), condition: withComponent(ComponentAudit)},
+	{source: "web-package.json.tmpl", destination: fixedDestination("web/package.json")},
+	{source: "web-vite.config.ts.tmpl", destination: fixedDestination("web/vite.config.ts")},
+	{source: "web-check-assets.mjs.tmpl", destination: fixedDestination("web/scripts/check-assets.mjs")},
+	{source: "modules.ts.tmpl", destination: fixedDestination("web/src/modules/active.ts")},
+	{source: "modules.test.ts.tmpl", destination: fixedDestination("web/src/modules/active.test.ts")},
 	{source: "web.go.tmpl", destination: fixedDestination("internal/web/web.go")},
 }
 
@@ -60,18 +71,28 @@ var governedTemplates = []profileTemplate{
 }
 
 type templateData struct {
-	ID               string
-	SchemaID         string
-	QueueSchemaID    string
-	Name             string
-	ModulePath       string
-	ModaryVersion    string
-	ModaryReplace    string
-	HasModaryReplace bool
+	ID                string
+	SchemaID          string
+	QueueSchemaID     string
+	TestSchemaID      string
+	TestQueueSchemaID string
+	Name              string
+	ModulePath        string
+	ModaryVersion     string
+	ModaryReplace     string
+	PostgresReplace   string
+	GovernedReplace   string
+	HasModaryReplace  bool
+	HasTasks          bool
+	HasAudit          bool
 }
 
 func fixedDestination(value string) func(normalizedCreateOptions) string {
 	return func(normalizedCreateOptions) string { return value }
+}
+
+func withComponent(component Component) func(normalizedCreateOptions) bool {
+	return func(options normalizedCreateOptions) bool { return options.hasComponent(component) }
 }
 
 func renderProfile(ctx context.Context, options normalizedCreateOptions) ([]renderedFile, error) {
@@ -88,15 +109,31 @@ func renderProfile(ctx context.Context, options normalizedCreateOptions) ([]rend
 	default:
 		return nil, fmt.Errorf("%w: unsupported normalized profile %q", ErrInvalidOptions, options.profile)
 	}
-	schemaID := strings.ReplaceAll(options.id, "-", "_")
+	schemaIDs := deriveProjectSchemaIDs(options.id)
 	data := templateData{
-		ID: options.id, SchemaID: schemaID, QueueSchemaID: queueSchemaID(schemaID), Name: options.name, ModulePath: options.modulePath,
-		ModaryVersion: options.modaryVersion, ModaryReplace: options.modaryReplace,
-		HasModaryReplace: options.modaryReplace != "",
+		ID:                options.id,
+		SchemaID:          schemaIDs.application,
+		QueueSchemaID:     schemaIDs.queue,
+		TestSchemaID:      schemaIDs.testApplication,
+		TestQueueSchemaID: schemaIDs.testQueue,
+		Name:              options.name,
+		ModulePath:        options.modulePath,
+		ModaryVersion:     options.modaryVersion,
+		ModaryReplace:     options.modaryReplace,
+		HasModaryReplace:  options.modaryReplace != "",
+		HasTasks:          options.hasComponent(ComponentTasks),
+		HasAudit:          options.hasComponent(ComponentAudit),
+	}
+	if options.modaryReplace != "" {
+		data.PostgresReplace = filepath.Join(options.modaryReplace, "components", "postgres")
+		data.GovernedReplace = filepath.Join(options.modaryReplace, "components", "governedpostgres")
 	}
 	result := make([]renderedFile, 0, len(templates))
 	seen := make(map[string]struct{}, len(templates))
 	for _, item := range templates {
+		if item.condition != nil && !item.condition(options) {
+			continue
+		}
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -130,11 +167,28 @@ func renderProfile(ctx context.Context, options normalizedCreateOptions) ([]rend
 	}
 	if options.profile == ProfileAdmin {
 		var err error
-		result, err = appendStaticTree(ctx, result, seen, "templates/admin/web", "web")
+		result, err = appendStaticTreeFiltered(ctx, result, seen, "templates/admin/web", "web", func(relative string) bool {
+			switch {
+			case relative == "package.json" || relative == "vite.config.ts":
+				return false
+			case relative == "src/modules/active.ts":
+				return false
+			case relative == "scripts/build-variants.mjs" || relative == "scripts/check-assets.mjs":
+				return false
+			case strings.HasPrefix(relative, "scripts/selections/"):
+				return false
+			case strings.HasPrefix(relative, "src/modules/tasks/") && !options.hasComponent(ComponentTasks):
+				return false
+			case strings.HasPrefix(relative, "src/modules/audit/") && !options.hasComponent(ComponentAudit):
+				return false
+			default:
+				return true
+			}
+		})
 		if err != nil {
 			return nil, err
 		}
-		result, err = appendStaticTree(ctx, result, seen, "templates/admin/internal/web/dist", "internal/web/dist")
+		result, err = appendStaticTree(ctx, result, seen, adminDistRoot(options), "internal/web/dist")
 		if err != nil {
 			return nil, err
 		}
@@ -143,16 +197,58 @@ func renderProfile(ctx context.Context, options normalizedCreateOptions) ([]rend
 	return result, nil
 }
 
-func queueSchemaID(applicationSchema string) string {
-	const suffix = "_queue"
-	const maximumSchemaBytes = 63
-	if len(applicationSchema) > maximumSchemaBytes-len(suffix) {
-		applicationSchema = applicationSchema[:maximumSchemaBytes-len(suffix)]
+func adminDistRoot(options normalizedCreateOptions) string {
+	switch {
+	case options.hasComponent(ComponentTasks) && options.hasComponent(ComponentAudit):
+		return "templates/admin/internal/web/dist-operations"
+	case options.hasComponent(ComponentTasks):
+		return "templates/admin/internal/web/dist-tasks"
+	case options.hasComponent(ComponentAudit):
+		return "templates/admin/internal/web/dist-audit"
+	default:
+		return "templates/admin/internal/web/dist"
 	}
-	return applicationSchema + suffix
+}
+
+const (
+	maxPostgreSQLSchemaBytes = 63
+	maxRiverQueueSchemaBytes = 46
+	schemaHashBytes          = 8
+)
+
+type projectSchemaIDs struct {
+	application     string
+	queue           string
+	testApplication string
+	testQueue       string
+}
+
+func deriveProjectSchemaIDs(projectID string) projectSchemaIDs {
+	stem := strings.ReplaceAll(projectID, "-", "_")
+	return projectSchemaIDs{
+		application:     boundedSchemaID("modary_app_"+stem, maxPostgreSQLSchemaBytes),
+		queue:           boundedSchemaID("modary_queue_"+stem, maxRiverQueueSchemaBytes),
+		testApplication: boundedSchemaID("modary_test_app_"+stem, maxPostgreSQLSchemaBytes),
+		testQueue:       boundedSchemaID("modary_test_queue_"+stem, maxRiverQueueSchemaBytes),
+	}
+}
+
+func boundedSchemaID(candidate string, maximumBytes int) string {
+	if len(candidate) <= maximumBytes {
+		return candidate
+	}
+	// Project IDs are lowercase ASCII, so byte truncation preserves identifier encoding.
+	digest := sha256.Sum256([]byte(candidate))
+	hash := fmt.Sprintf("_%x", digest[:schemaHashBytes])
+	prefixBytes := maximumBytes - len(hash)
+	return candidate[:prefixBytes] + hash
 }
 
 func appendStaticTree(ctx context.Context, result []renderedFile, seen map[string]struct{}, sourceRoot, destinationRoot string) ([]renderedFile, error) {
+	return appendStaticTreeFiltered(ctx, result, seen, sourceRoot, destinationRoot, func(string) bool { return true })
+}
+
+func appendStaticTreeFiltered(ctx context.Context, result []renderedFile, seen map[string]struct{}, sourceRoot, destinationRoot string, include func(string) bool) ([]renderedFile, error) {
 	err := fs.WalkDir(profileTemplates, sourceRoot, func(name string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -164,6 +260,9 @@ func appendStaticTree(ctx context.Context, result []renderedFile, seen map[strin
 			return nil
 		}
 		relative := strings.TrimPrefix(name, sourceRoot+"/")
+		if !include(relative) {
+			return nil
+		}
 		destination := path.Join(destinationRoot, relative)
 		if _, duplicate := seen[destination]; duplicate {
 			return fmt.Errorf("duplicate Starter template destination %s", destination)

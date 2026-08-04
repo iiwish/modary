@@ -30,8 +30,8 @@ func TestGovernedProfileCommitsAndConsumesDurableWork(t *testing.T) {
 	}
 	runtimeConfig := config.Config{
 		DatabaseURL: databaseURL,
-		ApplicationSchema: environmentOr("MODARY_APPLICATION_SCHEMA", {{quote .SchemaID}}+"_test"),
-		QueueSchema: environmentOr("MODARY_QUEUE_SCHEMA", {{quote .QueueSchemaID}}+"_test"),
+		ApplicationSchema: environmentOr("MODARY_APPLICATION_SCHEMA", {{quote .TestSchemaID}}),
+		QueueSchema: environmentOr("MODARY_QUEUE_SCHEMA", {{quote .TestQueueSchemaID}}),
 		OperatorUsername: "operator",
 		OperatorPassword: "development-password",
 		OperatorToken: "development-bearer-token-000000000001",

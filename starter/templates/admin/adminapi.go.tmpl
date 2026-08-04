@@ -1,0 +1,124 @@
+// Package adminapi provides shared boundaries for generated Admin endpoints.
+package adminapi
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+
+	"github.com/iiwish/modary/authz"
+	"github.com/iiwish/modary/identity"
+	"github.com/iiwish/modary/transport/sessionhttp"
+)
+
+var (
+	ErrForbidden       = errors.New("operation is forbidden")
+	ErrActorUnavailable = errors.New("authenticated actor is unavailable")
+)
+
+func Authorize(ctx context.Context, authorizer authz.Authorizer, permission string) (identity.Actor, error) {
+	actor, ok := sessionhttp.Actor(ctx)
+	if !ok {
+		return identity.Actor{}, ErrActorUnavailable
+	}
+	decision, err := authorizer.Authorize(ctx, authz.Request{
+		Actor: actor, OperationID: permission, Permission: permission,
+		Scope: actor.Scope, Phase: authz.PhaseIntent,
+	})
+	if err != nil {
+		return identity.Actor{}, fmt.Errorf("authorize %s: %w", permission, err)
+	}
+	if !decision.Allowed {
+		return identity.Actor{}, ErrForbidden
+	}
+	return actor, nil
+}
+
+func ListCursor(values url.Values, maximum int) (int, int64, error) {
+	limit, err := Integer(values, "limit", 0, maximum)
+	if err != nil {
+		return 0, 0, err
+	}
+	before, err := Integer64(values, "before_id")
+	if err != nil {
+		return 0, 0, err
+	}
+	return limit, before, nil
+}
+
+func Integer(values url.Values, name string, minimum, maximum int) (int, error) {
+	value, err := Value(values, name, 20)
+	if err != nil || value == "" {
+		return 0, err
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < minimum || parsed > maximum {
+		return 0, fmt.Errorf("%s must be between %d and %d", name, minimum, maximum)
+	}
+	return parsed, nil
+}
+
+func Integer64(values url.Values, name string) (int64, error) {
+	value, err := Value(values, name, 20)
+	if err != nil || value == "" {
+		return 0, err
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed < 0 {
+		return 0, fmt.Errorf("%s must be a non-negative integer", name)
+	}
+	return parsed, nil
+}
+
+func Value(values url.Values, name string, maximumBytes int) (string, error) {
+	entries, ok := values[name]
+	if !ok {
+		return "", nil
+	}
+	if len(entries) != 1 {
+		return "", fmt.Errorf("%s must be provided at most once", name)
+	}
+	value := entries[0]
+	if len(value) > maximumBytes || strings.TrimSpace(value) != value {
+		return "", fmt.Errorf("%s is invalid", name)
+	}
+	return value, nil
+}
+
+func WriteAuthorizationError(writer http.ResponseWriter, request *http.Request, err error) {
+	if errors.Is(err, ErrForbidden) {
+		WriteError(writer, request, http.StatusForbidden, "FORBIDDEN", "You do not have permission to perform this operation")
+		return
+	}
+	WriteError(writer, request, http.StatusInternalServerError, "AUTHORIZATION_FAILED", "Authorization could not be completed")
+}
+
+func WriteError(writer http.ResponseWriter, request *http.Request, status int, code, message string) {
+	WriteJSON(writer, status, struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+		RequestID string `json:"request_id,omitempty"`
+	}{Error: struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}{Code: code, Message: message}, RequestID: sessionhttp.RequestID(request.Context())})
+}
+
+func WriteJSON(writer http.ResponseWriter, status int, value any) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		http.Error(writer, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+	writer.Header().Set("Cache-Control", "no-store")
+	writer.WriteHeader(status)
+	_, _ = writer.Write(append(data, '\n'))
+}

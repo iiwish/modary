@@ -60,6 +60,15 @@ var currentDocsFiles = []string{
 	".ai-platform/specs/008-react-admin-starter/packets/T035.yaml",
 	".ai-platform/specs/008-react-admin-starter/packets/T036.yaml",
 	".ai-platform/specs/008-react-admin-starter/packets/T037.yaml",
+	".ai-platform/specs/009-component-boundary-closure/spec.md",
+	".ai-platform/specs/009-component-boundary-closure/plan.md",
+	".ai-platform/specs/009-component-boundary-closure/analysis.md",
+	".ai-platform/specs/009-component-boundary-closure/tasks.md",
+	".ai-platform/specs/009-component-boundary-closure/checklists/requirements.md",
+	".ai-platform/specs/009-component-boundary-closure/packets/T038.yaml",
+	".ai-platform/specs/009-component-boundary-closure/packets/T039.yaml",
+	".ai-platform/specs/009-component-boundary-closure/packets/T040.yaml",
+	".ai-platform/specs/009-component-boundary-closure/packets/T041.yaml",
 	".ai-platform/evidence/T024/summary.md", ".ai-platform/evidence/T024/diff.patch", ".ai-platform/evidence/T024/test-results.md",
 	".ai-platform/evidence/T025/summary.md", ".ai-platform/evidence/T025/diff.patch", ".ai-platform/evidence/T025/test-results.md",
 	".ai-platform/evidence/T026/summary.md", ".ai-platform/evidence/T026/diff.patch", ".ai-platform/evidence/T026/test-results.md",
@@ -90,6 +99,14 @@ var currentDocsFiles = []string{
 	".ai-platform/evidence/T037/summary.md", ".ai-platform/evidence/T037/diff.patch",
 	".ai-platform/evidence/T037/test-results.md", ".ai-platform/evidence/T037/review.md",
 	".ai-platform/evidence/T037/external-acceptance.md",
+	".ai-platform/evidence/T038/summary.md", ".ai-platform/evidence/T038/diff.patch",
+	".ai-platform/evidence/T038/test-results.md", ".ai-platform/evidence/T038/review.md",
+	".ai-platform/evidence/T039/summary.md", ".ai-platform/evidence/T039/diff.patch",
+	".ai-platform/evidence/T039/test-results.md", ".ai-platform/evidence/T039/review.md",
+	".ai-platform/evidence/T040/summary.md", ".ai-platform/evidence/T040/diff.patch",
+	".ai-platform/evidence/T040/test-results.md", ".ai-platform/evidence/T040/review.md",
+	".ai-platform/evidence/T041/summary.md", ".ai-platform/evidence/T041/diff.patch",
+	".ai-platform/evidence/T041/test-results.md", ".ai-platform/evidence/T041/review.md",
 	"starter/templates/admin/README.md.tmpl",
 }
 
@@ -148,6 +165,74 @@ func TestCheckDocsRejectsUnresolvedAcceptanceFinding(t *testing.T) {
 	}
 }
 
+func TestCheckDocsRejectsUnresolvedCurrentClosureFinding(t *testing.T) {
+	repository := currentDocsFixture(t)
+	path := filepath.Join(repository, ".ai-platform/evidence/T041/review.md")
+	replaceCurrentDocs(t, path, "- P1: 0", "- P1: 1")
+	output, err := runCurrentDocsCheck(t, repository)
+	if err == nil || !strings.Contains(output, "- P1: 0") {
+		t.Fatalf("check-docs = %v, output=%q", err, output)
+	}
+}
+
+func TestAcceptanceEvidenceDigestRejectsSourceDrift(t *testing.T) {
+	repository := t.TempDir()
+	writeDocsFixtureFile(t, filepath.Join(repository, "implementation.txt"), "accepted implementation\n")
+	writeDocsFixtureFile(t, filepath.Join(repository, ".ai-platform", "evidence", "T041", "summary.md"),
+		"# T041\n\n- Source digest: git-hash:0000000000000000000000000000000000000000\n")
+	runGitFixture(t, repository, "init", "--quiet")
+	digestCommand := exec.Command(filepath.Join(repositoryRoot(t), "scripts", "acceptance-source-digest.sh"), repository)
+	digestOutput, err := digestCommand.CombinedOutput()
+	if err != nil {
+		t.Fatalf("acceptance digest failed: %v\n%s", err, digestOutput)
+	}
+	digest := strings.TrimSpace(string(digestOutput))
+	replaceCurrentDocs(t, filepath.Join(repository, ".ai-platform", "evidence", "T041", "summary.md"),
+		"git-hash:0000000000000000000000000000000000000000", digest)
+
+	check := func() (string, error) {
+		command := exec.Command(filepath.Join(repositoryRoot(t), "scripts", "check-acceptance-evidence.sh"), repository)
+		output, checkErr := command.CombinedOutput()
+		return string(output), checkErr
+	}
+	if output, checkErr := check(); checkErr != nil {
+		t.Fatalf("current acceptance evidence failed: %v\n%s", checkErr, output)
+	}
+	writeDocsFixtureFile(t, filepath.Join(repository, "implementation.txt"), "drifted implementation\n")
+	if output, checkErr := check(); checkErr == nil || !strings.Contains(output, "acceptance evidence is stale") {
+		t.Fatalf("stale acceptance evidence = %v, output=%q", checkErr, output)
+	}
+	writeDocsFixtureFile(t, filepath.Join(repository, "implementation.txt"), "accepted implementation\n")
+	if err := os.Chmod(filepath.Join(repository, "implementation.txt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if output, checkErr := check(); checkErr == nil || !strings.Contains(output, "acceptance evidence is stale") {
+		t.Fatalf("executable-mode acceptance drift = %v, output=%q", checkErr, output)
+	}
+}
+
+func TestCheckDocsCannotBypassAcceptanceDigestWithRelativeRoot(t *testing.T) {
+	repository := currentDocsFixture(t)
+	for _, name := range []string{
+		"check-docs.sh",
+		"check-acceptance-evidence.sh",
+		"acceptance-source-digest.sh",
+	} {
+		copyDocsFixtureScript(t, repository, name)
+	}
+	runGitFixture(t, repository, "init", "--quiet")
+	refreshAcceptanceDigest(t, repository)
+	appendDocsFixture(t, filepath.Join(repository, "README.md"), "\nacceptance source drift\n")
+
+	command := exec.Command("sh", "./scripts/check-docs.sh")
+	command.Dir = repository
+	command.Env = append(os.Environ(), "MODARY_DOCS_ROOT=.", "MODARY_DOCS_FINAL=1")
+	output, err := command.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "acceptance evidence is stale") {
+		t.Fatalf("relative-root acceptance check = %v, output=%q", err, output)
+	}
+}
+
 func currentDocsFixture(t *testing.T) string {
 	t.Helper()
 	root := repositoryRoot(t)
@@ -170,6 +255,22 @@ func currentDocsFixture(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return destination
+}
+
+func copyDocsFixtureScript(t *testing.T, repository, name string) {
+	t.Helper()
+	source := filepath.Join(repositoryRoot(t), "scripts", name)
+	data, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(repository, "scripts", name)
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, data, 0o755); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func runCurrentDocsCheck(t *testing.T, repository string) (string, error) {

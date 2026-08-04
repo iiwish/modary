@@ -2,10 +2,13 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import axe from 'axe-core'
 import { StrictMode } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ToastRegion from '@/components/ToastRegion'
 import { ToastProvider } from '@/stores/toast'
 import RecordsView from './RecordsView'
+
+const auth = vi.hoisted(() => ({ denied: new Set<string>() }))
+vi.mock('@/stores/auth', () => ({ useAuth: () => ({ can: (permission: string) => !auth.denied.has(permission) }) }))
 
 const record = { id: 'rec_000000000000000000000001', title: 'Access review', status: 'active', version: 1, created_at: '2026-08-02T00:00:00Z', updated_at: '2026-08-02T00:00:00Z' }
 
@@ -15,10 +18,11 @@ function renderRecords() {
 }
 
 describe('Records view', () => {
+  beforeEach(() => auth.denied.clear())
   it('renders an accessible work table and complete row commands', async () => {
     const { container } = renderRecords()
-    expect(await screen.findByRole('button', { name: 'Edit Access review' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Delete Access review' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: '编辑“Access review”' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '删除“Access review”' })).toBeTruthy()
     const result = await axe.run(container)
     expect(result.violations).toEqual([])
   })
@@ -28,16 +32,16 @@ describe('Records view', () => {
     renderRecords()
     const editTrigger = await screen.findByRole('button', { name: 'Access review' })
     await user.click(editTrigger)
-    const editor = screen.getByRole('dialog', { name: 'Edit record' })
-    expect(document.activeElement).toBe(screen.getByLabelText('Title'))
+    const editor = screen.getByRole('dialog', { name: '编辑记录' })
+    expect(document.activeElement).toBe(screen.getByLabelText('标题'))
     fireEvent.keyDown(editor, { key: 'Escape' })
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit record' })).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '编辑记录' })).toBeNull())
     expect(document.activeElement).toBe(editTrigger)
 
-    await user.click(screen.getByRole('button', { name: 'Delete Access review' }))
-    const deletion = screen.getByRole('dialog', { name: 'Delete record?' })
+    await user.click(screen.getByRole('button', { name: '删除“Access review”' }))
+    const deletion = screen.getByRole('dialog', { name: '删除这条记录？' })
     fireEvent.keyDown(deletion, { key: 'Escape' })
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Delete record?' })).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '删除这条记录？' })).toBeNull())
   })
 
   it('renders a dedicated forbidden state', async () => {
@@ -45,8 +49,17 @@ describe('Records view', () => {
       error: { code: 'AUTHORIZATION_DENIED', message: 'permission is not granted' },
     }), { status: 403 })))
     render(<ToastProvider><RecordsView /><ToastRegion /></ToastProvider>)
-    expect(await screen.findByRole('heading', { name: 'Access denied' })).toBeTruthy()
-    expect(screen.getByText('permission is not granted')).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: '无权访问' })).toBeTruthy()
+    expect(screen.getByText('没有执行此操作的权限。')).toBeTruthy()
+  })
+
+  it('hides mutation commands that are not granted', async () => {
+    auth.denied = new Set(['records.create', 'records.update', 'records.delete'])
+    renderRecords()
+    expect(await screen.findByText('Access review')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '新建记录' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '编辑“Access review”' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '删除“Access review”' })).toBeNull()
   })
 
   it('completes create, edit, filter, and delete through visible commands', async () => {
@@ -70,26 +83,26 @@ describe('Records view', () => {
     render(<ToastProvider><RecordsView /><ToastRegion /></ToastProvider>)
     await screen.findByRole('button', { name: 'Access review' })
 
-    await user.click(screen.getByRole('button', { name: 'New record' }))
-    await user.type(screen.getByLabelText('Title'), 'Second')
-    await user.click(screen.getByRole('button', { name: 'Save record' }))
+    await user.click(screen.getByRole('button', { name: '新建记录' }))
+    await user.type(screen.getByLabelText('标题'), 'Second')
+    await user.click(screen.getByRole('button', { name: '保存记录' }))
     expect(await screen.findByRole('button', { name: 'Second' })).toBeTruthy()
 
     await user.click(screen.getByRole('button', { name: 'Second' }))
-    const title = screen.getByLabelText('Title')
+    const title = screen.getByLabelText('标题')
     await user.clear(title)
     await user.type(title, 'Updated')
-    await user.click(screen.getByLabelText('active'))
-    await user.click(screen.getByRole('button', { name: 'Save record' }))
+    await user.click(screen.getByLabelText('启用'))
+    await user.click(screen.getByRole('button', { name: '保存记录' }))
     expect(await screen.findByRole('button', { name: 'Updated' })).toBeTruthy()
 
-    await user.click(screen.getByRole('button', { name: 'archived' }))
-    expect(screen.getByRole('heading', { name: 'No matching records' })).toBeTruthy()
-    await user.click(screen.getByRole('button', { name: 'all' }))
+    await user.click(screen.getByRole('button', { name: '已归档' }))
+    expect(screen.getByRole('heading', { name: '没有符合条件的记录' })).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: '全部' }))
 
-    await user.click(screen.getByRole('button', { name: 'Delete Updated' }))
-    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    await user.click(screen.getByRole('button', { name: '删除“Updated”' }))
+    await user.click(screen.getByRole('button', { name: '删除' }))
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Updated' })).toBeNull())
-    expect(screen.getByText('Record deleted')).toBeTruthy()
+    expect(screen.getByText('记录已删除')).toBeTruthy()
   })
 })

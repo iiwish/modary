@@ -56,7 +56,17 @@ if err := runner.Start(ctx); err != nil { return err }
 需要修改队列或并发时创建新 Runner，不要在启动后修改配置。关闭时使用有界 context
 调用 `Stop`。
 
-## 5. 测试原子边界
+## 5. 使用公共契约查看任务
+
+运维界面使用 `task.Inspector`，不读取 River 表，也不使用 River 状态名。单页最多
+100 条，可使用排他性的 `BeforeID` 游标，以及可选的队列和状态过滤。公共状态仅包含
+`queued`、`pending`、`scheduled`、`running`、`retrying`、`succeeded`、
+`failed` 和 `cancelled`；具体队列组件负责映射内部生命周期。
+
+Task Summary 不暴露 payload 和后端持久化错误文本。Inspection 只读，不授予入队、
+重试、取消或队列管理权限。
+
+## 6. 测试原子边界
 
 使用真实 PostgreSQL 覆盖：
 

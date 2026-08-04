@@ -11,6 +11,7 @@ import (
 var reactAdminFixtureFiles = []string{
 	"starter/templates/admin/web/package.json",
 	"starter/templates/admin/web/pnpm-lock.yaml",
+	"starter/templates/admin/web/index.html",
 	"starter/templates/admin/web/src/main.tsx",
 	"starter/templates/admin/web/src/App.tsx",
 	"starter/templates/admin/web/src/modules/index.ts",
@@ -37,6 +38,23 @@ func TestReactAdminCheckRejectsVueDependency(t *testing.T) {
 	}
 	output, err := runReactAdminCheck(t, repository)
 	if err == nil || !strings.Contains(output, "dependency residue") {
+		t.Fatalf("check-react-admin = %v, output=%q", err, output)
+	}
+}
+
+func TestReactAdminCheckRejectsEnglishPrimaryLanguage(t *testing.T) {
+	repository := reactAdminFixture(t)
+	path := filepath.Join(repository, "starter/templates/admin/web/index.html")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = []byte(strings.Replace(string(data), `lang="zh-CN"`, `lang="en"`, 1))
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output, err := runReactAdminCheck(t, repository)
+	if err == nil || !strings.Contains(output, "Simplified Chinese") {
 		t.Fatalf("check-react-admin = %v, output=%q", err, output)
 	}
 }

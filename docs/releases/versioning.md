@@ -5,10 +5,17 @@
 Modary uses semantic version tags and the Go module path
 `github.com/iiwish/modary`.
 
+The official PostgreSQL modules are published from the same repository under
+`github.com/iiwish/modary/components/postgres` and
+`github.com/iiwish/modary/components/governedpostgres`. Each release uses one
+version and commit with root tag `vX.Y.Z-pre` plus matching subdirectory tags
+`components/postgres/vX.Y.Z-pre` and
+`components/governedpostgres/vX.Y.Z-pre`.
+
 | Line | State | Contract |
 |---|---|---|
 | `v0.1.0-alpha.3` | Published and immutable | Historical Governed-first PostgreSQL/River release |
-| `v0.2.0-alpha.1` | Current source target, not released | Componentized Core with API/Admin/Governed Profiles |
+| `v0.2.0-alpha.1` | Current release | Componentized Core with API/Admin/Governed Profiles |
 
 A prerelease is suitable for evaluation and design-partner development, but
 public APIs, generated structure, and component boundaries may change before
@@ -22,8 +29,7 @@ at a tag describes that exact source.
 
 The immutable `v0.1.0-alpha.1` tag failed its remote onboarding gate and has no
 supported GitHub release. `v0.1.0-alpha.2` is the historical embedded-storage
-Alpha. `v0.1.0-alpha.3` is the supported published baseline until a later tag is
-actually released.
+Alpha. `v0.1.0-alpha.3` is the historical Governed-first PostgreSQL baseline.
 
 ## Pre-v1 Compatibility
 

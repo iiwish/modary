@@ -27,7 +27,8 @@
         "database"
       ],
       "provides": [
-        "identity"
+        "identity",
+        "identity.sessions"
       ],
       "migrations": [
         "postgres"
@@ -39,7 +40,8 @@
       "type": "adapter",
       "provides": [
         "database",
-        "tasks"
+        "tasks",
+        "tasks.read"
       ],
       "migrations": [
         "postgres"
@@ -67,7 +69,8 @@
         "database"
       ],
       "provides": [
-        "audit"
+        "audit",
+        "audit.read"
       ],
       "migrations": [
         "postgres"
@@ -124,10 +127,13 @@
   ],
   "provides": {
     "audit": "sql-audit",
+    "audit.read": "sql-audit",
     "authorization": "rbac",
     "counter.clock": "system-clock",
     "database": "postgres",
     "identity": "local-identity",
-    "tasks": "postgres"
+    "identity.sessions": "local-identity",
+    "tasks": "postgres",
+    "tasks.read": "postgres"
   }
 }

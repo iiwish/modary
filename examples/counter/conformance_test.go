@@ -21,12 +21,12 @@ import (
 	"example.com/modary-counter-consumer/internal/project"
 	"example.com/modary-counter-consumer/modules/counter"
 	"github.com/iiwish/modary/action"
-	"github.com/iiwish/modary/adapters/localidentity"
-	postgresadapter "github.com/iiwish/modary/adapters/postgres"
-	"github.com/iiwish/modary/adapters/rbac"
-	"github.com/iiwish/modary/adapters/sqlaudit"
 	"github.com/iiwish/modary/appcmd"
 	"github.com/iiwish/modary/appkit"
+	"github.com/iiwish/modary/components/governedpostgres"
+	"github.com/iiwish/modary/components/postgres/localidentity"
+	"github.com/iiwish/modary/components/postgres/rbac"
+	"github.com/iiwish/modary/components/postgres/sqlaudit"
 	"github.com/iiwish/modary/identity"
 	"github.com/iiwish/modary/module"
 	"github.com/iiwish/modary/scope"
@@ -219,7 +219,7 @@ func TestGovernedCounterAcrossRuntimeCLIHTTPMCPAndRestart(t *testing.T) {
 
 func TestOfficialAdaptersHaveEmptyProvisioningByDefault(t *testing.T) {
 	config := postgresTestConfig(t)
-	postgresModule, err := postgresadapter.Module(postgresadapter.Options{
+	postgresModule, err := governedpostgres.Module(governedpostgres.Options{
 		URL: config.DatabaseURL, ApplicationSchema: config.ApplicationSchema, QueueSchema: config.QueueSchema,
 	})
 	if err != nil {

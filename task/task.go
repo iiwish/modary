@@ -30,6 +30,10 @@ const (
 	MinimumRetryDelay = time.Millisecond
 	// MaximumRetryDelay bounds declarative per-runner retry configuration.
 	MaximumRetryDelay = 30 * 24 * time.Hour
+	// DefaultListLimit bounds one operational inspection page by default.
+	DefaultListLimit = 50
+	// MaxListLimit is the largest operational inspection page.
+	MaxListLimit = 100
 )
 
 var (
@@ -59,6 +63,39 @@ type Receipt struct {
 	DuplicateSuppressed bool
 }
 
+// State is the provider-neutral lifecycle state exposed by task inspection.
+// Queue implementations map their internal states into this closed contract.
+type State string
+
+const (
+	// StateQueued is ready for a worker to claim.
+	StateQueued State = "queued"
+	// StatePending is accepted but not yet eligible to run.
+	StatePending State = "pending"
+	// StateScheduled is waiting for its scheduled time.
+	StateScheduled State = "scheduled"
+	// StateRunning is currently executing.
+	StateRunning State = "running"
+	// StateRetrying is waiting for another attempt after failure.
+	StateRetrying State = "retrying"
+	// StateSucceeded completed successfully.
+	StateSucceeded State = "succeeded"
+	// StateFailed reached a terminal failure.
+	StateFailed State = "failed"
+	// StateCancelled was cancelled before successful completion.
+	StateCancelled State = "cancelled"
+)
+
+// Valid reports whether state belongs to the public inspection contract.
+func (state State) Valid() bool {
+	switch state {
+	case StateQueued, StatePending, StateScheduled, StateRunning, StateRetrying, StateSucceeded, StateFailed, StateCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
 // Job is the framework-neutral task value supplied to a Handler.
 type Job struct {
 	ID          int64
@@ -67,6 +104,41 @@ type Job struct {
 	Queue       string
 	Attempt     int
 	MaxAttempts int
+}
+
+// Summary is provider-neutral operational task metadata. Payloads and backend
+// error details are deliberately excluded from the Admin inspection surface.
+type Summary struct {
+	ID          int64      `json:"id,string"`
+	Kind        string     `json:"kind"`
+	Queue       string     `json:"queue"`
+	State       State      `json:"state"`
+	Attempt     int        `json:"attempt"`
+	MaxAttempts int        `json:"max_attempts"`
+	ScheduledAt time.Time  `json:"scheduled_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+	FinalizedAt *time.Time `json:"finalized_at,omitempty"`
+}
+
+// ListOptions selects one descending task page. BeforeID is the exclusive
+// cursor returned by the previous Page.
+type ListOptions struct {
+	Limit    int
+	BeforeID int64
+	Queue    string
+	State    State
+}
+
+// Page is one bounded operational task result.
+type Page struct {
+	Tasks        []Summary `json:"tasks"`
+	NextBeforeID int64     `json:"next_before_id,omitempty,string"`
+}
+
+// Inspector reads bounded task metadata without exposing a queue backend or
+// mutation authority.
+type Inspector interface {
+	List(context.Context, ListOptions) (Page, error)
 }
 
 // TerminalAttempt reports whether the current attempt is the last configured
@@ -116,6 +188,26 @@ type Runner interface {
 type Service interface {
 	Enqueue(context.Context, Request) (Receipt, error)
 	NewRunner(Handler, RunnerOptions) (Runner, error)
+}
+
+// NormalizeListOptions validates one provider-neutral inspection query.
+func NormalizeListOptions(options ListOptions) (ListOptions, error) {
+	if options.Limit < 0 || options.Limit > MaxListLimit {
+		return ListOptions{}, fmt.Errorf("task list limit must be between 1 and %d", MaxListLimit)
+	}
+	if options.Limit == 0 {
+		options.Limit = DefaultListLimit
+	}
+	if options.BeforeID < 0 {
+		return ListOptions{}, fmt.Errorf("task list cursor cannot be negative")
+	}
+	if options.Queue != "" && !validQueue(options.Queue) {
+		return ListOptions{}, fmt.Errorf("task list queue %q is invalid", options.Queue)
+	}
+	if options.State != "" && !options.State.Valid() {
+		return ListOptions{}, fmt.Errorf("task list state %q is invalid", options.State)
+	}
+	return options, nil
 }
 
 // NormalizeRequest validates and defensively copies one enqueue request.

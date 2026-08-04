@@ -20,11 +20,15 @@ go mod tidy
 
 River does not require a separate database. The application and queue schemas
 must be different and owned by the configured database role.
+Starter derives role-prefixed defaults from the project ID, keeping application,
+queue, and test namespaces distinct and outside PostgreSQL's reserved schemas.
+Names that would exceed the PostgreSQL or River limit retain a readable prefix
+and add a deterministic hash fragment.
 
 ```bash
 export DATABASE_URL='postgres://user:password@127.0.0.1:5432/app?sslmode=disable'
-export MODARY_APPLICATION_SCHEMA=policy_control
-export MODARY_QUEUE_SCHEMA=policy_control_queue
+export MODARY_APPLICATION_SCHEMA=modary_app_policy_control
+export MODARY_QUEUE_SCHEMA=modary_queue_policy_control
 export MODARY_OPERATOR_USERNAME=operator
 export MODARY_OPERATOR_PASSWORD='development-password'
 export MODARY_OPERATOR_TOKEN='development-bearer-token-000000000001'

@@ -275,7 +275,7 @@ func TestPanickingContextCannotPolluteHostFacadeDrain(t *testing.T) {
 
 func hostIdentityRegistration(service *hostBlockingIdentity, cleanup Cleanup) Registration {
 	return Register(
-		validManifest("identity-service", "adapter", nil, []string{"identity"}),
+		validManifest("identity-service", "adapter", nil, []string{"identity", "identity.sessions"}),
 		func(_ context.Context, scope Scope) error {
 			if cleanup != nil {
 				if err := OnStop(scope, cleanup); err != nil {

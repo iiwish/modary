@@ -111,12 +111,24 @@ func rewriteLocalReplace(t *testing.T, goMod, framework string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const development = "replace github.com/iiwish/modary => ../.."
-	if strings.Count(string(data), development) != 1 {
-		t.Fatalf("development go.mod must contain exactly one %q binding", development)
+	replacements := []struct {
+		module      string
+		development string
+		directory   string
+	}{
+		{module: "github.com/iiwish/modary", development: "../..", directory: framework},
+		{module: "github.com/iiwish/modary/components/governedpostgres", development: "../../components/governedpostgres", directory: filepath.Join(framework, "components", "governedpostgres")},
+		{module: "github.com/iiwish/modary/components/postgres", development: "../../components/postgres", directory: filepath.Join(framework, "components", "postgres")},
 	}
-	rewritten := strings.Replace(string(data), development,
-		"replace github.com/iiwish/modary => "+strconv.Quote(filepath.ToSlash(framework)), 1)
+	rewritten := string(data)
+	for _, replacement := range replacements {
+		development := "replace " + replacement.module + " => " + replacement.development
+		if strings.Count(rewritten, development) != 1 {
+			t.Fatalf("development go.mod must contain exactly one %q binding", development)
+		}
+		rewritten = strings.Replace(rewritten, development,
+			"replace "+replacement.module+" => "+strconv.Quote(filepath.ToSlash(replacement.directory)), 1)
+	}
 	if err := os.WriteFile(goMod, []byte(rewritten), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +136,10 @@ func rewriteLocalReplace(t *testing.T, goMod, framework string) {
 
 func TestRewriteLocalReplaceQuotesPathsWithSpaces(t *testing.T) {
 	goMod := filepath.Join(t.TempDir(), "go.mod")
-	data := "module example.com/copied-consumer\n\ngo 1.26.0\n\nreplace github.com/iiwish/modary => ../..\n"
+	data := "module example.com/copied-consumer\n\ngo 1.26.0\n\n" +
+		"replace github.com/iiwish/modary => ../..\n\n" +
+		"replace github.com/iiwish/modary/components/governedpostgres => ../../components/governedpostgres\n\n" +
+		"replace github.com/iiwish/modary/components/postgres => ../../components/postgres\n"
 	if err := os.WriteFile(goMod, []byte(data), 0o644); err != nil {
 		t.Fatal(err)
 	}

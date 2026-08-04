@@ -1,0 +1,5 @@
+import { recordsModule } from './records'
+{{if .HasTasks}}import { tasksModule } from './tasks'
+{{end}}{{if .HasAudit}}import { auditModule } from './audit'
+{{end}}
+export const selectedAdminModules = [recordsModule{{if .HasTasks}}, tasksModule{{end}}{{if .HasAudit}}, auditModule{{end}}] as const

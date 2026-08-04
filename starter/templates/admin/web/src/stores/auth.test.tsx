@@ -4,8 +4,12 @@ import { AppProvider } from './app'
 import { AuthProvider, useAuth } from './auth'
 
 const session = {
-  actor: { id: 'admin', type: 'human', display_name: 'Administrator', scope: { kind: 'workspace', id: 'default' } },
+  actor: { id: 'admin', type: 'human', display_name: '管理员', scope: { kind: 'workspace', id: 'default' } },
   csrf_token: 'csrf-token', expires_at: '2030-01-01T00:00:00Z', request_id: 'req_test',
+}
+const adminContext = {
+  modules: [{ id: 'records', label: '记录', path: '/records', icon: 'database', order: 100, permissions: ['records.create', 'records.delete', 'records.list', 'records.update'], requiredPermissions: ['records.list'] }],
+  grants: ['records.create', 'records.delete', 'records.list', 'records.update'],
 }
 
 function response(status: number, value: unknown) {
@@ -22,6 +26,7 @@ describe('Auth provider', () => {
       const path = String(input)
       if (path === '/api/meta') return response(200, { name: 'Example', version: '0.1.0' })
       if (path === '/api/auth/session') return response(200, session)
+      if (path === '/api/admin/context') return response(200, adminContext)
       if (path === '/api/auth/logout') {
         expect(new Headers(init?.headers).get('X-CSRF-Token')).toBe('csrf-token')
         return new Response(null, { status: 204 })
@@ -41,13 +46,14 @@ describe('Auth provider', () => {
       if (path === '/api/meta') return response(200, { name: 'Example', version: '0.1.0' })
       if (path === '/api/auth/session') return response(401, { error: { code: 'AUTHENTICATION_REQUIRED', message: 'authentication is required' } })
       if (path === '/api/auth/login') return response(200, session)
+      if (path === '/api/admin/context') return response(200, adminContext)
       throw new Error(`unexpected request ${path}`)
     }))
     const { result } = renderHook(() => useAuth(), { wrapper })
     await act(() => result.current.initialize())
     expect(result.current.authenticated).toBe(false)
     await act(() => result.current.login('admin', 'development-password'))
-    expect(result.current.actor?.display_name).toBe('Administrator')
+    expect(result.current.actor?.display_name).toBe('管理员')
   })
 
   it('keeps the authenticated state when server-side logout fails', async () => {
@@ -55,6 +61,7 @@ describe('Auth provider', () => {
       const path = String(input)
       if (path === '/api/meta') return response(200, { name: 'Example', version: '0.1.0' })
       if (path === '/api/auth/session') return response(200, session)
+      if (path === '/api/admin/context') return response(200, adminContext)
       if (path === '/api/auth/logout') return response(500, { error: { code: 'INTERNAL', message: 'logout is unavailable' } })
       throw new Error(`unexpected request ${path}`)
     }))

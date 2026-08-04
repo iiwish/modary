@@ -1,0 +1,46 @@
+schema_version: 1
+packet_id: EP-009-T039
+task_id: T039
+feature_id: 009-component-boundary-closure
+mode: execute_one_task
+adapter: codex
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  spec: .ai-platform/specs/009-component-boundary-closure/spec.md
+  checklist: .ai-platform/specs/009-component-boundary-closure/checklists/requirements.md
+  plan: .ai-platform/specs/009-component-boundary-closure/plan.md
+  work_graph: .ai-platform/specs/009-component-boundary-closure/tasks.md
+  analysis: .ai-platform/specs/009-component-boundary-closure/analysis.md
+  approval: explicit owner instruction on 2026-08-02
+work_unit:
+  title: HTTP and Admin contribution contracts
+  goal: establish explicit pure-preflighted contribution composition
+  requirements: [FR-004, FR-005, FR-006, NFR-001, NFR-003]
+  depends_on: [T038]
+codebase_context:
+  relevant_files: [appkit/**, httpkit/**, module/**, transport/**, starter/templates/api/**, starter/templates/admin/**]
+  existing_patterns: [side-effect-free Definition validation, typed capabilities, explicit source composition]
+  forbidden_changes: [runtime discovery, executable Admin metadata, builder execution during preflight, compatibility routers]
+execution_constraints:
+  allowed_files: [module/**, appkit/**, httpkit/**, transport/**, internal/quality/**, starter/**, docs/**, .ai-platform/docs/**, .ai-platform/specs/009-component-boundary-closure/**, .ai-platform/evidence/T039/**]
+  conflicts_with: [T038, T040, T041]
+  worktree: current owner-approved worktree; preserve unrelated changes
+  delegation: direct execution because subagent delegation was not authorized
+tdd_plan:
+  red: missing records capability escapes static validation or a builder runs early
+  green: immutable contracts and contribution plans reject the application before startup
+  refactor: bound and defensively copy descriptors, permissions, routes, and diagnostics
+validation_loop:
+  commands: [focused appkit/httpkit tests, generated API/Admin tests, all-module tests, race, docs, strict T039 artifacts, git diff --check]
+  retry_budget: 3 per failing gate before scope reassessment
+evidence_contract:
+  summary: .ai-platform/evidence/T039/summary.md
+  diff: .ai-platform/evidence/T039/diff.patch
+  test_results: .ai-platform/evidence/T039/test-results.md
+  review: .ai-platform/evidence/T039/review.md
+review_contract:
+  sequence: [preflight purity, contract immutability, route determinism, generated ownership]
+  acceptance: no unresolved P0 through P2 finding
+handoff:
+  next_task: T040
+stop_conditions: [runtime plugin discovery required, metadata becomes executable UI, preflight needs startup IO]

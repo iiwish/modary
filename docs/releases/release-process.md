@@ -26,6 +26,8 @@ One person may hold several roles, but owner publication approval is explicit.
    limitations, and release notes describe the same candidate.
 8. Every copied-out Profile and the Admin frontend pipeline pass from the exact
    commit.
+9. The T041 source digest matches the complete candidate. Finalizing the
+   changelog or changing any candidate file requires refreshing T041 evidence.
 
 ## Candidate Validation
 
@@ -60,12 +62,23 @@ The owner then gives explicit approval to publish that exact commit and version.
 
 ## Tag And Publish
 
+The root module and both published component modules use one version and one
+commit. Go resolves nested modules through subdirectory tags, so all three
+annotated tags are mandatory:
+
 ```bash
 git tag -a "$VERSION" -m "Modary $VERSION"
-git push origin "$VERSION"
+git tag -a "components/postgres/$VERSION" -m "Modary PostgreSQL $VERSION"
+git tag -a "components/governedpostgres/$VERSION" -m "Modary Governed PostgreSQL $VERSION"
+git push origin \
+  "$VERSION" \
+  "components/postgres/$VERSION" \
+  "components/governedpostgres/$VERSION"
 ```
 
-Wait for tag CI. Never move or reuse a published tag.
+Push the release train together, then wait for root-tag CI. The release
+preflight rejects a missing, lightweight, mismatched, or differently targeted
+component tag. Never move or reuse any published tag.
 
 ## Remote Verification
 
@@ -74,12 +87,15 @@ Verify normal Go module resolution without a source-checkout replacement:
 ```bash
 make remote-consumer VERSION="$VERSION"
 go list -m "github.com/iiwish/modary@$VERSION"
+go list -m "github.com/iiwish/modary/components/postgres@$VERSION"
+go list -m "github.com/iiwish/modary/components/governedpostgres@$VERSION"
 ```
 
-The remote gate creates fresh consumers outside the repository, removes local
-`replace` directives and work files, downloads the tag, and repeats the relevant
-Profile tests and builds. Admin verification also uses its pinned frontend
-dependencies and deterministic asset check.
+The remote gate creates a fresh governed consumer outside the repository,
+removes every root and component `replace`, verifies all three module versions,
+and repeats its tests and builds. Copied-out API and Admin verification, including
+the pinned frontend pipeline and deterministic assets, runs from the exact
+candidate before the release train is tagged.
 
 Create the repository-host release from the same tag. Release notes include
 scope, breaking changes, supported Profiles and platforms, database and

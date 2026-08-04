@@ -3,7 +3,9 @@ module example.com/modary-counter-consumer
 go 1.26.5
 
 require (
-	github.com/iiwish/modary v0.1.0-alpha.3
+	github.com/iiwish/modary v0.2.0-alpha.1
+	github.com/iiwish/modary/components/governedpostgres v0.2.0-alpha.1
+	github.com/iiwish/modary/components/postgres v0.2.0-alpha.1
 	github.com/jackc/pgx/v5 v5.10.0
 )
 
@@ -36,3 +38,7 @@ require (
 )
 
 replace github.com/iiwish/modary => ../..
+
+replace github.com/iiwish/modary/components/governedpostgres => ../../components/governedpostgres
+
+replace github.com/iiwish/modary/components/postgres => ../../components/postgres

@@ -20,6 +20,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/iiwish/modary/authz"
+	"github.com/iiwish/modary/appkit"
 	"github.com/iiwish/modary/database"
 	"github.com/iiwish/modary/httpkit"
 	"github.com/iiwish/modary/identity"
@@ -48,9 +49,48 @@ func Registration() module.Registration {
 	}
 	return module.Registration{Definition: module.Definition{
 		Manifest: module.Manifest{SchemaVersion: module.SchemaVersion, ID: "records", Version: "1.0.0",
-			Type: module.ModuleTypeFeature, Requires: []module.Capability{module.CapabilityDatabase}, Provides: []module.Capability{"records"}},
+			Type: module.ModuleTypeFeature, Requires: []module.Capability{
+				module.CapabilityDatabase, module.CapabilitySessions, module.CapabilityAuthorization,
+			}, Provides: []module.Capability{"records"}},
 		Migrations: []module.MigrationSource{ {Driver: "postgres", Files: migrations} },
 	}}
+}
+
+// Contribution declares every records transport dependency and route before
+// application startup. The builder resolves only the preflighted facades.
+func Contribution(insecureCookie bool) httpkit.Contribution {
+	return httpkit.Contribution{
+		ID: "records",
+		Requires: []module.Capability{
+			module.CapabilityDatabase, module.CapabilitySessions, module.CapabilityAuthorization,
+		},
+		Routes: []httpkit.RouteSpec{
+			{Method: http.MethodGet, Path: "/api/records"},
+			{Method: http.MethodPost, Path: "/api/records"},
+			{Method: http.MethodPatch, Path: "/api/records/{id}"},
+			{Method: http.MethodDelete, Path: "/api/records/{id}"},
+		},
+		Admin: &httpkit.AdminDescriptor{
+			Label: "记录", Path: "/records", Icon: "database", Order: 100,
+			Permissions: []string{permissionCreate, permissionDelete, permissionList, permissionUpdate},
+			RequiredPermissions: []string{permissionList},
+		},
+		Build: func(_ context.Context, application *appkit.Application) ([]httpkit.Route, error) {
+			store, err := application.Database()
+			if err != nil {
+				return nil, err
+			}
+			authorizer, err := application.Authorizer()
+			if err != nil {
+				return nil, err
+			}
+			sessions, err := sessionhttp.New(application, sessionhttp.Options{AllowInsecureCookie: insecureCookie})
+			if err != nil {
+				return nil, err
+			}
+			return routes(store, authorizer, sessions)
+		},
+	}
 }
 
 type Record struct {
@@ -78,7 +118,7 @@ type handler struct {
 	authorizer authz.Authorizer
 }
 
-func Routes(store database.Store, authorizer authz.Authorizer, sessions *sessionhttp.API) ([]httpkit.Route, error) {
+func routes(store database.Store, authorizer authz.Authorizer, sessions *sessionhttp.API) ([]httpkit.Route, error) {
 	if store == nil || authorizer == nil || sessions == nil {
 		return nil, fmt.Errorf("records routes require Store, Authorizer, and session HTTP")
 	}

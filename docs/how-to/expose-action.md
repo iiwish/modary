@@ -55,6 +55,12 @@ the consumer project; the generated Go package embeds those consumer-owned
 assets. Modary does not select product routes from Module IDs, generate UI at
 runtime, or define application branding.
 
+When the SPA shares a server with API or health endpoints, set
+`SPAOptions.FallbackExcludedPaths` to their canonical namespace roots, such as
+`/api` and `/healthz`. Requests under those roots never fall back to the SPA,
+regardless of the `Accept` header, so unknown backend paths retain their HTTP
+404 semantics.
+
 ## Custom Surfaces
 
 A consumer may define another non-empty `action.Channel` and call the public

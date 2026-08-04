@@ -35,7 +35,7 @@ support.
 | Capability | Status |
 |---|---|
 | PostgreSQL ordinary application schema | Supported through `postgresdb` |
-| PostgreSQL governed application + River schema pair | Supported through `postgres` |
+| PostgreSQL governed application + River schema pair | Supported through `governedpostgres` |
 | Same-database Action write plus task insertion | Supported |
 | Multiple API and River worker processes | Supported; jobs are at least once |
 | MySQL official Adapter | Not provided |

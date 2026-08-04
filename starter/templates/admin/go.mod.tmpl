@@ -2,7 +2,17 @@ module {{.ModulePath}}
 
 go 1.26.5
 
-require github.com/iiwish/modary {{.ModaryVersion}}
+require (
+	github.com/iiwish/modary {{.ModaryVersion}}
+	github.com/iiwish/modary/components/postgres {{.ModaryVersion}}
+	{{if .HasTasks}}github.com/iiwish/modary/components/governedpostgres {{.ModaryVersion}}
+	{{end}}
+)
 {{if .HasModaryReplace}}
 replace github.com/iiwish/modary => {{quote .ModaryReplace}}
+
+replace github.com/iiwish/modary/components/postgres => {{quote .PostgresReplace}}
+
+{{if .HasTasks}}replace github.com/iiwish/modary/components/governedpostgres => {{quote .GovernedReplace}}
+{{end}}
 {{end}}

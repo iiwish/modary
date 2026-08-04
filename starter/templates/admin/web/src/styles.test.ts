@@ -10,6 +10,11 @@ describe('Admin visual tokens', () => {
     const background = cssColor('--canvas')
     expect(contrastRatio(foreground, background)).toBeGreaterThanOrEqual(4.5)
   })
+
+  it('removes the closed mobile sidebar from painting as well as interaction', () => {
+    expect(styles).toMatch(/\.sidebar, \.sidebar-collapsed \.sidebar \{[^}]*visibility: hidden;/s)
+    expect(styles).toMatch(/\.sidebar\.mobile-open \{[^}]*visibility: visible;/s)
+  })
 })
 
 function cssColor(name: string) {

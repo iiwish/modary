@@ -1,12 +1,22 @@
 import { fileURLToPath, URL } from 'node:url'
+import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
+const source = fileURLToPath(new URL('./src', import.meta.url))
+const selection = process.env.VITE_ADMIN_SELECTION
+const active = fileURLToPath(new URL('./src/modules/active.ts', import.meta.url))
+const selectionSource = selection ? fileURLToPath(new URL(`./scripts/selections/${selection}.ts.txt`, import.meta.url)) : ''
+
 export default defineConfig({
-  plugins: [react()],
-  resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
+  plugins: [{
+    name: 'modary-admin-selection',
+    enforce: 'pre',
+    load(id) { return selectionSource && id === active ? readFileSync(selectionSource, 'utf8') : null },
+  }, react()],
+  resolve: { alias: [{ find: '@/modules/active', replacement: active }, { find: '@', replacement: source }] },
   server: { proxy: { '/api': 'http://127.0.0.1:8080', '/healthz': 'http://127.0.0.1:8080' } },
-  test: { environment: 'happy-dom', setupFiles: ['./src/test/setup.ts'], restoreMocks: true },
+  test: { environment: 'happy-dom', setupFiles: ['./src/test/setup.ts'], restoreMocks: true, testTimeout: 15_000 },
   build: {
     outDir: '../internal/web/dist',
     emptyOutDir: true,

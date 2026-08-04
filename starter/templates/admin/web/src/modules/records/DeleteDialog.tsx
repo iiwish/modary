@@ -33,13 +33,13 @@ export default function DeleteDialog({ record, busy, onClose, onConfirm }: Props
       <div className="modal-content">
         <header className="modal-header">
           <span className="danger-icon"><Trash2 size={20} aria-hidden="true" /></span>
-          <button className="icon-button" type="button" aria-label="Close dialog" onClick={onClose}><X size={19} aria-hidden="true" /></button>
+          <button className="icon-button" type="button" aria-label="关闭对话框" onClick={onClose}><X size={19} aria-hidden="true" /></button>
         </header>
-        <h2 id="delete-title">Delete record?</h2>
-        <p className="modal-copy"><strong>{record.title}</strong> will be permanently removed.</p>
+        <h2 id="delete-title">删除这条记录？</h2>
+        <p className="modal-copy">记录 <strong>{record.title}</strong> 将被永久删除。</p>
         <footer className="modal-footer">
-          <button ref={cancelButton} className="secondary-button" type="button" onClick={onClose}>Cancel</button>
-          <button className="danger-button" type="button" disabled={busy} onClick={onConfirm}>{busy ? 'Deleting...' : 'Delete'}</button>
+          <button ref={cancelButton} className="secondary-button" type="button" onClick={onClose}>取消</button>
+          <button className="danger-button" type="button" disabled={busy} onClick={onConfirm}>{busy ? '正在删除...' : '删除'}</button>
         </footer>
       </div>
     </dialog>

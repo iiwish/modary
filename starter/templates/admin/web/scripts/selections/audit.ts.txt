@@ -1,0 +1,4 @@
+import { recordsModule } from './records'
+import { auditModule } from './audit'
+
+export const selectedAdminModules = [recordsModule, auditModule] as const

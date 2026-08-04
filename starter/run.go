@@ -13,7 +13,7 @@ import (
 
 // CommandUsage is the global create-only Starter command help.
 const CommandUsage = `Usage:
-  modary new <destination> [--profile api|admin|governed] [--module module/path] [--name display-name]
+  modary new <destination> [--profile api|admin|governed] [--with tasks|audit]... [--module module/path] [--name display-name]
   modary help
 `
 
@@ -71,6 +71,7 @@ func Run(ctx context.Context, args []string, options Options) error {
 
 func parseNewCommand(args []string) (CreateOptions, error) {
 	values := make(map[string]string)
+	components := make([]Component, 0, 2)
 	destination := ""
 	for index := 0; index < len(args); index++ {
 		argument := args[index]
@@ -93,11 +94,15 @@ func parseNewCommand(args []string) (CreateOptions, error) {
 			}
 			value = args[index]
 		}
-		if name != "profile" && name != "module" && name != "name" {
+		if name != "profile" && name != "module" && name != "name" && name != "with" {
 			return CreateOptions{}, fmt.Errorf("%w: unknown new option --%s", ErrUsage, name)
 		}
 		if value == "" || strings.HasPrefix(value, "--") {
 			return CreateOptions{}, fmt.Errorf("%w: --%s requires a value", ErrUsage, name)
+		}
+		if name == "with" {
+			components = append(components, Component(value))
+			continue
 		}
 		if _, duplicate := values[name]; duplicate {
 			return CreateOptions{}, fmt.Errorf("%w: --%s was provided more than once", ErrUsage, name)
@@ -112,6 +117,7 @@ func parseNewCommand(args []string) (CreateOptions, error) {
 		ModulePath:  values["module"],
 		Name:        values["name"],
 		Profile:     Profile(values["profile"]),
+		Components:  components,
 	}, nil
 }
 

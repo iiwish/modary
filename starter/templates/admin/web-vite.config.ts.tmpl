@@ -1,0 +1,25 @@
+import { fileURLToPath, URL } from 'node:url'
+import { defineConfig } from 'vitest/config'
+import react from '@vitejs/plugin-react'
+
+const source = fileURLToPath(new URL('./src', import.meta.url))
+const active = fileURLToPath(new URL('./src/modules/active.ts', import.meta.url))
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: { alias: [{ find: '@/modules/active', replacement: active }, { find: '@', replacement: source }] },
+  server: { proxy: { '/api': 'http://127.0.0.1:8080', '/healthz': 'http://127.0.0.1:8080' } },
+  test: { environment: 'happy-dom', setupFiles: ['./src/test/setup.ts'], restoreMocks: true, testTimeout: 15_000 },
+  build: {
+    outDir: '../internal/web/dist',
+    emptyOutDir: true,
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        entryFileNames: 'assets/app-[hash].js',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: (asset) => asset.names.some((name) => name.endsWith('.css')) ? 'assets/app-[hash][extname]' : 'assets/[name]-[hash][extname]'
+      }
+    }
+  }
+})

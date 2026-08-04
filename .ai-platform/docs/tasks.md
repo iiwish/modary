@@ -1,14 +1,18 @@
 # Current Delivery Work Graph
 
-- Version: 8.0
+- Version: 9.0
 - Status: Confirmed
 - Last updated: 2026-08-02
 
 The active work graph is
-`.ai-platform/specs/008-react-admin-starter/tasks.md`.
+`.ai-platform/specs/009-component-boundary-closure/tasks.md`.
 
 | Task | State | Acceptance object |
 |---|---|---|
+| T038 | Completed | PostgreSQL and River module-graph isolation |
+| T039 | Completed | Explicit pre-start HTTP and Admin contribution contracts |
+| T040 | Completed | Permission-aware shared Admin primitives and task/audit UI |
+| T041 | Completed | External boundary acceptance and v0.2 engineering readiness |
 | T035 | Completed | React-only Admin platform, typed application architecture, tests, and deterministic assets |
 | T036 | Completed | React Admin behavior, accessibility, responsive quality, and browser acceptance |
 | T037 | Completed | Copied-out React consumer, canonical docs, and final v0.2 release readiness |

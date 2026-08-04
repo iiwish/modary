@@ -26,7 +26,9 @@ These boundaries are part of the contract rather than an informal backlog.
    SQLite, or other Store adapter. Consumers may implement `database.Store`,
    but adapter quality and migration behavior remain their responsibility.
 7. The Admin Profile uses ordinary PostgreSQL transactions. It contains no
-   transactional outbox or durable task service by default.
+   transactional outbox or durable task service by default. `--with tasks`
+   explicitly selects governed PostgreSQL and River-backed task inspection;
+   `--with audit` explicitly selects scope-bound SQL audit inspection.
 8. The Governed Profile uses one physical PostgreSQL database with separate
    application and River schemas. It does not provide distributed transactions,
    cross-database atomicity, automatic failover, or cross-service rollback.
@@ -63,8 +65,9 @@ These boundaries are part of the contract rather than an informal backlog.
 17. Preview plans have a five-minute default TTL and in-process cleanup. F0 has
     no retention scheduler, archival service, or operator UI for plans.
 18. Audit provides bounded structured events and transactional success records.
-    Retention, export, signing, external immutability, SIEM delivery, and an
-    audit UI are product or future-component work.
+    The optional Admin Audit log is a bounded, scope-bound metadata view.
+    Retention, export, signing, external immutability, SIEM delivery, and audit
+    administration are product or future-component work.
 19. MCP implements bounded initialization, Action discovery, and tool calls.
     Resources, prompts, streaming, resumability, and broader protocol surfaces
     are outside F0.

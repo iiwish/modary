@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net"
 	"net/http"
@@ -12,14 +13,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
-	"github.com/iiwish/modary/internal/testpostgres"
 	"github.com/iiwish/modary/starter"
 )
 
@@ -71,8 +70,8 @@ func TestCreateAPIProfileIsDeterministicAndBuildsOutsideWorkspace(t *testing.T) 
 			t.Fatal(err)
 		}
 		for _, forbidden := range []string{
-			"adapters/postgres", "riverqueue", "adapters/localidentity", "adapters/rbac",
-			"adapters/sqlaudit", "github.com/iiwish/modary/action", "github.com/iiwish/modary/audit",
+			"components/postgres", "components/governedpostgres", "riverqueue",
+			"github.com/iiwish/modary/action", "github.com/iiwish/modary/audit",
 			"github.com/iiwish/modary/authz", "github.com/iiwish/modary/identity",
 			"github.com/iiwish/modary/task", "transport/httpapi.NewMCP", "DATABASE_URL",
 		} {
@@ -85,14 +84,23 @@ func TestCreateAPIProfileIsDeterministicAndBuildsOutsideWorkspace(t *testing.T) 
 	runGo(t, first, "mod", "tidy")
 	dependencies := runGoOutput(t, first, "list", "-deps", "./...")
 	for _, forbidden := range []string{
-		"github.com/iiwish/modary/adapters/postgres",
-		"github.com/iiwish/modary/adapters/localidentity",
-		"github.com/iiwish/modary/adapters/rbac",
-		"github.com/iiwish/modary/adapters/sqlaudit",
+		"github.com/iiwish/modary/components/governedpostgres",
+		"github.com/iiwish/modary/components/postgres/localidentity",
+		"github.com/iiwish/modary/components/postgres/rbac",
+		"github.com/iiwish/modary/components/postgres/sqlaudit",
 		"github.com/riverqueue/river",
 	} {
 		if strings.Contains(dependencies, forbidden) {
 			t.Errorf("API package graph contains unselected dependency %q", forbidden)
+		}
+	}
+	modules := runGoOutput(t, first, "list", "-m", "all")
+	for _, forbidden := range []string{
+		"github.com/jackc/pgx/",
+		"github.com/riverqueue/river",
+	} {
+		if strings.Contains(modules, forbidden) {
+			t.Errorf("API module graph contains unselected dependency %q", forbidden)
 		}
 	}
 	runGo(t, first, "test", "./...")
@@ -101,7 +109,6 @@ func TestCreateAPIProfileIsDeterministicAndBuildsOutsideWorkspace(t *testing.T) 
 }
 
 func TestCreateAdminProfileBuildsAndRunsScopedCRUDWithoutRiver(t *testing.T) {
-	databaseConfig := testpostgres.New(t)
 	destination := filepath.Join(t.TempDir(), "sample-admin")
 	result, err := starter.Create(context.Background(), starter.CreateOptions{
 		Destination: destination, ModulePath: "example.com/acme/sample-admin", Name: "Sample Admin",
@@ -152,17 +159,59 @@ func TestCreateAdminProfileBuildsAndRunsScopedCRUDWithoutRiver(t *testing.T) {
 			t.Errorf("Admin frontend package manifest retains Vue dependency %q", forbidden)
 		}
 	}
+	if bytes.Contains(packageManifest, []byte("build:variants")) {
+		t.Fatal("generated Admin package manifest retains the repository-only variant build command")
+	}
+	viteConfig, err := os.ReadFile(filepath.Join(destination, "web/vite.config.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"VITE_ADMIN_SELECTION", "scripts/selections", "modary-admin-selection"} {
+		if bytes.Contains(viteConfig, []byte(forbidden)) {
+			t.Errorf("generated Admin Vite config retains repository-only selector %q", forbidden)
+		}
+	}
+	for _, internalPath := range []string{"web/scripts/build-variants.mjs", "web/scripts/selections"} {
+		if _, statErr := os.Stat(filepath.Join(destination, internalPath)); !os.IsNotExist(statErr) {
+			t.Errorf("generated Admin retains repository-only path %s: %v", internalPath, statErr)
+		}
+	}
+	for name, required := range map[string][]string{
+		"web/index.html":                {`<html lang="zh-CN">`, "<title>管理后台</title>"},
+		"web/src/App.tsx":               {"应用暂时不可用", "暂无可用模块"},
+		"internal/records/component.go": {`Label: "记录"`},
+		"internal/app/application.go":   {`DisplayName: "管理员"`},
+	} {
+		source, readErr := os.ReadFile(filepath.Join(destination, name))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		for _, value := range required {
+			if !bytes.Contains(source, []byte(value)) {
+				t.Errorf("generated Admin file %s is missing Chinese UI contract %q", name, value)
+			}
+		}
+	}
 	for name := range projectSnapshot(t, destination) {
 		if strings.HasSuffix(name, ".vue") {
 			t.Errorf("Admin frontend retains Vue source %s", name)
 		}
 	}
-	registry, err := os.ReadFile(filepath.Join(destination, "web/src/modules/index.ts"))
+	registry, err := os.ReadFile(filepath.Join(destination, "web/src/modules/active.ts"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Contains(registry, []byte("recordsModule")) {
 		t.Fatal("Admin registry does not select the records module")
+	}
+	for _, name := range []string{"internal/app/application.go", "internal/records/component.go"} {
+		source, readErr := os.ReadFile(filepath.Join(destination, name))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if !bytes.Contains(source, []byte("module.CapabilitySessions")) {
+			t.Errorf("%s does not declare its session dependency", name)
+		}
 	}
 	for _, forbidden := range []string{"task", "audit", "action", "mcp", "marketplace"} {
 		if bytes.Contains(bytes.ToLower(registry), []byte(forbidden)) {
@@ -177,8 +226,8 @@ func TestCreateAdminProfileBuildsAndRunsScopedCRUDWithoutRiver(t *testing.T) {
 		if readErr != nil {
 			t.Fatal(readErr)
 		}
-		for _, forbidden := range []string{"github.com/iiwish/modary/adapters/postgres\"", "riverqueue/river",
-			"adapters/sqlaudit", "github.com/iiwish/modary/action", "github.com/iiwish/modary/audit",
+		for _, forbidden := range []string{"github.com/iiwish/modary/components/governedpostgres\"", "riverqueue/river",
+			"components/postgres/sqlaudit", "github.com/iiwish/modary/action", "github.com/iiwish/modary/audit",
 			"github.com/iiwish/modary/task", "NewMCP", "/api/actions"} {
 			if bytes.Contains(data, []byte(forbidden)) {
 				t.Errorf("%s contains unselected governed dependency %q", name, forbidden)
@@ -187,33 +236,83 @@ func TestCreateAdminProfileBuildsAndRunsScopedCRUDWithoutRiver(t *testing.T) {
 	}
 	runGo(t, destination, "mod", "tidy")
 	dependencies := runGoOutput(t, destination, "list", "-deps", "./...")
-	for _, forbidden := range []string{"github.com/riverqueue/river", "github.com/iiwish/modary/adapters/postgres\n",
-		"github.com/iiwish/modary/adapters/sqlaudit"} {
+	for _, forbidden := range []string{"github.com/riverqueue/river", "github.com/iiwish/modary/components/governedpostgres\n",
+		"github.com/iiwish/modary/components/postgres/sqlaudit"} {
 		if strings.Contains(dependencies, forbidden) {
 			t.Errorf("Admin dependency graph contains %q", forbidden)
 		}
 	}
-	environment := []string{"DATABASE_URL=" + databaseConfig.URL, "MODARY_DATABASE_SCHEMA=" + databaseConfig.ApplicationSchema}
-	runGoEnv(t, destination, environment, "test", "./...", "-count=1")
-	runGoEnv(t, destination, environment, "test", "./...", "-count=1")
+	modules := runGoOutput(t, destination, "list", "-m", "all")
+	if strings.Contains(modules, "github.com/riverqueue/river") {
+		t.Fatal("default Admin module graph contains River")
+	}
+	runGeneratedAdminProfileTests(t, destination, "modary_starter_default_test", "")
 	runGo(t, destination, "build", "./cmd/sample-admin")
+}
 
-	connection, err := pgx.Connect(context.Background(), databaseConfig.URL)
+func TestCreateAdminOperationalComponentsAreExplicitAndBuild(t *testing.T) {
+	destination := filepath.Join(t.TempDir(), "operations-admin")
+	result, err := starter.Create(context.Background(), starter.CreateOptions{
+		Destination: destination, ModulePath: "example.com/acme/operations-admin", Name: "Operations Admin",
+		Profile: starter.ProfileAdmin, Components: []starter.Component{starter.ComponentTasks, starter.ComponentAudit},
+		ModaryVersion: "v0.1.0-alpha.3", ModaryReplace: repositoryRoot(t),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer connection.Close(context.Background())
-	var queueExists bool
-	if err := connection.QueryRow(context.Background(), `SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname=$1)`, databaseConfig.QueueSchema).Scan(&queueExists); err != nil {
+	if !slices.Equal(result.Components, []starter.Component{starter.ComponentAudit, starter.ComponentTasks}) {
+		t.Fatalf("components = %v", result.Components)
+	}
+	for _, name := range []string{
+		"internal/tasks/component.go", "internal/auditlog/component.go",
+		"web/src/modules/tasks/TasksView.tsx", "web/src/modules/audit/AuditView.tsx",
+	} {
+		if info, statErr := os.Stat(filepath.Join(destination, name)); statErr != nil || !info.Mode().IsRegular() {
+			t.Errorf("selected component file %s: info=%v error=%v", name, info, statErr)
+		}
+	}
+	active, err := os.ReadFile(filepath.Join(destination, "web/src/modules/active.ts"))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if queueExists {
-		t.Fatal("Admin Profile initialized the unselected River queue schema")
+	for _, selected := range []string{"recordsModule", "tasksModule", "auditModule"} {
+		if !bytes.Contains(active, []byte(selected)) {
+			t.Errorf("active Admin registry is missing %s", selected)
+		}
 	}
+	for _, name := range []string{"internal/tasks/component.go", "internal/auditlog/component.go"} {
+		source, readErr := os.ReadFile(filepath.Join(destination, name))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if !bytes.Contains(source, []byte("module.CapabilitySessions")) {
+			t.Errorf("%s does not declare its session dependency", name)
+		}
+	}
+	for name, label := range map[string]string{
+		"internal/tasks/component.go":    `Label: "任务"`,
+		"internal/auditlog/component.go": `Label: "审计日志"`,
+	} {
+		source, readErr := os.ReadFile(filepath.Join(destination, name))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if !bytes.Contains(source, []byte(label)) {
+			t.Errorf("%s is missing Chinese Admin contribution label %q", name, label)
+		}
+	}
+	runGo(t, destination, "mod", "tidy")
+	modules := runGoOutput(t, destination, "list", "-m", "all")
+	for _, required := range []string{"github.com/iiwish/modary/components/governedpostgres", "github.com/riverqueue/river"} {
+		if !strings.Contains(modules, required) {
+			t.Errorf("operational Admin module graph is missing %q", required)
+		}
+	}
+	runGeneratedAdminProfileTests(t, destination, "modary_starter_operations_test", "modary_starter_operations_queue_test")
+	runGo(t, destination, "build", "./cmd/operations-admin")
 }
 
 func TestCreateGovernedProfileBuildsAndConsumesTransactionalWork(t *testing.T) {
-	databaseConfig := testpostgres.New(t)
 	destination := filepath.Join(t.TempDir(), "sample-governed")
 	result, err := starter.Create(context.Background(), starter.CreateOptions{
 		Destination: destination, ModulePath: "example.com/acme/sample-governed", Name: "Sample Governed",
@@ -222,6 +321,7 @@ func TestCreateGovernedProfileBuildsAndConsumesTransactionalWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertPhysicalPathOutside(t, destination, repositoryRoot(t))
 	if result.Profile != starter.ProfileGoverned || len(result.Files) < 11 || !sort.StringsAreSorted(result.Files) {
 		t.Fatalf("Create(Governed)=%#v", result)
 	}
@@ -244,14 +344,15 @@ func TestCreateGovernedProfileBuildsAndConsumesTransactionalWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, selected := range []string{
-		"adapters/postgres", "adapters/localidentity", "adapters/rbac", "adapters/sqlaudit",
+		"components/governedpostgres", "components/postgres/localidentity",
+		"components/postgres/rbac", "components/postgres/sqlaudit",
 		"transport/httpapi", "NewMCP", "limits.Module",
 	} {
 		if !bytes.Contains(projectSource, []byte(selected)) {
 			t.Errorf("Governed composition does not visibly select %q", selected)
 		}
 	}
-	for _, forbidden := range []string{"adapters/postgresdb", "transport/sessionhttp", "internal/web", "records.Registration"} {
+	for _, forbidden := range []string{"components/postgres\"", "transport/sessionhttp", "internal/web", "records.Registration"} {
 		if bytes.Contains(projectSource, []byte(forbidden)) {
 			t.Errorf("Governed composition contains unselected Admin surface %q", forbidden)
 		}
@@ -260,20 +361,15 @@ func TestCreateGovernedProfileBuildsAndConsumesTransactionalWork(t *testing.T) {
 	runGo(t, destination, "mod", "tidy")
 	dependencies := runGoOutput(t, destination, "list", "-deps", "./...")
 	for _, required := range []string{
-		"github.com/iiwish/modary/adapters/postgres\n",
-		"github.com/iiwish/modary/adapters/sqlaudit\n",
+		"github.com/iiwish/modary/components/governedpostgres\n",
+		"github.com/iiwish/modary/components/postgres/sqlaudit\n",
 		"github.com/riverqueue/river\n",
 	} {
 		if !strings.Contains(dependencies, required) {
 			t.Errorf("Governed dependency graph is missing %q", strings.TrimSpace(required))
 		}
 	}
-	environment := []string{
-		"DATABASE_URL=" + databaseConfig.URL,
-		"MODARY_APPLICATION_SCHEMA=" + databaseConfig.ApplicationSchema,
-		"MODARY_QUEUE_SCHEMA=" + databaseConfig.QueueSchema,
-	}
-	runGoEnv(t, destination, environment, "test", "./...", "-count=1")
+	runGeneratedGovernedProfileTests(t, destination)
 	runGo(t, destination, "build", "./cmd/sample-governed", "./cmd/sample-governed-worker")
 }
 
@@ -340,7 +436,12 @@ func TestCreateRejectsUnsafeOrInvalidInputsBeforeWrites(t *testing.T) {
 		{name: "missing destination", options: validCreateOptions(""), want: starter.ErrInvalidOptions},
 		{name: "invalid destination id", options: validCreateOptions(filepath.Join(root, "Invalid Name")), want: starter.ErrInvalidOptions},
 		{name: "invalid module", options: withModule(validCreateOptions(filepath.Join(root, "bad-module")), "../bad"), want: starter.ErrInvalidOptions},
+		{name: "vendor module segment", options: withModule(validCreateOptions(filepath.Join(root, "vendor-module")), "example.com/acme/vendor/service"), want: starter.ErrInvalidOptions},
+		{name: "default vendor module", options: withModule(validCreateOptions(filepath.Join(root, "vendor")), ""), want: starter.ErrInvalidOptions},
 		{name: "unknown profile", options: withProfile(validCreateOptions(filepath.Join(root, "unknown-api")), starter.Profile("unknown")), want: starter.ErrInvalidOptions},
+		{name: "component on API", options: withComponents(validCreateOptions(filepath.Join(root, "api-component")), starter.ComponentTasks), want: starter.ErrInvalidOptions},
+		{name: "unknown component", options: withComponents(withProfile(validCreateOptions(filepath.Join(root, "unknown-component")), starter.ProfileAdmin), starter.Component("unknown")), want: starter.ErrInvalidOptions},
+		{name: "duplicate component", options: withComponents(withProfile(validCreateOptions(filepath.Join(root, "duplicate-component")), starter.ProfileAdmin), starter.ComponentAudit, starter.ComponentAudit), want: starter.ErrInvalidOptions},
 		{name: "symlink destination", options: validCreateOptions(link), want: starter.ErrUnsafeDestination},
 	}
 	for _, test := range tests {
@@ -383,6 +484,11 @@ func withModule(options starter.CreateOptions, value string) starter.CreateOptio
 
 func withProfile(options starter.CreateOptions, value starter.Profile) starter.CreateOptions {
 	options.Profile = value
+	return options
+}
+
+func withComponents(options starter.CreateOptions, values ...starter.Component) starter.CreateOptions {
+	options.Components = values
 	return options
 }
 
@@ -431,7 +537,7 @@ func runGo(t *testing.T, directory string, args ...string) {
 
 func runGoOutput(t *testing.T, directory string, args ...string) string {
 	t.Helper()
-	command := exec.Command("go", args...)
+	command := exec.Command(acceptanceTool("MODARY_ACCEPTANCE_GO", "go"), args...)
 	command.Dir = directory
 	command.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=")
 	output, err := command.CombinedOutput()
@@ -443,13 +549,50 @@ func runGoOutput(t *testing.T, directory string, args ...string) string {
 
 func runGoEnv(t *testing.T, directory string, environment []string, args ...string) {
 	t.Helper()
-	command := exec.Command("go", args...)
+	command := exec.Command(acceptanceTool("MODARY_ACCEPTANCE_GO", "go"), args...)
 	command.Dir = directory
 	command.Env = append(append(os.Environ(), "GOWORK=off", "GOFLAGS="), environment...)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("go %s: %v\n%s", strings.Join(args, " "), err, output)
 	}
+}
+
+func runGeneratedAdminProfileTests(t *testing.T, directory, schema, queueSchema string) {
+	t.Helper()
+	databaseURL := os.Getenv("MODARY_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		runGoEnv(t, directory, []string{"DATABASE_URL="}, "test", "./...")
+		return
+	}
+	environment := []string{"DATABASE_URL=" + databaseURL, "MODARY_DATABASE_SCHEMA=" + schema}
+	if queueSchema != "" {
+		environment = append(environment, "MODARY_QUEUE_SCHEMA="+queueSchema)
+	}
+	runGoEnv(t, directory, environment, "test", "-count=1", "./...")
+}
+
+func runGeneratedGovernedProfileTests(t *testing.T, directory string) {
+	t.Helper()
+	databaseURL := os.Getenv("MODARY_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		runGoEnv(t, directory, []string{"DATABASE_URL="}, "test", "-count=1", "./...")
+		return
+	}
+	if strings.TrimSpace(databaseURL) != databaseURL {
+		t.Fatal("MODARY_TEST_DATABASE_URL must not contain surrounding whitespace")
+	}
+	suffix := fmt.Sprintf("%d_%d", os.Getpid(), time.Now().UnixNano())
+	environment := []string{
+		"DATABASE_URL=" + databaseURL,
+		"MODARY_APPLICATION_SCHEMA=modary_gov_a_" + suffix,
+		"MODARY_QUEUE_SCHEMA=modary_gov_q_" + suffix,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
+	defer cancel()
+	runRequiredGeneratedProfileTest(t, ctx, directory, environment,
+		acceptanceTool("MODARY_ACCEPTANCE_GO", "go"),
+		"TestGovernedProfileCommitsAndConsumesDurableWork", "Governed")
 }
 
 func runGeneratedAPI(t *testing.T, directory, name string) {

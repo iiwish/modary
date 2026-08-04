@@ -1,0 +1,10 @@
+# T039 Reviewed Diff Manifest
+
+- Application contract: `appkit/appkit.go`, `appkit/public_test.go`
+- Contribution contract and tests: `httpkit/contribution.go`,
+  `httpkit/contribution_test.go`
+- Capability/service surfaces: `module/**`
+- Generated composition: `starter/templates/api/**`,
+  `starter/templates/admin/application.go.tmpl`,
+  `starter/templates/admin/records.go.tmpl`
+- Boundary checks and reference docs: `internal/quality/**`, `docs/**`

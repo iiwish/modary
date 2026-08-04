@@ -3,8 +3,12 @@ import type { LucideIcon } from 'lucide-react'
 
 export type AdminModule = {
   id: string
-  label: string
-  path: `/${string}`
+  iconKey: string
   icon: LucideIcon
   view: ComponentType
+}
+
+export type ResolvedAdminModule = AdminModule & {
+  label: string
+  path: `/${string}`
 }

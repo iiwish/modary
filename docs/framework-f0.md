@@ -96,7 +96,7 @@ request models, handlers, and presentation behavior.
 data. It supports reads, writes, and explicit `WithinTransaction` units. The
 consumer owns repositories, SQL, migrations, and transaction boundaries.
 
-`adapters/postgresdb` is the official PostgreSQL implementation. It does not
+`components/postgres` is the official PostgreSQL implementation. It does not
 install River, Action persistence, audit tables, or governed transaction
 authority.
 
@@ -109,9 +109,12 @@ escaping idempotency, audit, and task atomicity.
 
 ### 3.3 Identity And Authorization
 
-`identity` and `authz` are contracts. `adapters/localidentity` and
-`adapters/rbac` are selectable implementations for development and bounded
-internal deployments. Core does not select an identity model or default policy.
+`identity` and `authz` are contracts. `components/postgres/localidentity` and
+`components/postgres/rbac` are selectable implementations for development and
+bounded internal deployments. Core does not select an identity model or default
+policy. Principal Identity and browser-session authentication are distinct
+capabilities: session-aware HTTP/Admin contributions declare
+`module.CapabilitySessions` instead of relying on broad Identity availability.
 
 `transport/sessionhttp` supplies standalone login, current-session, logout,
 CSRF, and authenticated middleware for Admin applications. It does not require
@@ -138,8 +141,11 @@ This path is optional. Ordinary Admin CRUD does not need Preview or River.
 
 ### 3.5 Durable Tasks
 
-`task` contains provider-neutral enqueue and runner contracts.
-`adapters/postgres` implements the governed PostgreSQL control store and River
+`task` contains provider-neutral enqueue, runner, and bounded inspection
+contracts. Inspection exposes the closed states `queued`, `pending`,
+`scheduled`, `running`, `retrying`, `succeeded`, `failed`, and `cancelled`;
+queue-specific states never cross the public contract.
+`components/governedpostgres` implements the governed PostgreSQL control store and River
 queue. It uses distinct application and queue schemas in the same physical
 database so a governed write and job insertion share one PostgreSQL
 transaction. Delivery is at least once; task consumers must be idempotent.
@@ -180,11 +186,15 @@ application with:
 - small typed context providers instead of a mandatory global state library;
 - an explicit frontend module registry;
 - responsive login, shell, and records CRUD vertical slice;
+- permission-aware contribution navigation and record commands;
+- optional `--with tasks` and `--with audit` read-only operational surfaces;
 - deterministic prebuilt assets embedded by the Go binary.
 
-The Profile contains no River schema, worker, Action Runtime, SQL Audit, MCP, or
-governed endpoint. The sample records module is instructional application code,
-not a framework domain model. Consumers replace it with their own Modules.
+Default Admin contains no River schema, worker, Action Runtime, SQL Audit, MCP,
+or governed endpoint. Optional task and audit selections add only their declared
+backend capability, route, React source, and selection-specific bundle. The
+sample records module is instructional application code, not a framework domain
+model. Consumers replace it with their own Modules.
 
 Node.js and pnpm are needed when changing or rebuilding Admin frontend source.
 They are not needed to run the built Go artifact.
@@ -210,7 +220,9 @@ only the operations that justify them.
 `starter.Create` and `modary new` are create-only. They accept a valid Go
 module path, one known Profile, and a new or empty destination. They reject
 non-empty destinations, symlink traversal, unsafe paths, invalid names, and
-repeat creation. A failed creation rolls back files created by that attempt.
+repeat creation. Module paths containing a `vendor` segment are rejected because
+Go assigns that directory special import semantics. A failed creation rolls back
+files created by that attempt.
 
 The generated project is intentionally visible rather than hidden behind
 configuration:
@@ -297,8 +309,8 @@ The detailed current result is in
 
 ## 10. Release Boundary
 
-The current source targets `v0.2.0-alpha.1` but is not a published release.
-`v0.1.0-alpha.3` remains an immutable historical Governed-first release. The
-v0.2 candidate may be tagged only after a clean committed candidate passes the
-release-readiness and remote-consumer gates. No acceptance document moves or
-rewrites a published tag.
+`v0.2.0-alpha.1` is the current component-framework release.
+`v0.1.0-alpha.3` remains the immutable historical Governed-first baseline.
+Consumers pin the complete v0.2 release train and review the documented
+breaking migration before adoption. No acceptance document moves or rewrites
+a published tag.

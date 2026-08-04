@@ -50,6 +50,21 @@ func TestRunValidatesSyntaxBeforeCreation(t *testing.T) {
 	}
 }
 
+func TestRunAcceptsRepeatableAdminComponentSelection(t *testing.T) {
+	destination := filepath.Join(t.TempDir(), "cli-admin")
+	var stdout bytes.Buffer
+	err := starter.Run(context.Background(), []string{
+		"new", destination, "--profile", "admin", "--with", "tasks", "--with=audit",
+		"--module", "example.com/acme/cli-admin",
+	}, starter.Options{Stdout: &stdout, ModaryVersion: "v0.1.0-alpha.3", ModaryReplace: repositoryRoot(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), `"components":["audit","tasks"]`) {
+		t.Fatalf("Run() output = %q", stdout.String())
+	}
+}
+
 func TestRunHelpHasNoFilesystemSideEffects(t *testing.T) {
 	var output bytes.Buffer
 	if err := starter.Run(context.Background(), []string{"help"}, starter.Options{Stdout: &output}); err != nil {

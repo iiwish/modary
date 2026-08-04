@@ -248,6 +248,7 @@ if test -d internal; then
 		! -name sqlpolicy \
 		! -name testpostgres \
 		! -name testsupport \
+		! -name testcomponent \
 		! -name transactionoutcome \
 		-print -quit 2>&1); then
 		if test -n "$unexpected_internal"; then

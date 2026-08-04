@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "build": "tsc --noEmit && vite build",
+    "build:variants": "tsc --noEmit && node scripts/build-variants.mjs",
     "assets:check": "node scripts/check-assets.mjs",
     "audit:prod": "pnpm audit --prod --audit-level high --registry=https://registry.npmjs.org"
   },
