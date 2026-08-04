@@ -94,7 +94,23 @@
   scanner was fetched through a fallback module proxy and the complete CI gate
   was restarted from the beginning; no scan or other gate was skipped.
 - Candidate release preflight reaches the expected clean committed-worktree
-  boundary without claiming an unpublished tag or remote module result.
+  boundary before commit. Clean candidate release readiness then passed at
+  `3600a38345380401f36958970f82cc93e2c29cd2`, including a complete second CI
+  run and candidate-mode preflight.
 - Fixture tests cover source-digest drift, component version alignment, the
   coordinated tag train, canonical origin, owner inputs, and remote-consumer
   replacement removal.
+- Hosted main CI passed at
+  https://github.com/iiwish/modary/actions/runs/30870905898. Hosted tag CI passed
+  at https://github.com/iiwish/modary/actions/runs/30871605918, including tag
+  preflight and copied-out remote consumption.
+- The root, PostgreSQL, and Governed PostgreSQL annotated tag objects are
+  `51b98be0c7809e3e97b88bb45e0514cbc452dc73`,
+  `4c8d459192f3e8a176841442d837b3a3ac747cdd`, and
+  `d3b5a7699b2e8ed56aa5fd5d32b0179cd3257134`. All peel to the accepted commit.
+- Local remote consumption initially encountered a `proxy.golang.org` network
+  timeout. The complete gate was retried through a fallback Go proxy and passed
+  without a local replacement or work file. Normal module queries resolved the
+  root and both component modules at exactly `v0.2.0-alpha.1`.
+- The verified GitHub prerelease is
+  https://github.com/iiwish/modary/releases/tag/v0.2.0-alpha.1.

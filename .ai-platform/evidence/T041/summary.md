@@ -3,8 +3,8 @@
 - Status: Completed
 - Date: 2026-08-04
 - Packet: `.ai-platform/specs/009-component-boundary-closure/packets/T041.yaml`
-- Source digest: git-hash:988a4db20a53eb59493f0ed6789a382bd1e2f1fe
-- Release state: Distribution ready; candidate commit, tags, and remote verification pending
+- Source digest: git-hash:6ef290f863f6647097268d9b1556844d9e4a30fc
+- Release state: Remote verified as v0.2.0-alpha.1
 
 Component Boundary Closure F0 passes corrective and external review. Fresh API,
 default Admin, operations Admin, and Governed consumers build and test outside
@@ -42,5 +42,10 @@ T041 or running release preflight. Caller-supplied alternate roots, relative
 paths, and symlink aliases cannot bypass the digest. Direct script tests retain a
 separate fixture hook. Any implementation, automation, generated asset, or
 canonical-document change outside T041 evidence reopens the evidence until the
-digest and review are refreshed. Publication and clean committed candidate
-validation remain owner-controlled release steps.
+digest and review are refreshed.
+
+Accepted commit `3600a38345380401f36958970f82cc93e2c29cd2` is published through
+the root tag and both component tags at `v0.2.0-alpha.1`. Hosted main and tag CI,
+normal module resolution, and local and hosted copied-out remote consumers pass.
+The GitHub prerelease is
+https://github.com/iiwish/modary/releases/tag/v0.2.0-alpha.1.

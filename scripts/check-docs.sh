@@ -519,16 +519,17 @@ for review in .ai-platform/evidence/T026/review-3.md .ai-platform/evidence/T026/
 done
 
 require_line docs/f0-acceptance-report.md '- Status: Accepted'
-require_line docs/f0-acceptance-report.md '- Distribution status: Not released'
+require_line docs/f0-acceptance-report.md '- Distribution status: Released'
 require_line docs/f0-acceptance-report.md '- Target version: v0.2.0-alpha.1'
+require_line docs/f0-acceptance-report.md '- Version tags: v0.2.0-alpha.1, components/postgres/v0.2.0-alpha.1, components/governedpostgres/v0.2.0-alpha.1'
 require_line docs/f0-acceptance-report.md '- Frozen baseline tag: v0.1.0-alpha.3'
-require_line .ai-platform/docs/release-report.md '- Report version: 3.0'
-require_line .ai-platform/docs/release-report.md '- Status: Distribution_ready'
+require_line .ai-platform/docs/release-report.md '- Report version: 3.1'
+require_line .ai-platform/docs/release-report.md '- Status: Remote_verified'
 require_line .ai-platform/docs/release-report.md '- Technical F0 acceptance: Accepted'
 require_line .ai-platform/docs/release-report.md '- Engineering readiness: Accepted'
-require_line .ai-platform/docs/release-report.md '- Distribution status: Not_released'
-require_line .ai-platform/docs/release-report.md '- Version tags: None'
-require_line .ai-platform/docs/release-report.md '- Remote consumer verification: Not_run'
+require_line .ai-platform/docs/release-report.md '- Distribution status: Released'
+require_line .ai-platform/docs/release-report.md '- Version tags: v0.2.0-alpha.1, components/postgres/v0.2.0-alpha.1, components/governedpostgres/v0.2.0-alpha.1'
+require_line .ai-platform/docs/release-report.md '- Remote consumer verification: Passed'
 require_line .ai-platform/docs/release-report.md '- Owner-selected redistribution license: Apache-2.0'
 require_line .ai-platform/docs/release-report.md '- Target version: v0.2.0-alpha.1'
 
@@ -554,7 +555,7 @@ require_literal docs/zh-CN/how-to/run-background-tasks.md 'RetryDelays'
 require_literal docs/guides/rulary-bootstrap.md 'Rulary is a separate product repository.'
 require_literal .ai-platform/memory/constitution.md 'The empty Core has no database'
 require_literal .ai-platform/docs/product-design.md 'Start with a small Go application. Add only the components the product needs.'
-require_literal .ai-platform/docs/product-design.md '`v0.1.0-alpha.3` is the immutable accepted PostgreSQL and Governed Action'
+require_literal .ai-platform/docs/product-design.md '`v0.2.0-alpha.1` is the current immutable component-framework release.'
 
 legacy_paths='README.md SECURITY.md docs .ai-platform/docs .ai-platform/memory examples/counter'
 if legacy=$(rg -n -i 'use (the )?sqlite|sqlite adapter is (supported|available)|modernc|databasepath|sqlitetest' $legacy_paths \

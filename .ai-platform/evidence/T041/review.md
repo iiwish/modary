@@ -62,14 +62,14 @@ show no overlap, horizontal overflow, accessibility violation, or browser log.
 Mobile navigation remains a modal focus boundary with inert background, scroll
 lock, focus cycling, Escape restoration, and selected-page heading focus.
 
-## Release Readiness
+## Release Verification
 
-Pass for engineering handoff. Multi-module quality gates, copied-out default and
+Pass. Multi-module quality gates, copied-out default and
 operations Admin consumers, the copied-out Governed consumer, deterministic
 assets, docs, neutrality, and generated state are current. The 8-minute repeat
 budget covers curated concurrency and lifecycle contracts instead of multiplying
 static packages. T041 records one digest over all candidate source outside its
-own evidence directory; docs and release preflight reject any later source
-drift. A clean committed candidate, immutable coordinated tags, hosted tag CI,
-owner approval, and remote module verification remain explicit publication
-steps.
+own evidence directory; docs and release preflight reject unreviewed source
+drift. The clean accepted commit, three immutable coordinated tags, hosted main
+and tag CI, local and hosted remote consumers, and GitHub prerelease all passed.
+The release remains pre-v1 and makes no stable compatibility claim.

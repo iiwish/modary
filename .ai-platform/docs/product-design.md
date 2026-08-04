@@ -138,11 +138,11 @@ database that was initialized by an earlier composition.
 
 ## Compatibility And Release State
 
-`v0.1.0-alpha.3` is the immutable accepted PostgreSQL and Governed Action
-release. It remains available for pinned consumers. The active v0.2 contract is
-pre-v1 and may replace Alpha 3 public APIs where that is necessary to make Core
-lightweight and advanced capabilities optional. Retained guarantees receive
-conformance tests; removed or replaced APIs receive an explicit upgrade note.
+`v0.2.0-alpha.1` is the current immutable component-framework release.
+`v0.1.0-alpha.3` remains available for consumers pinned to its historical
+Governed-first contract. The v0.2 API and generated source remain pre-v1 Alpha
+contracts. Retained guarantees receive conformance tests; removed or replaced
+APIs receive an explicit upgrade note.
 
 ## Success Definition
 

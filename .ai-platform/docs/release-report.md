@@ -1,16 +1,23 @@
 # Modary v0.2 Alpha 1 Readiness Report
 
-- Report version: 3.0
-- Status: Distribution_ready
+- Report version: 3.1
+- Status: Remote_verified
 - Technical F0 acceptance: Accepted
 - Engineering readiness: Accepted
-- Onboarding readiness: Accepted for copied-out Profiles
-- Current source version: v0.2.0-alpha.1 release candidate
+- Onboarding readiness: Accepted for tagged and copied-out Profiles
+- Current source version: v0.2.0-alpha.1
 - Target version: v0.2.0-alpha.1
-- Distribution status: Not_released
-- Version tags: None
-- Remote consumer verification: Not_run
-- Latest published historical version: v0.1.0-alpha.3
+- Distribution status: Released
+- Version tags: v0.2.0-alpha.1, components/postgres/v0.2.0-alpha.1, components/governedpostgres/v0.2.0-alpha.1
+- Remote consumer verification: Passed
+- Latest supported release: v0.2.0-alpha.1
+- Candidate and tag commit: 3600a38345380401f36958970f82cc93e2c29cd2
+- Root annotated tag object: 51b98be0c7809e3e97b88bb45e0514cbc452dc73
+- PostgreSQL annotated tag object: 4c8d459192f3e8a176841442d837b3a3ac747cdd
+- Governed PostgreSQL annotated tag object: d3b5a7699b2e8ed56aa5fd5d32b0179cd3257134
+- Main CI: https://github.com/iiwish/modary/actions/runs/30870905898
+- Tag CI: https://github.com/iiwish/modary/actions/runs/30871605918
+- Release: https://github.com/iiwish/modary/releases/tag/v0.2.0-alpha.1
 - Published modules: root, components/postgres, components/governedpostgres
 - Canonical remote: https://github.com/iiwish/modary
 - Owner-selected redistribution license: Apache-2.0
@@ -44,15 +51,19 @@ task durability, retry, restart, multi-runner behavior, authorization, audit,
 and deterministic frontend assets. Core and API module graphs contain no
 PostgreSQL or River implementation dependency.
 
-The candidate is suitable for exact-version design-partner adoption after the
-coordinated immutable tag train, hosted CI, normal Go module resolution, and
-remote copied-out consumer verification pass.
+The accepted source is published and remotely consumable as
+`v0.2.0-alpha.1`. The coordinated immutable tag train, hosted main and tag CI,
+normal Go module resolution, and hosted and local copied-out remote consumer
+gates all identify candidate commit
+`3600a38345380401f36958970f82cc93e2c29cd2`.
 
 ## Release Boundary
 
-Publication uses one commit and three annotated tags:
+Alpha 1 is `Remote_verified` through one commit and three annotated tags:
 `v0.2.0-alpha.1`, `components/postgres/v0.2.0-alpha.1`, and
-`components/governedpostgres/v0.2.0-alpha.1`. The release publishes Go source
-and documentation, not a hosted product, binary distribution, container,
-database service, stable-v1 compatibility promise, or public-internet IAM
-suite. Failed external verification stops publication without moving a tag.
+`components/governedpostgres/v0.2.0-alpha.1`. Future releases repeat the clean
+candidate, immutable coordinated tags, hosted CI, normal module resolution,
+copied-out consumer, and matching release-note process. Published tags remain
+immutable. This release provides Go source and documentation, not a hosted
+product, binary distribution, container, database service, stable-v1
+compatibility promise, or public-internet IAM suite.

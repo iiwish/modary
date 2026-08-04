@@ -4,10 +4,13 @@
 - Governing contracts: `.ai-platform/specs/007-component-framework-refoundation/spec.md`,
   `.ai-platform/specs/008-react-admin-starter/spec.md`, and
   `.ai-platform/specs/009-component-boundary-closure/spec.md`
-- Date: 2026-08-03
+- Date: 2026-08-04
 - Status: Accepted
-- Distribution status: Not released
+- Accepted source: 3600a38345380401f36958970f82cc93e2c29cd2
+- Consumption status: Tagged Go modules and copied-out source
+- Distribution status: Released
 - Target version: v0.2.0-alpha.1
+- Version tags: v0.2.0-alpha.1, components/postgres/v0.2.0-alpha.1, components/governedpostgres/v0.2.0-alpha.1
 - Frozen baseline tag: v0.1.0-alpha.3
 - License: Apache-2.0
 
@@ -20,9 +23,9 @@ produce visible consumer-owned composition. Ordinary Admin CRUD is independent
 from River and governed Actions; the Governed Profile retains the strict
 Preview, transaction, audit, idempotency, and durable-task path.
 
-Technical acceptance does not claim publication. The v0.2 candidate still
-requires a clean committed source candidate, owner release approval, immutable
-tag, hosted tag CI, and normal remote module verification.
+The accepted source is published as `v0.2.0-alpha.1`. Hosted main and tag CI,
+normal module resolution, and local and hosted copied-out consumers verify the
+same immutable commit across the root and both component modules.
 
 ## Acceptance Matrix
 
@@ -42,11 +45,12 @@ tag, hosted tag CI, and normal remote module verification.
 ## External Acceptance
 
 All Profiles are generated into temporary directories outside the repository.
-Validation disables Go work-file discovery and binds the candidate source only
-for local pre-release testing. The API project runs without infrastructure; the
-Admin and Governed projects pass real PostgreSQL integration. Admin frontend
-validation uses a frozen pnpm install and checks lint, types, tests, production
-build, and byte-for-byte embedded asset parity.
+Validation disables Go work-file discovery. Local pre-release acceptance binds
+the candidate source explicitly; published acceptance resolves all three module
+tags through a normal Go proxy with no local replacement. The API project runs
+without infrastructure; the Admin and Governed projects pass real PostgreSQL
+integration. Admin frontend validation uses a frozen pnpm install and checks
+lint, types, tests, production build, and byte-for-byte embedded asset parity.
 
 T041 records a digest over the complete candidate source outside its own evidence
 directory. Documentation and release preflight recompute it, so an implementation,
@@ -62,9 +66,8 @@ copied-out consumers, and browser acceptance are recorded in
 ## Release Boundary
 
 `v0.1.0-alpha.3` remains immutable and continues to describe its historical
-Governed-first contract. The v0.2 work does not move or rewrite that tag. A
-future `v0.2.0-alpha.1` release must publish one immutable coordinated tag train:
-`v0.2.0-alpha.1`, `components/postgres/v0.2.0-alpha.1`, and
-`components/governedpostgres/v0.2.0-alpha.1`, all at the same commit. The
-documented release process and normal remote consumer verification remain
-mandatory; until then consumers evaluate v0.2 from a pinned source checkout.
+Governed-first contract. Alpha 1 passed clean candidate validation, hosted main
+and tag CI, normal Go module resolution, and copied-out remote consumer
+verification. Its root and component tags all resolve to accepted commit
+`3600a38345380401f36958970f82cc93e2c29cd2`. Future releases repeat those gates
+and never move a published tag.
