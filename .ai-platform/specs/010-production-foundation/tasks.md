@@ -269,7 +269,7 @@ Evidence required: `.ai-platform/evidence/T047/summary.md`, `diff.patch`,
 
 ### T048: v0.3 Coordinated Release And Remote Verification
 
-Status: Pending
+Status: Completed
 Priority: P0
 Depends on: T047
 Blocks: None

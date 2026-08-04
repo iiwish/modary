@@ -15,7 +15,7 @@ The active work graph is
 | T045 | Completed | Consumer-owned OCI and local Compose deployment baseline |
 | T046 | Completed | Structured logging and optional OpenTelemetry integration |
 | T047 | Completed | Production copied-out, failure, security, and documentation acceptance |
-| T048 | Pending | Coordinated v0.3 release and remote verification |
+| T048 | Completed | Coordinated v0.3 release and remote verification |
 | T038 | Completed | PostgreSQL and River module-graph isolation |
 | T039 | Completed | Explicit pre-start HTTP and Admin contribution contracts |
 | T040 | Completed | Permission-aware shared Admin primitives and task/audit UI |

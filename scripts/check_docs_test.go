@@ -235,6 +235,60 @@ func TestAcceptanceEvidenceDigestRejectsSourceDrift(t *testing.T) {
 	}
 }
 
+func TestAcceptanceEvidenceDigestUsesCompletedReleaseCandidate(t *testing.T) {
+	repository := t.TempDir()
+	writeDocsFixtureFile(t, filepath.Join(repository, "implementation.txt"), "accepted implementation\n")
+	writeDocsFixtureFile(t, filepath.Join(repository, ".ai-platform", "evidence", "T047", "summary.md"),
+		"# T047\n\n- Source digest: git-hash:0000000000000000000000000000000000000000\n")
+	runGitFixture(t, repository, "init", "--quiet")
+	digestCommand := exec.Command(filepath.Join(repositoryRoot(t), "scripts", "acceptance-source-digest.sh"), repository)
+	digestOutput, err := digestCommand.CombinedOutput()
+	if err != nil {
+		t.Fatalf("acceptance digest failed: %v\n%s", err, digestOutput)
+	}
+	replaceCurrentDocs(t, filepath.Join(repository, ".ai-platform", "evidence", "T047", "summary.md"),
+		"git-hash:0000000000000000000000000000000000000000", strings.TrimSpace(string(digestOutput)))
+	runGitFixture(t, repository, "config", "user.name", "Modary Test")
+	runGitFixture(t, repository, "config", "user.email", "modary@example.invalid")
+	runGitFixture(t, repository, "add", "--all")
+	runGitFixture(t, repository, "commit", "--quiet", "-m", "candidate")
+	candidate := strings.TrimSpace(runGitFixtureOutput(t, repository, "rev-parse", "HEAD"))
+	runGitFixture(t, repository, "tag", "-a", "v0.3.0-alpha.1", "-m", "candidate")
+
+	writeDocsFixtureFile(t, filepath.Join(repository, "release-record.txt"), "released\n")
+	releaseSummary := filepath.Join(repository, ".ai-platform", "evidence", "T048", "summary.md")
+	writeDocsFixtureFile(t, releaseSummary, "# T048\n\n- Status: Completed\n- Candidate commit: `"+candidate+"`\n- Candidate tag: `v0.3.0-alpha.1`\n")
+	check := func() (string, error) {
+		command := exec.Command(filepath.Join(repositoryRoot(t), "scripts", "check-acceptance-evidence.sh"), repository)
+		output, checkErr := command.CombinedOutput()
+		return string(output), checkErr
+	}
+	if output, checkErr := check(); checkErr != nil {
+		t.Fatalf("released candidate evidence failed: %v\n%s", checkErr, output)
+	}
+	replaceCurrentDocs(t, releaseSummary, candidate, strings.Repeat("0", len(candidate)))
+	if output, checkErr := check(); checkErr == nil || !strings.Contains(output, "acceptance evidence is stale") {
+		t.Fatalf("unanchored release candidate = %v, output=%q", checkErr, output)
+	}
+	replaceCurrentDocs(t, releaseSummary, strings.Repeat("0", len(candidate)), candidate)
+	runGitFixture(t, repository, "tag", "--delete", "v0.3.0-alpha.1")
+	runGitFixture(t, repository, "tag", "v0.3.0-alpha.1", candidate)
+	if output, checkErr := check(); checkErr == nil || !strings.Contains(output, "acceptance evidence is stale") {
+		t.Fatalf("lightweight release tag = %v, output=%q", checkErr, output)
+	}
+}
+
+func runGitFixtureOutput(t *testing.T, repository string, args ...string) string {
+	t.Helper()
+	command := exec.Command("git", args...)
+	command.Dir = repository
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, output)
+	}
+	return string(output)
+}
+
 func TestCheckDocsCannotBypassAcceptanceDigestWithRelativeRoot(t *testing.T) {
 	repository := currentDocsFixture(t)
 	for _, name := range []string{

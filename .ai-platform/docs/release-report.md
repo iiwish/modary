@@ -1,15 +1,15 @@
-# Modary v0.3 Alpha 1 Readiness Report
+# Modary v0.3 Alpha 1 Release Report
 
 - Report version: 4.0
-- Status: Candidate_accepted
+- Status: Remote_verified
 - Technical F0 acceptance: Accepted
 - Engineering readiness: Accepted
 - Onboarding readiness: Accepted for local, OIDC, telemetry, API, Admin, and Governed consumers
 - Current source version: v0.3.0-alpha.1
 - Target version: v0.3.0-alpha.1
-- Distribution status: Prepared
+- Distribution status: Released
 - Version tags: v0.3.0-alpha.1, components/postgres/v0.3.0-alpha.1, components/governedpostgres/v0.3.0-alpha.1, components/oidc/v0.3.0-alpha.1, components/otel/v0.3.0-alpha.1
-- Remote consumer verification: Pending
+- Remote consumer verification: Passed
 - Latest supported release: v0.3.0-alpha.1
 - Release: https://github.com/iiwish/modary/releases/tag/v0.3.0-alpha.1
 - Published modules: root, components/postgres, components/governedpostgres, components/oidc, components/otel

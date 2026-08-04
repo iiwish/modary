@@ -1,0 +1,5 @@
+T048 publishes the accepted candidate without changing its tagged source. The
+final record commit updates canonical release status, T048 evidence, and the
+acceptance checker so post-release records are validated against the immutable
+candidate tag; every version tag remains on candidate commit
+37ff50f9b406a2569e9635c40eafca744f77072e.

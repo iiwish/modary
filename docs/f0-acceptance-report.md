@@ -1,13 +1,14 @@
 # Modary v0.3 F0 Acceptance Report
 
 - Status: Accepted
-- Distribution status: Prepared
+- Distribution status: Released
 - Date: 2026-08-04
 - Target version: v0.3.0-alpha.1
 - Version tags: v0.3.0-alpha.1, components/postgres/v0.3.0-alpha.1, components/governedpostgres/v0.3.0-alpha.1, components/oidc/v0.3.0-alpha.1, components/otel/v0.3.0-alpha.1
 - Frozen baseline tag: v0.2.0-alpha.1
 - Current specification: `.ai-platform/specs/010-production-foundation/spec.md`
-- Current evidence: `.ai-platform/evidence/T047/`
+- Current acceptance evidence: `.ai-platform/evidence/T047/`
+- Release evidence: `.ai-platform/evidence/T048/`
 
 ## Accepted Boundary
 
