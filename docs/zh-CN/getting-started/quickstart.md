@@ -14,7 +14,7 @@ export MODARY_STARTER_REPLACE="$(pwd)"
 ```
 
 本地框架开发可通过 `MODARY_STARTER_REPLACE` 绑定当前检出。正式消费者应删除
-`replace` 并准确固定到 `v0.3.0-alpha.1`。
+`replace` 并准确固定到 `v0.3.0-alpha.2`。
 
 ## 2. 创建 API 项目
 

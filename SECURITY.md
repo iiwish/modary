@@ -4,7 +4,7 @@
 
 ## Supported Versions
 
-`v0.3.0-alpha.1` is the current published Alpha line. `v0.2.0-alpha.1` and
+`v0.3.0-alpha.2` is the current published Alpha line. `v0.3.0-alpha.1`, `v0.2.0-alpha.1`, and
 `v0.1.0-alpha.3` remain immutable historical baselines. Pre-v1 fixes are
 delivered as a new exact prerelease; indefinite backports are not promised.
 

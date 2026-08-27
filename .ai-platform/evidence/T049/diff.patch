@@ -1,0 +1,7 @@
+T049 prepares the v0.3.0-alpha.2 candidate by raising the source, generated
+Profile, and container Go baseline from 1.26.5 to 1.26.7; coordinating all five
+module versions; updating current release documentation and validation rules;
+and making source-mode container acceptance use dynamically allocated loopback
+ports. Framework runtime code, public APIs, migrations, routes, and generated
+product behavior are unchanged. The source digest in summary.md covers the
+complete candidate outside this evidence folder.

@@ -1,11 +1,11 @@
 module github.com/iiwish/modary/components/oidc
 
-go 1.26.5
+go 1.26.7
 
 require (
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/go-jose/go-jose/v4 v4.1.4
-	github.com/iiwish/modary v0.3.0-alpha.1
+	github.com/iiwish/modary v0.3.0-alpha.2
 	golang.org/x/oauth2 v0.36.0
 )
 

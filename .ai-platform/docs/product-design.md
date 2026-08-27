@@ -178,7 +178,7 @@ task and audit data remain available through their existing read-only contracts.
 
 ## Compatibility And Release State
 
-`v0.3.0-alpha.1` is the current Production Foundation release.
+`v0.3.0-alpha.2` is the current Production Foundation security maintenance release.
 `v0.2.0-alpha.1` remains the immutable React component-framework baseline, and
 `v0.1.0-alpha.3` remains available for consumers pinned to its historical
 Governed-first contract. Public APIs and generated source remain pre-v1 Alpha

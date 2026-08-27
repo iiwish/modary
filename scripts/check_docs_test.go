@@ -1,6 +1,7 @@
 package scripts_test
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -82,6 +83,13 @@ var currentDocsFiles = []string{
 	".ai-platform/specs/010-production-foundation/packets/T047.yaml",
 	".ai-platform/specs/010-production-foundation/packets/T048.yaml",
 	".ai-platform/specs/011-design-partner-validation/spec.md",
+	".ai-platform/specs/012-security-maintenance-release/spec.md",
+	".ai-platform/specs/012-security-maintenance-release/plan.md",
+	".ai-platform/specs/012-security-maintenance-release/analysis.md",
+	".ai-platform/specs/012-security-maintenance-release/tasks.md",
+	".ai-platform/specs/012-security-maintenance-release/checklists/requirements.md",
+	".ai-platform/specs/012-security-maintenance-release/packets/T049.yaml",
+	".ai-platform/specs/012-security-maintenance-release/packets/T050.yaml",
 	".ai-platform/evidence/T024/summary.md", ".ai-platform/evidence/T024/diff.patch", ".ai-platform/evidence/T024/test-results.md",
 	".ai-platform/evidence/T025/summary.md", ".ai-platform/evidence/T025/diff.patch", ".ai-platform/evidence/T025/test-results.md",
 	".ai-platform/evidence/T026/summary.md", ".ai-platform/evidence/T026/diff.patch", ".ai-platform/evidence/T026/test-results.md",
@@ -132,6 +140,8 @@ var currentDocsFiles = []string{
 	".ai-platform/evidence/T046/test-results.md", ".ai-platform/evidence/T046/review.md",
 	".ai-platform/evidence/T047/summary.md", ".ai-platform/evidence/T047/diff.patch",
 	".ai-platform/evidence/T047/test-results.md", ".ai-platform/evidence/T047/review.md",
+	".ai-platform/evidence/T049/summary.md", ".ai-platform/evidence/T049/diff.patch",
+	".ai-platform/evidence/T049/test-results.md", ".ai-platform/evidence/T049/review.md",
 	"starter/templates/admin/README.md.tmpl",
 }
 
@@ -202,10 +212,20 @@ func TestCheckDocsRejectsUnresolvedAcceptanceFinding(t *testing.T) {
 
 func TestCheckDocsRejectsUnresolvedCurrentClosureFinding(t *testing.T) {
 	repository := currentDocsFixture(t)
-	path := filepath.Join(repository, ".ai-platform/evidence/T047/review.md")
-	replaceCurrentDocs(t, path, "- P1: 0", "- P1: 1")
+	path := filepath.Join(repository, ".ai-platform/evidence/T049/review.md")
+	tasks, err := os.ReadFile(filepath.Join(repository, ".ai-platform/specs/012-security-maintenance-release/tasks.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "- P1: 0"
+	if bytes.Contains(tasks, []byte("Status: In_Progress")) {
+		replaceCurrentDocs(t, path, "- Verdict: Pending", "- Verdict: Pass")
+		want = "- Verdict: Pending"
+	} else {
+		replaceCurrentDocs(t, path, "- P1: 0", "- P1: 1")
+	}
 	output, err := runCurrentDocsCheck(t, repository)
-	if err == nil || !strings.Contains(output, "- P1: 0") {
+	if err == nil || !strings.Contains(output, want) {
 		t.Fatalf("check-docs = %v, output=%q", err, output)
 	}
 }
@@ -213,8 +233,8 @@ func TestCheckDocsRejectsUnresolvedCurrentClosureFinding(t *testing.T) {
 func TestAcceptanceEvidenceDigestRejectsSourceDrift(t *testing.T) {
 	repository := t.TempDir()
 	writeDocsFixtureFile(t, filepath.Join(repository, "implementation.txt"), "accepted implementation\n")
-	writeDocsFixtureFile(t, filepath.Join(repository, ".ai-platform", "evidence", "T047", "summary.md"),
-		"# T047\n\n- Source digest: git-hash:0000000000000000000000000000000000000000\n")
+	writeDocsFixtureFile(t, filepath.Join(repository, ".ai-platform", "evidence", "T049", "summary.md"),
+		"# T049\n\n- Source digest: git-hash:0000000000000000000000000000000000000000\n")
 	runGitFixture(t, repository, "init", "--quiet")
 	digestCommand := exec.Command(filepath.Join(repositoryRoot(t), "scripts", "acceptance-source-digest.sh"), repository)
 	digestOutput, err := digestCommand.CombinedOutput()
@@ -222,7 +242,7 @@ func TestAcceptanceEvidenceDigestRejectsSourceDrift(t *testing.T) {
 		t.Fatalf("acceptance digest failed: %v\n%s", err, digestOutput)
 	}
 	digest := strings.TrimSpace(string(digestOutput))
-	replaceCurrentDocs(t, filepath.Join(repository, ".ai-platform", "evidence", "T047", "summary.md"),
+	replaceCurrentDocs(t, filepath.Join(repository, ".ai-platform", "evidence", "T049", "summary.md"),
 		"git-hash:0000000000000000000000000000000000000000", digest)
 
 	check := func() (string, error) {
@@ -249,26 +269,26 @@ func TestAcceptanceEvidenceDigestRejectsSourceDrift(t *testing.T) {
 func TestAcceptanceEvidenceDigestUsesCompletedReleaseCandidate(t *testing.T) {
 	repository := t.TempDir()
 	writeDocsFixtureFile(t, filepath.Join(repository, "implementation.txt"), "accepted implementation\n")
-	writeDocsFixtureFile(t, filepath.Join(repository, ".ai-platform", "evidence", "T047", "summary.md"),
-		"# T047\n\n- Source digest: git-hash:0000000000000000000000000000000000000000\n")
+	writeDocsFixtureFile(t, filepath.Join(repository, ".ai-platform", "evidence", "T049", "summary.md"),
+		"# T049\n\n- Source digest: git-hash:0000000000000000000000000000000000000000\n")
 	runGitFixture(t, repository, "init", "--quiet")
 	digestCommand := exec.Command(filepath.Join(repositoryRoot(t), "scripts", "acceptance-source-digest.sh"), repository)
 	digestOutput, err := digestCommand.CombinedOutput()
 	if err != nil {
 		t.Fatalf("acceptance digest failed: %v\n%s", err, digestOutput)
 	}
-	replaceCurrentDocs(t, filepath.Join(repository, ".ai-platform", "evidence", "T047", "summary.md"),
+	replaceCurrentDocs(t, filepath.Join(repository, ".ai-platform", "evidence", "T049", "summary.md"),
 		"git-hash:0000000000000000000000000000000000000000", strings.TrimSpace(string(digestOutput)))
 	runGitFixture(t, repository, "config", "user.name", "Modary Test")
 	runGitFixture(t, repository, "config", "user.email", "modary@example.invalid")
 	runGitFixture(t, repository, "add", "--all")
 	runGitFixture(t, repository, "commit", "--quiet", "-m", "candidate")
 	candidate := strings.TrimSpace(runGitFixtureOutput(t, repository, "rev-parse", "HEAD"))
-	runGitFixture(t, repository, "tag", "-a", "v0.3.0-alpha.1", "-m", "candidate")
+	runGitFixture(t, repository, "tag", "-a", "v0.3.0-alpha.2", "-m", "candidate")
 
 	writeDocsFixtureFile(t, filepath.Join(repository, "release-record.txt"), "released\n")
-	releaseSummary := filepath.Join(repository, ".ai-platform", "evidence", "T048", "summary.md")
-	writeDocsFixtureFile(t, releaseSummary, "# T048\n\n- Status: Completed\n- Candidate commit: `"+candidate+"`\n- Candidate tag: `v0.3.0-alpha.1`\n")
+	releaseSummary := filepath.Join(repository, ".ai-platform", "evidence", "T050", "summary.md")
+	writeDocsFixtureFile(t, releaseSummary, "# T050\n\n- Status: Completed\n- Candidate commit: `"+candidate+"`\n- Candidate tag: `v0.3.0-alpha.2`\n")
 	check := func() (string, error) {
 		command := exec.Command(filepath.Join(repositoryRoot(t), "scripts", "check-acceptance-evidence.sh"), repository)
 		output, checkErr := command.CombinedOutput()
@@ -282,8 +302,8 @@ func TestAcceptanceEvidenceDigestUsesCompletedReleaseCandidate(t *testing.T) {
 		t.Fatalf("unanchored release candidate = %v, output=%q", checkErr, output)
 	}
 	replaceCurrentDocs(t, releaseSummary, strings.Repeat("0", len(candidate)), candidate)
-	runGitFixture(t, repository, "tag", "--delete", "v0.3.0-alpha.1")
-	runGitFixture(t, repository, "tag", "v0.3.0-alpha.1", candidate)
+	runGitFixture(t, repository, "tag", "--delete", "v0.3.0-alpha.2")
+	runGitFixture(t, repository, "tag", "v0.3.0-alpha.2", candidate)
 	if output, checkErr := check(); checkErr == nil || !strings.Contains(output, "acceptance evidence is stale") {
 		t.Fatalf("lightweight release tag = %v, output=%q", checkErr, output)
 	}

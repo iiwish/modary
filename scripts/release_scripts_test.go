@@ -89,9 +89,9 @@ func TestReleasePreflightRejectsMissingOwnerInputs(t *testing.T) {
 			name: "Go baseline",
 			mutate: func(t *testing.T, repository string) {
 				t.Helper()
-				replaceDocsFixture(t, filepath.Join(repository, "go.mod"), "go 1.26.5", "go 1.26")
+				replaceDocsFixture(t, filepath.Join(repository, "go.mod"), "go 1.26.7", "go 1.26")
 			},
-			want: "security-patched 1.26.5",
+			want: "security-patched 1.26.7",
 		},
 		{
 			name: "license",
@@ -166,7 +166,7 @@ func finalizeReleaseChangelog(t *testing.T, repository string) {
 		"## "+testReleaseVersion+" - Unreleased",
 		"## "+testReleaseVersion+" - 2026-07-31")
 	refreshAcceptanceDigest(t, repository)
-	runGitFixture(t, repository, "add", "CHANGELOG.md", ".ai-platform/evidence/T047/summary.md")
+	runGitFixture(t, repository, "add", "CHANGELOG.md", ".ai-platform/evidence/T049/summary.md")
 	runGitFixture(t, repository, "-c", "user.name=Modary Test", "-c", "user.email=modary@example.invalid", "commit", "--quiet", "-m", "finalize changelog")
 }
 
@@ -230,16 +230,16 @@ func TestRemoteConsumerFailsWhenResolutionUsesReplacement(t *testing.T) {
 func newReleaseFixture(t *testing.T) string {
 	t.Helper()
 	repository := t.TempDir()
-	writeDocsFixtureFile(t, filepath.Join(repository, "go.mod"), "module github.com/iiwish/modary\n\ngo 1.26.5\n")
+	writeDocsFixtureFile(t, filepath.Join(repository, "go.mod"), "module github.com/iiwish/modary\n\ngo 1.26.7\n")
 	writeDocsFixtureFile(t, filepath.Join(repository, "LICENSE"), "owner-selected license text\n")
 	writeDocsFixtureFile(t, filepath.Join(repository, "SECURITY.md"), "# Security\n\n- Private reporting channel: https://github.com/iiwish/modary/security/advisories/new\n")
 	writeDocsFixtureFile(t, filepath.Join(repository, "CHANGELOG.md"), "# Changelog\n\n## "+testReleaseVersion+" - Unreleased\n")
-	writeDocsFixtureFile(t, filepath.Join(repository, "docs", "f0-acceptance-report.md"), "# Acceptance\n\n- Status: Accepted\n- Current production spec: `.ai-platform/specs/010-production-foundation/spec.md`\n- Current production evidence: `.ai-platform/evidence/T047/`\n")
-	writeDocsFixtureFile(t, filepath.Join(repository, ".ai-platform", "evidence", "T047", "summary.md"), "# T047\n\n- Source digest: git-hash:0000000000000000000000000000000000000000\n")
-	writeDocsFixtureFile(t, filepath.Join(repository, "components", "postgres", "go.mod"), "module github.com/iiwish/modary/components/postgres\n\ngo 1.26.5\n\nrequire github.com/iiwish/modary "+testReleaseVersion+"\n")
-	writeDocsFixtureFile(t, filepath.Join(repository, "components", "governedpostgres", "go.mod"), "module github.com/iiwish/modary/components/governedpostgres\n\ngo 1.26.5\n\nrequire github.com/iiwish/modary "+testReleaseVersion+"\n")
-	writeDocsFixtureFile(t, filepath.Join(repository, "components", "oidc", "go.mod"), "module github.com/iiwish/modary/components/oidc\n\ngo 1.26.5\n\nrequire github.com/iiwish/modary "+testReleaseVersion+"\n")
-	writeDocsFixtureFile(t, filepath.Join(repository, "components", "otel", "go.mod"), "module github.com/iiwish/modary/components/otel\n\ngo 1.26.5\n\nrequire github.com/iiwish/modary "+testReleaseVersion+"\n")
+	writeDocsFixtureFile(t, filepath.Join(repository, "docs", "f0-acceptance-report.md"), "# Acceptance\n\n- Status: Accepted\n- Current maintenance spec: `.ai-platform/specs/012-security-maintenance-release/spec.md`\n- Current maintenance evidence: `.ai-platform/evidence/T049/`\n")
+	writeDocsFixtureFile(t, filepath.Join(repository, ".ai-platform", "evidence", "T049", "summary.md"), "# T049\n\n- Source digest: git-hash:0000000000000000000000000000000000000000\n")
+	writeDocsFixtureFile(t, filepath.Join(repository, "components", "postgres", "go.mod"), "module github.com/iiwish/modary/components/postgres\n\ngo 1.26.7\n\nrequire github.com/iiwish/modary "+testReleaseVersion+"\n")
+	writeDocsFixtureFile(t, filepath.Join(repository, "components", "governedpostgres", "go.mod"), "module github.com/iiwish/modary/components/governedpostgres\n\ngo 1.26.7\n\nrequire github.com/iiwish/modary "+testReleaseVersion+"\n")
+	writeDocsFixtureFile(t, filepath.Join(repository, "components", "oidc", "go.mod"), "module github.com/iiwish/modary/components/oidc\n\ngo 1.26.7\n\nrequire github.com/iiwish/modary "+testReleaseVersion+"\n")
+	writeDocsFixtureFile(t, filepath.Join(repository, "components", "otel", "go.mod"), "module github.com/iiwish/modary/components/otel\n\ngo 1.26.7\n\nrequire github.com/iiwish/modary "+testReleaseVersion+"\n")
 	runGitFixture(t, repository, "init", "--quiet")
 	refreshAcceptanceDigest(t, repository)
 	runGitFixture(t, repository, "config", "user.name", "Modary Test")
@@ -257,7 +257,7 @@ func refreshAcceptanceDigest(t *testing.T, repository string) {
 	if err != nil {
 		t.Fatalf("refresh acceptance digest: %v\n%s", err, output)
 	}
-	path := filepath.Join(repository, ".ai-platform", "evidence", "T047", "summary.md")
+	path := filepath.Join(repository, ".ai-platform", "evidence", "T049", "summary.md")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

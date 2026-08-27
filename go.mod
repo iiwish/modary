@@ -1,6 +1,6 @@
 module github.com/iiwish/modary
 
-go 1.26.5
+go 1.26.7
 
 require (
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415

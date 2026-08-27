@@ -2,14 +2,14 @@
 
 ## Requirements
 
-- Go 1.26.5 or newer.
+- Go 1.26.7 or newer.
 - PostgreSQL 17 for the Admin and Governed Profile integration paths.
 - pnpm 11 and a supported Node.js runtime only when changing Admin frontend
   source. The generated production Go binary does not need Node.js.
 
 ## Current Version State
 
-The current supported release is `v0.3.0-alpha.1`. The immutable
+The current supported release is `v0.3.0-alpha.2`. The immutable
 `v0.2.0-alpha.1` tag is the preceding React component-framework baseline.
 
 Pre-v1 consumers pin exact versions. Do not use `latest`, a branch, or a broad
@@ -33,7 +33,7 @@ published exact version before distributing the consumer.
 ## Use The Published v0.3 Starter
 
 ```bash
-go run github.com/iiwish/modary/cmd/modary@v0.3.0-alpha.1 \
+go run github.com/iiwish/modary/cmd/modary@v0.3.0-alpha.2 \
   new sample-api --profile api --module example.com/acme/sample-api
 ```
 

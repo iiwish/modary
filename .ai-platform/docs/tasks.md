@@ -1,17 +1,18 @@
 # Current Delivery State
 
-- Version: 11.0
+- Version: 12.0
 - Status: Confirmed
-- Last updated: 2026-08-10
-- Active implementation work graph: None
+- Last updated: 2026-08-27
+- Active implementation work graph: `.ai-platform/specs/012-security-maintenance-release/tasks.md`
 - Latest completed work graph: `.ai-platform/specs/010-production-foundation/tasks.md`
 - Proposed next contract: `.ai-platform/specs/011-design-partner-validation/spec.md`
 
 ## Current Gate
 
 The v0.3 Production Foundation work graph is closed. T042 through T048 are
-completed, `v0.3.0-alpha.1` is released, and remote verification is recorded in
-`.ai-platform/docs/release-report.md`.
+completed and `v0.3.0-alpha.1` remains immutable. The owner has authorized the
+narrow `v0.3.0-alpha.2` security maintenance release. T049 prepares the exact
+Go 1.26.7 candidate; T050 owns publication and remote verification.
 
 The Design Partner Validation specification is `Ready_For_User_Review`. It is
 not an active work graph and grants no planning or execution authority. No new
@@ -23,6 +24,8 @@ packets remain separate approval-gated artifacts.
 
 | Task | State | Acceptance object |
 |---|---|---|
+| T049 | Completed | Go 1.26.7 security baseline and Alpha 2 release candidate |
+| T050 | Pending | Coordinated Alpha 2 publication and remote verification |
 | T042 | Completed | Scope-independent principal and replaceable session contracts |
 | T043 | Completed | Production OIDC component and selected Admin flow |
 | T044 | Completed | Process health, readiness drain, build identity, and migration command |
@@ -54,46 +57,46 @@ Feature-scoped specifications, plans, work graphs, packets, and evidence under
 `.ai-platform/specs/010-production-foundation/` remain the canonical history for
 their accepted delivery slices.
 
-## T048: v0.3 Coordinated Release And Remote Verification
+## T049: Go Security Baseline And Release Candidate
 
 Status: Completed
 Priority: P0
-Dependencies: T047
-Blocks: None
-Story / Requirement: US-006, NFR-007, NFR-008, SC-006
+Dependencies: T048
+Blocks: T050
+Story / Requirement: feature 012 US-001 through US-003, FR-001 through FR-006, SC-001 through SC-003
 Parallel: No
-Conflicts with: tags, release identity, canonical reports, and main branch publication
+Conflicts with: all release source, version, documentation, and evidence changes
 
-Goal: publish the accepted Production Foundation source through one coordinated
-five-module immutable tag train and verify hosted and local remote consumption.
+Goal: prepare one clean `v0.3.0-alpha.2` candidate using Go 1.26.7 with zero
+reachable vulnerabilities and no runtime or product-scope expansion.
 
-Allowed files: release/version/docs/automation and T048 evidence; Git refs,
-GitHub Actions, and GitHub prerelease only after clean candidate approval gates.
+Allowed files: the bounded paths listed in the T049 execution packet.
 
-Test targets: clean worktree, canonical origin, five module versions and tags,
-hosted main and tag CI, normal Go proxy resolution, copied-out remote consumers,
-release metadata, and immutable tag objects.
+Test targets: release and Starter RED/GREEN assertions, all Go modules,
+copied-out Profiles, real PostgreSQL, vulnerability scans, docs, containers, and
+candidate release readiness under Go 1.26.7.
 
-Deliverables: candidate commit, annotated tags, hosted CI, remote verification,
-GitHub prerelease, final release report, and evidence.
+Deliverables: exact version and baseline changes, current canonical docs, clean
+candidate commit, T049 evidence, and no unresolved P0 through P2 finding.
 
-Acceptance criteria: all tags peel to one accepted commit; all five modules
-resolve at `v0.3.0-alpha.1` without replacement; GitHub prerelease and final
-record are published; no tag moves.
+Acceptance criteria: Go 1.26.7 and Alpha 2 are consistent across the complete
+candidate, all local release gates pass, and vulnerability scanning reports zero
+reachable findings.
 
-Definition of Done: release and remote gates pass, the final record commit is
-pushed, hosted CI passes, and the worktree is clean.
+Definition of Done: one committed clean candidate passes every T049 validation
+and is ready for T050 publication.
 
 Validation commands:
-- `make release-readiness VERSION=v0.3.0-alpha.1`
-- `make remote-consumer VERSION=v0.3.0-alpha.1`
-- `python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 010-production-foundation --task-id T048 --strict`
-- `git status --short`
+- `make acceptance GO=<go1.26.7>`
+- `make race GO=<go1.26.7>`
+- `make ci GO=<go1.26.7>`
+- `make release-readiness VERSION=v0.3.0-alpha.2 GO=<go1.26.7>`
+- strict T049 artifact validation and `git diff --check`
 
-TDD plan: release-fixture tests provide RED/GREEN behavior before live refs;
-publication follows immutable stop conditions and has no destructive retry.
+TDD plan: focused assertions reject the old baseline and Starter version before
+the complete source is updated; complete gates provide GREEN evidence.
 
-Packet path: `.ai-platform/specs/010-production-foundation/packets/T048.yaml`
+Packet path: `.ai-platform/specs/012-security-maintenance-release/packets/T049.yaml`
 
-Evidence required: `.ai-platform/evidence/T048/summary.md`, `diff.patch`,
-`test-results.md`, `review.md`, release notes, tag objects, CI, and release URLs.
+Evidence required: `.ai-platform/evidence/T049/summary.md`, `diff.patch`,
+`test-results.md`, and `review.md`.

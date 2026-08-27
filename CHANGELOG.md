@@ -6,7 +6,31 @@ its release notes explicitly state otherwise.
 
 ## Unreleased
 
-No changes are recorded after `v0.3.0-alpha.1`.
+No changes are recorded after `v0.3.0-alpha.2`.
+
+## v0.3.0-alpha.2 - 2026-08-27
+
+### Security
+
+- Raise the exact minimum Go toolchain from 1.26.5 to 1.26.7 across the root,
+  published components, workspace, integration fixtures, examples, generated
+  Profiles, and generated container builds.
+- Remove five reachable standard-library vulnerability findings reported against
+  the Go 1.26.5 baseline. The release gate scans the root and all four published
+  component modules with the pinned `govulncheck` tool.
+
+### Changed
+
+- Publish the root, PostgreSQL, Governed PostgreSQL, OIDC, and OpenTelemetry
+  modules as one coordinated `v0.3.0-alpha.2` release train.
+- Make newly generated projects pin Alpha 2 and require Go 1.26.7.
+
+### Compatibility
+
+- Framework APIs, migrations, Profiles, routes, and generated product behavior
+  are unchanged from `v0.3.0-alpha.1`.
+- Consumers upgrade all selected Modary modules together and build with Go
+  1.26.7 or newer. No application migration is required.
 
 ## v0.3.0-alpha.1 - 2026-08-04
 

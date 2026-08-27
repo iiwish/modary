@@ -21,7 +21,7 @@ One person may hold several roles, but owner publication approval is explicit.
 4. `origin` is the canonical repository.
 5. The candidate worktree is clean and all intended changes are committed.
 6. The proposed version is an unused semantic prerelease such as
-   `v0.3.0-alpha.1`.
+   `v0.3.0-alpha.2`.
 7. English and Chinese onboarding, examples, support matrix, security,
    limitations, and release notes describe the same candidate.
 8. Every copied-out Profile and the Admin frontend pipeline pass from the exact
@@ -34,7 +34,7 @@ One person may hold several roles, but owner publication approval is explicit.
 Set but do not create the intended tag:
 
 ```bash
-VERSION=v0.3.0-alpha.1
+VERSION=v0.3.0-alpha.2
 make bootstrap
 make acceptance
 make ci
@@ -43,7 +43,7 @@ make release-readiness VERSION="$VERSION"
 
 Candidate mode must state that no release is claimed. Record the commit ID,
 toolchain versions, PostgreSQL version, Profile results, frontend lockfile
-result, source-container result, and intended Alpha 1 tag identity.
+result, source-container result, and intended release tag identity.
 
 ## Review And Approval
 

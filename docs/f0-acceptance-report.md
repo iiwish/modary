@@ -1,14 +1,14 @@
 # Modary v0.3 F0 Acceptance Report
 
 - Status: Accepted
-- Distribution status: Released
-- Date: 2026-08-04
-- Target version: v0.3.0-alpha.1
-- Version tags: v0.3.0-alpha.1, components/postgres/v0.3.0-alpha.1, components/governedpostgres/v0.3.0-alpha.1, components/oidc/v0.3.0-alpha.1, components/otel/v0.3.0-alpha.1
-- Frozen baseline tag: v0.2.0-alpha.1
-- Current specification: `.ai-platform/specs/010-production-foundation/spec.md`
-- Current acceptance evidence: `.ai-platform/evidence/T047/`
-- Release evidence: `.ai-platform/evidence/T048/`
+- Distribution status: Prepared
+- Date: 2026-08-27
+- Target version: v0.3.0-alpha.2
+- Version tags: v0.3.0-alpha.2, components/postgres/v0.3.0-alpha.2, components/governedpostgres/v0.3.0-alpha.2, components/oidc/v0.3.0-alpha.2, components/otel/v0.3.0-alpha.2
+- Frozen baseline tag: v0.3.0-alpha.1
+- Current specification: `.ai-platform/specs/012-security-maintenance-release/spec.md`
+- Current acceptance evidence: `.ai-platform/evidence/T049/`
+- Release evidence: `.ai-platform/evidence/T050/`
 
 ## Accepted Boundary
 
@@ -38,6 +38,15 @@ Unselected heavy components are absent from fresh source and module graphs.
   providers and bounded HTTP/database/task telemetry without globals or secret
   and high-cardinality dimensions.
 
+## Security Maintenance
+
+- The exact Go baseline is 1.26.7 for source modules, generated Profiles, and
+  generated build images.
+- The pinned vulnerability gate reports zero reachable findings for the root and
+  four published component modules.
+- Framework APIs, migrations, Profiles, routes, and generated product behavior
+  remain within the accepted Production Foundation boundary.
+
 ## Verification
 
 T042 through T047 cover focused TDD, root and four nested modules, real
@@ -47,10 +56,11 @@ OCI execution, migration ordering, probes, active-request drain, dependency
 failure, race, repeat, fuzz, vet, vulnerability, cross-build, deterministic
 generation, docs, source stability, and four-pass review.
 
-The final review records no unresolved P0, P1, or P2 issue. T047 records a
-digest over the complete candidate outside its own evidence directory. T048
-records the immutable five-tag release, hosted CI, normal module resolution,
-and remote consumer result.
+The Production Foundation review records no unresolved P0, P1, or P2 issue.
+T049 records the Go 1.26.7 maintenance candidate, complete validation, and a
+digest over the candidate outside its own evidence directory. T050 records the
+immutable five-tag release, hosted CI, normal module resolution, and remote
+consumer result.
 
 ## Limits
 

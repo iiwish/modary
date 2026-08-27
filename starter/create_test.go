@@ -726,8 +726,14 @@ func assertGeneratedGoVersion(t *testing.T, destination string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(data, []byte("\ngo 1.26.5\n")) {
+	if !bytes.Contains(data, []byte("\ngo 1.26.7\n")) {
 		t.Fatalf("generated go.mod does not require the security-patched Go baseline:\n%s", data)
+	}
+}
+
+func TestDefaultModaryVersionTargetsAlpha2(t *testing.T) {
+	if starter.DefaultModaryVersion != "v0.3.0-alpha.2" {
+		t.Fatalf("DefaultModaryVersion = %q, want v0.3.0-alpha.2", starter.DefaultModaryVersion)
 	}
 }
 

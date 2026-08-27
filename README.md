@@ -45,16 +45,16 @@ Profiles are creation presets, not runtime modes. After creation the generated
 files belong to the application and the Module list remains the source of truth.
 The Starter never patches an existing project.
 
-## Install v0.3 Alpha 1
+## Install v0.3 Alpha 2
 
-`v0.3.0-alpha.1` is the current component-framework release.
+`v0.3.0-alpha.2` is the current component-framework release.
 `v0.2.0-alpha.1` remains the immutable React component-framework baseline.
 
-Go 1.26.5 or newer is required. Create a database-free API project directly
+Go 1.26.7 or newer is required. Create a database-free API project directly
 from the released Starter:
 
 ```bash
-go run github.com/iiwish/modary/cmd/modary@v0.3.0-alpha.1 \
+go run github.com/iiwish/modary/cmd/modary@v0.3.0-alpha.2 \
   new sample-api --profile api --module example.com/acme/sample-api
 cd sample-api
 go mod tidy

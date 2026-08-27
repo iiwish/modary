@@ -7,7 +7,7 @@ OIDC 是 Admin Profile 的显式创建选项。它会替换本地密码登录，
 ## 创建项目
 
 ```bash
-go run github.com/iiwish/modary/cmd/modary@v0.3.0-alpha.1 \
+go run github.com/iiwish/modary/cmd/modary@v0.3.0-alpha.2 \
   new operations-admin --profile admin --with oidc \
   --module example.com/acme/operations-admin
 cd operations-admin

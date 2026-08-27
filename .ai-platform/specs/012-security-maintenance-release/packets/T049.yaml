@@ -1,0 +1,63 @@
+schema_version: 1
+packet_id: EP-012-T049
+task_id: T049
+feature_id: 012-security-maintenance-release
+mode: execute_one_task
+title: Go Security Baseline And Release Candidate
+status: Completed
+adapter: direct
+goal: Prepare a clean v0.3.0-alpha.2 candidate using Go 1.26.7 with zero reachable vulnerabilities and no runtime scope expansion.
+requirements: [US-001, US-002, US-003, FR-001, FR-002, FR-003, FR-004, FR-005, FR-006, NFR-001, NFR-002, NFR-003, NFR-006, SC-001, SC-002, SC-003]
+depends_on: [T048]
+conflicts_with: [all release source, version, documentation, and evidence changes]
+governance_inputs:
+  constitution: .ai-platform/memory/constitution.md
+  spec: .ai-platform/specs/012-security-maintenance-release/spec.md
+  checklist: .ai-platform/specs/012-security-maintenance-release/checklists/requirements.md
+  plan: .ai-platform/specs/012-security-maintenance-release/plan.md
+  analysis: .ai-platform/specs/012-security-maintenance-release/analysis.md
+  work_graph: .ai-platform/specs/012-security-maintenance-release/tasks.md
+  approval: explicit owner request on 2026-08-27
+work_unit:
+  title: Go Security Baseline And Release Candidate
+  goal: Prepare the exact Alpha 2 candidate and prove its local security and compatibility gates.
+  requirements: [FR-001, FR-002, FR-003, FR-004, FR-005, FR-006, SC-001, SC-002, SC-003]
+  depends_on: [T048]
+codebase_context:
+  relevant_paths: [go.mod, go.work, components, integration, examples, starter, scripts, docs, release governance]
+  preserve: [public API, migrations, Profiles, selected-component absence, immutable historical tags, design-partner review gate]
+  forbidden: [runtime feature work, Rulary changes, Go 1.27 adoption, dependency churn without a failing gate, publication before candidate acceptance]
+execution_constraints:
+  allowed_files: [go.mod, go.sum, go.work, go.work.sum, components/**, integration/**, examples/**, starter/**, scripts/**, docs/**, README.md, SECURITY.md, CONTRIBUTING.md, CHANGELOG.md, .ai-platform/docs/**, .ai-platform/specs/011-design-partner-validation/spec.md, .ai-platform/specs/012-security-maintenance-release/**, .ai-platform/evidence/T049/**]
+  conflicts_with: [T050]
+  worktree: current main worktree after committed state closeout
+  delegation: direct execution because delegation was not requested
+allowed_files: [go.mod, go.sum, go.work, go.work.sum, components/**, integration/**, examples/**, starter/**, scripts/**, docs/**, README.md, SECURITY.md, CONTRIBUTING.md, CHANGELOG.md, .ai-platform/docs/**, .ai-platform/specs/011-design-partner-validation/spec.md, .ai-platform/specs/012-security-maintenance-release/**, .ai-platform/evidence/T049/**]
+tdd:
+  red: Change focused release and Starter assertions to require Go 1.26.7 and Alpha 2, then confirm the old source fails.
+  green: Update exact baselines, versions, current docs, and release automation until focused and complete gates pass.
+  refactor: Keep all changes mechanical and remove stale current-version claims without rewriting historical evidence.
+tdd_plan:
+  red: Focused tests reject Go 1.26.5 and the Alpha 1 Starter default.
+  green: Candidate uses Go 1.26.7 and Alpha 2 consistently and scans cleanly.
+  refactor: Review the full Alpha 1 to Alpha 2 diff for accidental behavior change.
+validation_commands: [focused RED and GREEN tests, make acceptance with Go 1.26.7, make race with Go 1.26.7, make ci with Go 1.26.7, make release-readiness VERSION=v0.3.0-alpha.2 with Go 1.26.7, strict T049 artifact validation, git diff --check]
+validation_loop:
+  commands: [focused tests, tidy and docs, vulnerability scan, complete acceptance, race, CI, candidate release-readiness, strict artifacts, diff review]
+  retry_budget: 3 per failing gate before scope reassessment
+evidence:
+  summary: .ai-platform/evidence/T049/summary.md
+  diff: .ai-platform/evidence/T049/diff.patch
+  tests: .ai-platform/evidence/T049/test-results.md
+  review: .ai-platform/evidence/T049/review.md
+evidence_contract:
+  summary: .ai-platform/evidence/T049/summary.md
+  diff: .ai-platform/evidence/T049/diff.patch
+  test_results: .ai-platform/evidence/T049/test-results.md
+  review: .ai-platform/evidence/T049/review.md
+review_contract:
+  sequence: [spec compliance, compatibility, security, release readiness]
+  acceptance: no unresolved P0 through P2 finding
+handoff:
+  next_task: T050
+stop_conditions: [Go 1.26.7 still has a reachable vulnerability, runtime behavior changes, required infrastructure remains unavailable, unresolved P0-P2 finding]

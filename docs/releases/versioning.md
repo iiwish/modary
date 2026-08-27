@@ -16,7 +16,8 @@ commit with a root tag and matching subdirectory tags for all four components.
 |---|---|---|
 | `v0.1.0-alpha.3` | Published and immutable | Historical Governed-first PostgreSQL/River release |
 | `v0.2.0-alpha.1` | Published and immutable | React component framework baseline |
-| `v0.3.0-alpha.1` | Current release | Production identity, process, deployment, and observability foundation |
+| `v0.3.0-alpha.1` | Published and immutable | Production identity, process, deployment, and observability foundation |
+| `v0.3.0-alpha.2` | Current release | Go 1.26.7 security maintenance release; framework behavior unchanged |
 
 A prerelease is suitable for evaluation and design-partner development, but
 public APIs, generated structure, and component boundaries may change before

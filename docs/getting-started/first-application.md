@@ -36,7 +36,7 @@ published Modary version:
 
 ```bash
 go mod edit -dropreplace github.com/iiwish/modary
-go get github.com/iiwish/modary@v0.3.0-alpha.1
+go get github.com/iiwish/modary@v0.3.0-alpha.2
 go mod tidy
 ```
 

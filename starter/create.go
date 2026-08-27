@@ -20,7 +20,7 @@ import (
 const (
 	// DefaultModaryVersion is written by the current Starter when a caller does
 	// not select another exact framework version.
-	DefaultModaryVersion = "v0.3.0-alpha.1"
+	DefaultModaryVersion = "v0.3.0-alpha.2"
 )
 
 var (

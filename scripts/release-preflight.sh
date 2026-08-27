@@ -57,8 +57,8 @@ go_version=$(awk '$1 == "go" { count++; version=$2 } END { if (count != 1) exit 
 	printf '%s\n' 'release go.mod must contain exactly one Go version directive' >&2
 	exit 1
 }
-if test "$go_version" != 1.26.5; then
-	printf 'release Go baseline is %s, want security-patched 1.26.5\n' "$go_version" >&2
+if test "$go_version" != 1.26.7; then
+	printf 'release Go baseline is %s, want security-patched 1.26.7\n' "$go_version" >&2
 	exit 1
 fi
 
@@ -146,9 +146,9 @@ if test ! -f docs/f0-acceptance-report.md ||
 	printf '%s\n' 'release requires accepted F0 technical evidence' >&2
 	exit 1
 fi
-if ! grep -q -F '.ai-platform/specs/010-production-foundation/spec.md' docs/f0-acceptance-report.md ||
-	! grep -q -F '.ai-platform/evidence/T047/' docs/f0-acceptance-report.md; then
-	printf '%s\n' 'release acceptance report does not cover the current production foundation' >&2
+if ! grep -q -F '.ai-platform/specs/012-security-maintenance-release/spec.md' docs/f0-acceptance-report.md ||
+	! grep -q -F '.ai-platform/evidence/T049/' docs/f0-acceptance-report.md; then
+	printf '%s\n' 'release acceptance report does not cover the current security maintenance candidate' >&2
 	exit 1
 fi
 

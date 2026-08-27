@@ -4,7 +4,7 @@
 - Status: Ready_For_User_Review
 - Date: 2026-08-10
 - Source: owner request to close the current Modary delivery state and prepare the next milestone for review
-- Prerequisite: `v0.3.0-alpha.1` is released and remote verified
+- Prerequisite: `v0.3.0-alpha.2` is released and remote verified
 - Execution authorization: Not granted
 
 ## Purpose
@@ -113,7 +113,7 @@ focused v0.3 hardening release or a separately approved v0.4 contract.
 
 ## Constraints And Assumptions
 
-- `v0.3.0-alpha.1` is the immutable baseline for the first acceptance pass.
+- `v0.3.0-alpha.2` is the immutable baseline for the first acceptance pass.
 - The design-partner repository controls its own branch, data, deployment,
   reviewers, and acceptance decision.
 - Modary may be imported by the consumer; Modary never imports the consumer.
@@ -163,15 +163,15 @@ focused v0.3 hardening release or a separately approved v0.4 contract.
   design-partner implementation, task graph, framework change, or release.
 - The current F0 known limitations remain contract boundaries rather than an
   automatic feature backlog.
-- Rulary is a suitable candidate described by the existing adoption guide, but
-  the owner may select another independent application before planning.
+- The owner selects one independent application before planning; the framework
+  specification does not define that consumer's product behavior.
 
 ## Planning Inputs For Owner Review
 
 - Confirm the independent design-partner repository and its maintainer.
 - Confirm the product workflow used for the vertical slice.
 - Confirm the timebox and whether cross-repository edits are authorized.
-- Confirm whether Rulary is the first design partner.
+- Confirm the first design-partner application.
 
 ## User Review Gate
 

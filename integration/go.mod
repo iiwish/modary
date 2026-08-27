@@ -1,11 +1,11 @@
 module github.com/iiwish/modary/integration
 
-go 1.26.5
+go 1.26.7
 
 require (
-	github.com/iiwish/modary v0.3.0-alpha.1
-	github.com/iiwish/modary/components/governedpostgres v0.3.0-alpha.1
-	github.com/iiwish/modary/components/postgres v0.3.0-alpha.1
+	github.com/iiwish/modary v0.3.0-alpha.2
+	github.com/iiwish/modary/components/governedpostgres v0.3.0-alpha.2
+	github.com/iiwish/modary/components/postgres v0.3.0-alpha.2
 	github.com/jackc/pgx/v5 v5.10.0
 )
 

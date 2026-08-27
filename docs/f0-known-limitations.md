@@ -114,7 +114,7 @@ These boundaries are part of the contract rather than an informal backlog.
 
 ## Distribution
 
-31. `v0.3.0-alpha.1` remains a pre-v1 Alpha contract. Pin the root and selected
+31. `v0.3.0-alpha.2` remains a pre-v1 Alpha contract. Pin the root and selected
     component modules exactly. Generated source is consumer-owned and has no
     automatic patch or upgrade command. The immutable baseline is
     `v0.2.0-alpha.1`.

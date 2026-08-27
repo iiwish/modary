@@ -7,7 +7,7 @@ Modules, authorization, product scope, or the React work surface.
 ## Create
 
 ```bash
-go run github.com/iiwish/modary/cmd/modary@v0.3.0-alpha.1 \
+go run github.com/iiwish/modary/cmd/modary@v0.3.0-alpha.2 \
   new operations-admin --profile admin --with oidc \
   --module example.com/acme/operations-admin
 cd operations-admin

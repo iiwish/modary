@@ -156,6 +156,13 @@ docs/zh-CN/operations/observability.md
 .ai-platform/specs/010-production-foundation/packets/T047.yaml
 .ai-platform/specs/010-production-foundation/packets/T048.yaml
 .ai-platform/specs/011-design-partner-validation/spec.md
+.ai-platform/specs/012-security-maintenance-release/spec.md
+.ai-platform/specs/012-security-maintenance-release/plan.md
+.ai-platform/specs/012-security-maintenance-release/analysis.md
+.ai-platform/specs/012-security-maintenance-release/tasks.md
+.ai-platform/specs/012-security-maintenance-release/checklists/requirements.md
+.ai-platform/specs/012-security-maintenance-release/packets/T049.yaml
+.ai-platform/specs/012-security-maintenance-release/packets/T050.yaml
 .ai-platform/evidence/T024/summary.md
 .ai-platform/evidence/T024/diff.patch
 .ai-platform/evidence/T024/test-results.md
@@ -256,7 +263,11 @@ docs/zh-CN/operations/observability.md
 .ai-platform/evidence/T047/summary.md
 .ai-platform/evidence/T047/diff.patch
 .ai-platform/evidence/T047/test-results.md
-.ai-platform/evidence/T047/review.md'
+.ai-platform/evidence/T047/review.md
+.ai-platform/evidence/T049/summary.md
+.ai-platform/evidence/T049/diff.patch
+.ai-platform/evidence/T049/test-results.md
+.ai-platform/evidence/T049/review.md'
 
 for file in $required; do
 	require_file "$file"
@@ -597,28 +608,28 @@ done
 
 require_line docs/f0-acceptance-report.md '- Status: Accepted'
 require_match docs/f0-acceptance-report.md '^- Distribution status: (Prepared|Released)$'
-require_line docs/f0-acceptance-report.md '- Target version: v0.3.0-alpha.1'
-require_line docs/f0-acceptance-report.md '- Version tags: v0.3.0-alpha.1, components/postgres/v0.3.0-alpha.1, components/governedpostgres/v0.3.0-alpha.1, components/oidc/v0.3.0-alpha.1, components/otel/v0.3.0-alpha.1'
-require_line docs/f0-acceptance-report.md '- Frozen baseline tag: v0.2.0-alpha.1'
-require_line .ai-platform/docs/release-report.md '- Report version: 4.0'
+require_line docs/f0-acceptance-report.md '- Target version: v0.3.0-alpha.2'
+require_line docs/f0-acceptance-report.md '- Version tags: v0.3.0-alpha.2, components/postgres/v0.3.0-alpha.2, components/governedpostgres/v0.3.0-alpha.2, components/oidc/v0.3.0-alpha.2, components/otel/v0.3.0-alpha.2'
+require_line docs/f0-acceptance-report.md '- Frozen baseline tag: v0.3.0-alpha.1'
+require_line .ai-platform/docs/release-report.md '- Report version: 5.0'
 require_match .ai-platform/docs/release-report.md '^- Status: (Candidate_accepted|Remote_verified)$'
 require_line .ai-platform/docs/release-report.md '- Technical F0 acceptance: Accepted'
 require_line .ai-platform/docs/release-report.md '- Engineering readiness: Accepted'
 require_match .ai-platform/docs/release-report.md '^- Distribution status: (Prepared|Released)$'
-require_line .ai-platform/docs/release-report.md '- Version tags: v0.3.0-alpha.1, components/postgres/v0.3.0-alpha.1, components/governedpostgres/v0.3.0-alpha.1, components/oidc/v0.3.0-alpha.1, components/otel/v0.3.0-alpha.1'
+require_line .ai-platform/docs/release-report.md '- Version tags: v0.3.0-alpha.2, components/postgres/v0.3.0-alpha.2, components/governedpostgres/v0.3.0-alpha.2, components/oidc/v0.3.0-alpha.2, components/otel/v0.3.0-alpha.2'
 require_match .ai-platform/docs/release-report.md '^- Remote consumer verification: (Pending|Passed)$'
 require_line .ai-platform/docs/release-report.md '- Owner-selected redistribution license: Apache-2.0'
-require_line .ai-platform/docs/release-report.md '- Target version: v0.3.0-alpha.1'
+require_line .ai-platform/docs/release-report.md '- Target version: v0.3.0-alpha.2'
 
 require_literal LICENSE 'Apache License'
 require_literal NOTICE 'Modary'
-require_literal README.md '`v0.3.0-alpha.1` is the current component-framework release.'
+require_literal README.md '`v0.3.0-alpha.2` is the current component-framework release.'
 require_literal README.md 'This path is optional. Ordinary Admin CRUD does not need Preview or River.'
 require_literal docs/framework-f0.md 'Core defines composition and lifecycle. Components add capabilities.'
 require_literal docs/framework-f0.md 'This path is optional. Ordinary Admin CRUD does not need Preview or River.'
 require_literal docs/f0-known-limitations.md 'The optional Admin Audit log is a bounded, scope-bound metadata view.'
-require_literal docs/f0-acceptance-report.md '.ai-platform/specs/010-production-foundation/spec.md'
-require_literal docs/f0-acceptance-report.md '.ai-platform/evidence/T047/'
+require_literal docs/f0-acceptance-report.md '.ai-platform/specs/012-security-maintenance-release/spec.md'
+require_literal docs/f0-acceptance-report.md '.ai-platform/evidence/T049/'
 require_literal docs/concepts/persistence-and-tasks.md 'at least once'
 require_literal docs/concepts/persistence-and-tasks.md 'idempotent'
 require_literal docs/how-to/run-background-tasks.md 'RetryDelays'
@@ -626,16 +637,41 @@ require_literal docs/how-to/run-background-tasks.md 'StateQueued'
 require_literal docs/operations/security.md 'Handler error text'
 require_literal docs/reference/packages.md 'Governed uses `governedpostgres`'
 require_literal docs/reference/support-matrix.md '| PostgreSQL | 17 used by integration acceptance |'
-require_literal docs/reference/support-matrix.md '| Go | 1.26.5 or newer |'
+require_literal docs/reference/support-matrix.md '| Go | 1.26.7 or newer |'
 require_literal docs/zh-CN/concepts/persistence-and-tasks.md 'at least once'
 require_literal docs/zh-CN/how-to/run-background-tasks.md 'RetryDelays'
 require_literal docs/guides/rulary-bootstrap.md 'Rulary is a separate product repository.'
 require_literal .ai-platform/memory/constitution.md 'The empty Core has no database'
 require_literal .ai-platform/docs/product-design.md 'Start with a small Go application. Add only the components the product needs.'
-require_literal .ai-platform/docs/product-design.md '`v0.3.0-alpha.1` is the current Production Foundation release.'
-require_literal .ai-platform/docs/tasks.md '- Active implementation work graph: None'
+require_literal .ai-platform/docs/product-design.md '`v0.3.0-alpha.2` is the current Production Foundation security maintenance release.'
+require_literal .ai-platform/docs/tasks.md '- Active implementation work graph: `.ai-platform/specs/012-security-maintenance-release/tasks.md`'
 require_line .ai-platform/specs/011-design-partner-validation/spec.md '- Status: Ready_For_User_Review'
 require_line .ai-platform/specs/011-design-partner-validation/spec.md '- Execution authorization: Not granted'
+require_line .ai-platform/specs/012-security-maintenance-release/spec.md '- Status: Confirmed'
+require_line .ai-platform/specs/012-security-maintenance-release/spec.md '- Execution authorization: Granted'
+maintenance_status=$(awk '
+	index($0, "## T049:") == 1 { active=1; next }
+	/^## / { active=0 }
+	active && /^Status: / { print substr($0, 9); exit }
+' .ai-platform/specs/012-security-maintenance-release/tasks.md)
+case "$maintenance_status" in
+	In_Progress)
+		require_literal .ai-platform/docs/tasks.md '| T049 | In Progress |'
+		require_line .ai-platform/evidence/T049/summary.md '- Status: In_Progress'
+		require_line .ai-platform/evidence/T049/test-results.md '- Result: In_Progress'
+		require_line .ai-platform/evidence/T049/review.md '- Verdict: Pending'
+		;;
+	Completed)
+		require_literal .ai-platform/docs/tasks.md '| T049 | Completed |'
+		require_line .ai-platform/evidence/T049/summary.md '- Status: Completed'
+		require_line .ai-platform/evidence/T049/test-results.md '- Result: Passed'
+		require_line .ai-platform/evidence/T049/review.md '- Verdict: Pass'
+		for severity in P0 P1 P2; do
+			require_line .ai-platform/evidence/T049/review.md "- $severity: 0"
+		done
+		;;
+	*) fail "T049 has an invalid maintenance state: $maintenance_status" ;;
+esac
 
 legacy_paths='README.md SECURITY.md docs .ai-platform/docs .ai-platform/memory examples/counter'
 if legacy=$(rg -n -i 'use (the )?sqlite|sqlite adapter is (supported|available)|modernc|databasepath|sqlitetest' $legacy_paths \

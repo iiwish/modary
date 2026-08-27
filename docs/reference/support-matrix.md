@@ -7,7 +7,7 @@ support.
 
 | Surface | Status |
 |---|---|
-| Go | 1.26.5 or newer |
+| Go | 1.26.7 or newer |
 | Linux amd64/arm64 | Runtime and cross-build covered |
 | Darwin arm64 | Native acceptance; amd64 cross-build covered |
 | Windows amd64/arm64 | Compile-only for F0 project-tool filesystem/token-path policy |

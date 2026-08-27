@@ -1,9 +1,9 @@
 module github.com/iiwish/modary/components/otel
 
-go 1.26.5
+go 1.26.7
 
 require (
-	github.com/iiwish/modary v0.3.0-alpha.1
+	github.com/iiwish/modary v0.3.0-alpha.2
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.44.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.44.0

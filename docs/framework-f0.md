@@ -1,7 +1,7 @@
 # Modary v0.3 F0 Framework Contract
 
 - Product: lightweight, componentized Go backend framework
-- Source target: `v0.3.0-alpha.1`
+- Source target: `v0.3.0-alpha.2`
 - Distribution status: released
 - Frozen published baseline: `v0.2.0-alpha.1`
 - License: Apache-2.0
@@ -337,7 +337,7 @@ The detailed current result is in
 
 ## 11. Release Boundary
 
-`v0.3.0-alpha.1` is the current component-framework release.
+`v0.3.0-alpha.2` is the current component-framework release.
 `v0.2.0-alpha.1` remains the immutable React component-framework baseline.
 Consumers pin the complete v0.3 five-module release train and review the documented
 breaking migration before adoption. No acceptance document moves or rewrites

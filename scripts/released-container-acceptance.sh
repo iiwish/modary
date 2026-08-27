@@ -130,6 +130,13 @@ wait_ready() {
 	curl -fsS "$url/livez" >/dev/null
 }
 
+container_url() {
+	container=$1
+	port=$(docker port "$container" 8080/tcp | awk -F: 'NR == 1 { print $NF }')
+	test -n "$port"
+	printf 'http://127.0.0.1:%s\n' "$port"
+}
+
 stop_cleanly() {
 	container=$1
 	docker stop --signal TERM --time 15 "$container" >/dev/null
@@ -159,8 +166,9 @@ api_container=modary-release-api-$suffix
 containers="$containers $api_container"
 docker run -d --name "$api_container" --read-only --tmpfs /tmp --cap-drop ALL \
 	--security-opt no-new-privileges --add-host host.docker.internal:host-gateway \
-	-p 18081:8080 -e MODARY_HTTP_ADDR=0.0.0.0:8080 "$api_image" >/dev/null
-wait_ready http://127.0.0.1:18081 "$api_container"
+	-p 127.0.0.1::8080 -e MODARY_HTTP_ADDR=0.0.0.0:8080 "$api_image" >/dev/null
+api_url=$(container_url "$api_container")
+wait_ready "$api_url" "$api_container"
 stop_cleanly "$api_container"
 assert_runtime_contents "$api_container"
 containers="$containers modary-release-node-$suffix"
@@ -189,11 +197,12 @@ docker run --name "$admin_migrate" --read-only --tmpfs /tmp --cap-drop ALL --sec
 admin_container=modary-release-admin-$suffix
 containers="$containers $admin_container"
 docker run -d --name "$admin_container" --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges \
-	--add-host host.docker.internal:host-gateway -p 18082:8080 -e DATABASE_URL -e MODARY_DATABASE_SCHEMA \
+	--add-host host.docker.internal:host-gateway -p 127.0.0.1::8080 -e DATABASE_URL -e MODARY_DATABASE_SCHEMA \
 	-e MODARY_ADMIN_USERNAME -e MODARY_ADMIN_PASSWORD -e MODARY_ALLOW_INSECURE_COOKIE \
 	-e MODARY_HTTP_ADDR=0.0.0.0:8080 "$admin_image" >/dev/null
-wait_ready http://127.0.0.1:18082 "$admin_container"
-curl -fsS http://127.0.0.1:18082/ | grep -Fq '<div id="root"></div>'
+admin_url=$(container_url "$admin_container")
+wait_ready "$admin_url" "$admin_container"
+curl -fsS "$admin_url/" | grep -Fq '<div id="root"></div>'
 stop_cleanly "$admin_container"
 assert_runtime_contents "$admin_container"
 
@@ -219,10 +228,11 @@ docker run --name "$governed_migrate" --read-only --tmpfs /tmp --cap-drop ALL --
 governed_container=modary-release-governed-$suffix
 containers="$containers $governed_container"
 docker run -d --name "$governed_container" --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges \
-	--add-host host.docker.internal:host-gateway -p 18083:8080 -e DATABASE_URL -e MODARY_APPLICATION_SCHEMA -e MODARY_QUEUE_SCHEMA \
+	--add-host host.docker.internal:host-gateway -p 127.0.0.1::8080 -e DATABASE_URL -e MODARY_APPLICATION_SCHEMA -e MODARY_QUEUE_SCHEMA \
 	-e MODARY_OPERATOR_USERNAME -e MODARY_OPERATOR_PASSWORD -e MODARY_OPERATOR_TOKEN \
 	-e MODARY_HTTP_ADDR=0.0.0.0:8080 "$governed_image" >/dev/null
-wait_ready http://127.0.0.1:18083 "$governed_container"
+governed_url=$(container_url "$governed_container")
+wait_ready "$governed_url" "$governed_container"
 stop_cleanly "$governed_container"
 assert_runtime_contents "$governed_container"
 
