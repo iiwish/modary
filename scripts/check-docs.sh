@@ -53,6 +53,7 @@ require_match() {
 }
 
 required='README.md
+README.zh-CN.md
 LICENSE
 NOTICE
 SECURITY.md

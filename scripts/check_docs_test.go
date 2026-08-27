@@ -11,7 +11,7 @@ import (
 )
 
 var currentDocsFiles = []string{
-	"README.md", "LICENSE", "NOTICE", "SECURITY.md",
+	"README.md", "README.zh-CN.md", "LICENSE", "NOTICE", "SECURITY.md",
 	"docs/index.md", "docs/framework-f0.md", "docs/f0-known-limitations.md", "docs/f0-acceptance-report.md",
 	"docs/adr/ADR-001-explicit-composition-and-capability-lifecycle.md",
 	"docs/adr/ADR-002-governed-action-transaction.md",

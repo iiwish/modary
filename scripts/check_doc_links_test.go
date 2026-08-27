@@ -10,6 +10,7 @@ import (
 
 var requiredUserDocs = []string{
 	"README.md",
+	"README.zh-CN.md",
 	"CHANGELOG.md",
 	"CONTRIBUTING.md",
 	"SECURITY.md",
@@ -83,6 +84,19 @@ func TestCheckDocLinksRejectsMissingLanguageNavigation(t *testing.T) {
 	}
 }
 
+func TestCheckDocLinksRejectsMissingReadmeLanguageNavigation(t *testing.T) {
+	repository := newUserDocsFixture(t)
+	replaceDocsFixture(t,
+		filepath.Join(repository, "README.zh-CN.md"),
+		"[English](README.md)",
+		"English README",
+	)
+	output, err := runDocLinksCheck(t, repository)
+	if err == nil || !strings.Contains(output, "required language navigation") {
+		t.Fatalf("missing README language navigation check = %v, output=%q", err, output)
+	}
+}
+
 func TestCheckDocLinksRejectsBrokenLocalLink(t *testing.T) {
 	repository := newUserDocsFixture(t)
 	appendDocsFixture(t, filepath.Join(repository, "docs", "index.md"), "\n[Missing](operations/missing.md)\n")
@@ -119,9 +133,11 @@ func newUserDocsFixture(t *testing.T) string {
 	}
 	appendDocsFixture(t, filepath.Join(repository, "README.md"), "\n[Documentation](docs/index.md)\n")
 	appendDocsFixture(t, filepath.Join(repository, "README.md"), "\n[中文](docs/zh-CN/index.md)\n")
+	appendDocsFixture(t, filepath.Join(repository, "README.md"), "\n[中文 README](README.zh-CN.md)\n")
+	appendDocsFixture(t, filepath.Join(repository, "README.zh-CN.md"), "\n[English](README.md)\n")
 	var navigation strings.Builder
 	for _, relative := range requiredUserDocs {
-		if relative == "docs/index.md" || relative == "README.md" {
+		if relative == "docs/index.md" || relative == "README.md" || relative == "README.zh-CN.md" {
 			continue
 		}
 		target := relative

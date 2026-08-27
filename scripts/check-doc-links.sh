@@ -25,6 +25,7 @@ fail() {
 }
 
 required='README.md
+README.zh-CN.md
 CHANGELOG.md
 CONTRIBUTING.md
 SECURITY.md
@@ -70,6 +71,8 @@ require_navigation() {
 }
 
 require_navigation README.md docs/zh-CN/index.md
+require_navigation README.md README.zh-CN.md
+require_navigation README.zh-CN.md README.md
 require_navigation docs/index.md zh-CN/index.md
 require_navigation docs/zh-CN/index.md ../index.md
 require_navigation docs/getting-started/quickstart.md ../zh-CN/getting-started/quickstart.md
@@ -77,7 +80,7 @@ require_navigation docs/zh-CN/getting-started/quickstart.md ../../getting-starte
 require_navigation docs/getting-started/first-application.md ../zh-CN/getting-started/first-application.md
 require_navigation docs/zh-CN/getting-started/first-application.md ../../getting-started/first-application.md
 
-markdown_files="README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md"
+markdown_files="README.md README.zh-CN.md CHANGELOG.md CONTRIBUTING.md SECURITY.md"
 if docs_files=$(find docs -type f -name '*.md' -print | sort); then
 	markdown_files="$markdown_files $docs_files"
 else
