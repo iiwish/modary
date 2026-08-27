@@ -66,6 +66,8 @@ five-module framework train without expanding the product or runtime contract.
 - Go 1.26.7 baseline and generated Docker build baseline.
 - Coordinated root and four component module version references.
 - Tests, release automation, current docs, changelog, and release evidence.
+- Test-only synchronization fixes required for deterministic hosted release
+  validation; framework runtime behavior remains unchanged.
 - Candidate commit, five annotated tags, GitHub prerelease, hosted CI, remote
   module consumption, and released container acceptance.
 

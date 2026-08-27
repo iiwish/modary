@@ -24,9 +24,9 @@ Goal: prepare one clean Alpha 2 candidate using Go 1.26.7 with no runtime or
 product-scope expansion and zero reachable vulnerability findings.
 
 Allowed files: Go/workspace/module files; Starter templates and focused tests;
-release scripts and tests; current English/Chinese documentation; changelog;
-canonical release and task state; feature 011 version baseline; feature 012
-artifacts; T049 evidence.
+`appcmd/serve_test.go` for hosted lifecycle synchronization; release scripts and
+tests; current English/Chinese documentation; changelog; canonical release and
+task state; feature 011 version baseline; feature 012 artifacts; T049 evidence.
 
 Test targets: release and Starter RED/GREEN assertions; all Go modules;
 copied-out Profiles; real PostgreSQL; vulnerability scans; docs; Provider and

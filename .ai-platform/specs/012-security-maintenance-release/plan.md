@@ -17,6 +17,9 @@
    from one clean commit.
 4. Treat the existing Design Partner Validation specification as review-only;
    Alpha 2 changes its future validation baseline but does not start that work.
+5. If hosted candidate validation exposes a test-only synchronization defect,
+   return to T049, fix the test without changing runtime behavior, and repeat
+   candidate acceptance before any tag is created.
 
 ## Implementation
 

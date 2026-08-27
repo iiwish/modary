@@ -24,15 +24,15 @@ work_unit:
   requirements: [FR-001, FR-002, FR-003, FR-004, FR-005, FR-006, SC-001, SC-002, SC-003]
   depends_on: [T048]
 codebase_context:
-  relevant_paths: [go.mod, go.work, components, integration, examples, starter, scripts, docs, release governance]
+  relevant_paths: [go.mod, go.work, components, integration, examples, starter, appcmd/serve_test.go, scripts, docs, release governance]
   preserve: [public API, migrations, Profiles, selected-component absence, immutable historical tags, design-partner review gate]
   forbidden: [runtime feature work, Rulary changes, Go 1.27 adoption, dependency churn without a failing gate, publication before candidate acceptance]
 execution_constraints:
-  allowed_files: [go.mod, go.sum, go.work, go.work.sum, components/**, integration/**, examples/**, starter/**, scripts/**, docs/**, README.md, SECURITY.md, CONTRIBUTING.md, CHANGELOG.md, .ai-platform/docs/**, .ai-platform/specs/011-design-partner-validation/spec.md, .ai-platform/specs/012-security-maintenance-release/**, .ai-platform/evidence/T049/**]
+  allowed_files: [go.mod, go.sum, go.work, go.work.sum, components/**, integration/**, examples/**, starter/**, appcmd/serve_test.go, scripts/**, docs/**, README.md, SECURITY.md, CONTRIBUTING.md, CHANGELOG.md, .ai-platform/docs/**, .ai-platform/specs/011-design-partner-validation/spec.md, .ai-platform/specs/012-security-maintenance-release/**, .ai-platform/evidence/T049/**]
   conflicts_with: [T050]
   worktree: current main worktree after committed state closeout
   delegation: direct execution because delegation was not requested
-allowed_files: [go.mod, go.sum, go.work, go.work.sum, components/**, integration/**, examples/**, starter/**, scripts/**, docs/**, README.md, SECURITY.md, CONTRIBUTING.md, CHANGELOG.md, .ai-platform/docs/**, .ai-platform/specs/011-design-partner-validation/spec.md, .ai-platform/specs/012-security-maintenance-release/**, .ai-platform/evidence/T049/**]
+allowed_files: [go.mod, go.sum, go.work, go.work.sum, components/**, integration/**, examples/**, starter/**, appcmd/serve_test.go, scripts/**, docs/**, README.md, SECURITY.md, CONTRIBUTING.md, CHANGELOG.md, .ai-platform/docs/**, .ai-platform/specs/011-design-partner-validation/spec.md, .ai-platform/specs/012-security-maintenance-release/**, .ai-platform/evidence/T049/**]
 tdd:
   red: Change focused release and Starter assertions to require Go 1.26.7 and Alpha 2, then confirm the old source fails.
   green: Update exact baselines, versions, current docs, and release automation until focused and complete gates pass.

@@ -11,6 +11,10 @@ only intended compatibility change is the exact minimum Go patch from 1.26.5 to
 1.26.7. No framework API, runtime behavior, migration, component selection, or
 consumer product surface enters scope.
 
+Hosted candidate validation may require a bounded test-only synchronization
+fix. Such a fix remains in T049 and must trigger a new candidate commit and
+repeat validation; it does not authorize runtime behavior changes.
+
 T049 owns all candidate source and verification. T050 depends on its clean
 accepted commit and owns immutable tags, hosted verification, remote
 consumption, GitHub prerelease publication, and final evidence. The two tasks

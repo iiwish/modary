@@ -25,6 +25,16 @@
   probes, graceful shutdown, and runtime-content inspection.
 - `go test ./scripts`, `go test ./starter`, `./scripts/check-docs.sh`, strict
   T049 artifact validation, and `git diff --check`: passed.
+- Hosted candidate CI run `33039491126`: three jobs passed; the quality job
+  failed when `TestServeEmitsStructuredHTTPLifecycle` canceled immediately
+  after listener creation but before `Serve` crossed its documented startup
+  boundary. No tag had been created, so publication remained stopped.
+- Lifecycle synchronization fix: `go test ./appcmd
+  -run '^TestServeEmitsStructuredHTTPLifecycle$' -count=1000
+  -shuffle=1787805376018570912` and the same focused test with `-race -count=50
+  -shuffle=on`: passed.
+- Post-fix `make repeat`: passed across the full repeated package, Starter,
+  PostgreSQL, Governed, integration, and copied-consumer matrix.
 
 The first container-acceptance attempt exposed a host port collision with an
 unrelated local service. Dynamic loopback port allocation removed the shared

@@ -44,12 +44,23 @@ func TestServeEmitsStructuredHTTPLifecycle(t *testing.T) {
 	options.Process = manager
 	options.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
 	go func() { result <- Serve(ctx, newLifecycleFixture().definition(), options) }()
+	var listenAddress string
 	select {
-	case <-address:
+	case listenAddress = <-address:
 	case err := <-result:
 		t.Fatalf("Serve() stopped before listening: %v", err)
 	case <-time.After(3 * time.Second):
 		t.Fatal("Serve() did not listen")
+	}
+	response, err := (&http.Client{Timeout: 3 * time.Second}).Get("http://" + listenAddress)
+	if err != nil {
+		cancel()
+		t.Fatalf("GET lifecycle server: %v", err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusNotFound {
+		cancel()
+		t.Fatalf("GET lifecycle server status = %d, want %d", response.StatusCode, http.StatusNotFound)
 	}
 	cancel()
 	if err := waitForError(t, result, "Serve"); err != nil {

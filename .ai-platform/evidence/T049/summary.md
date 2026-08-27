@@ -4,7 +4,7 @@
 - Date: 2026-08-27
 - Target: `v0.3.0-alpha.2`
 - Toolchain: Go 1.26.7 darwin/arm64
-- Source digest: git-hash:35d82a643477769eaa2788a1fea838aef8d62126
+- Source digest: git-hash:fb12552d887f174c0839df626445102115c85e2c
 - Execution: Direct, because delegation was not requested
 
 ## Scope
@@ -26,6 +26,10 @@ the complete candidate without changing framework behavior.
 - The container acceptance harness uses dynamically allocated loopback ports so
   it remains isolated from unrelated services already running on a developer
   host.
+- The first hosted candidate run exposed a lifecycle-test cancellation race.
+  The test now proves the HTTP server is serving before cancellation; 1,000
+  focused iterations and 50 race-enabled iterations pass without changing
+  runtime code.
 - Documentation, source digest, strict delivery artifacts, and source review
   pass with no unresolved P0 through P2 finding. The committed candidate is
   ready for the exact clean-worktree release-readiness gate.
