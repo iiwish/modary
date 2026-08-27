@@ -57,7 +57,7 @@ Evidence required: `.ai-platform/evidence/T049/summary.md`, `diff.patch`,
 
 ## T050: Coordinated Publication And Remote Verification
 
-Status: Pending
+Status: Completed
 Priority: P0
 Depends on: T049
 Blocks: None
@@ -68,7 +68,8 @@ Conflicts with: all source changes, tags, releases, and main publication
 Goal: publish the accepted Alpha 2 candidate through one immutable five-tag
 train and prove hosted and local remote consumption.
 
-Allowed files: release evidence and canonical release reports after the clean
+Allowed files: release evidence, canonical release and task reports, F0
+acceptance status, and focused documentation-checker assertions after the clean
 candidate; Git refs, GitHub Actions, and GitHub prerelease after all stop
 conditions pass.
 

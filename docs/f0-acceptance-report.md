@@ -1,7 +1,7 @@
 # Modary v0.3 F0 Acceptance Report
 
 - Status: Accepted
-- Distribution status: Prepared
+- Distribution status: Released
 - Date: 2026-08-27
 - Target version: v0.3.0-alpha.2
 - Version tags: v0.3.0-alpha.2, components/postgres/v0.3.0-alpha.2, components/governedpostgres/v0.3.0-alpha.2, components/oidc/v0.3.0-alpha.2, components/otel/v0.3.0-alpha.2

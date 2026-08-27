@@ -1,0 +1,6 @@
+T050 publishes the accepted candidate without changing its tagged source. The
+final record marks the security maintenance work graph complete, records five
+immutable annotated tags, hosted and local remote-consumer and released-source
+container results, public module-proxy identity, GitHub prerelease metadata, and
+canonical Released/Remote_verified status. Every version tag remains on
+candidate commit 762f76dd54f8b2d8a0f9490e1c41e10876a3aae4.

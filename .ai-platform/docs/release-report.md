@@ -1,16 +1,16 @@
-# Modary v0.3 Alpha 2 Readiness Report
+# Modary v0.3 Alpha 2 Release Report
 
 - Report version: 5.0
-- Status: Candidate_accepted
+- Status: Remote_verified
 - Technical F0 acceptance: Accepted
 - Engineering readiness: Accepted
 - Onboarding readiness: Accepted for local, OIDC, telemetry, API, Admin, and Governed consumers
 - Current source version: v0.3.0-alpha.2
 - Target version: v0.3.0-alpha.2
-- Distribution status: Prepared
+- Distribution status: Released
 - Version tags: v0.3.0-alpha.2, components/postgres/v0.3.0-alpha.2, components/governedpostgres/v0.3.0-alpha.2, components/oidc/v0.3.0-alpha.2, components/otel/v0.3.0-alpha.2
-- Remote consumer verification: Pending
-- Latest supported release: v0.3.0-alpha.1
+- Remote consumer verification: Passed
+- Latest supported release: v0.3.0-alpha.2
 - Release: https://github.com/iiwish/modary/releases/tag/v0.3.0-alpha.2
 - Published modules: root, components/postgres, components/governedpostgres, components/oidc, components/otel
 - Canonical remote: https://github.com/iiwish/modary
@@ -30,8 +30,10 @@ generated product behavior remain unchanged.
 T042 through T047 retain the complete Production Foundation acceptance. T049
 proves exact Go and module baselines, zero reachable vulnerabilities, copied-out
 Profiles, real PostgreSQL, frontend reproducibility, non-root containers,
-platform builds, documentation, and candidate source integrity with no
-unresolved P0 through P2 finding.
+platform builds, documentation, and candidate source integrity. T050 proves the
+immutable tags, hosted CI, remote module resolution, replacement-free consumer,
+released-source containers, and GitHub prerelease with no unresolved P0 through
+P2 finding.
 
 ## Release Boundary
 

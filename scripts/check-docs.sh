@@ -267,7 +267,14 @@ docs/zh-CN/operations/observability.md
 .ai-platform/evidence/T049/summary.md
 .ai-platform/evidence/T049/diff.patch
 .ai-platform/evidence/T049/test-results.md
-.ai-platform/evidence/T049/review.md'
+.ai-platform/evidence/T049/review.md
+.ai-platform/evidence/T050/summary.md
+.ai-platform/evidence/T050/diff.patch
+.ai-platform/evidence/T050/test-results.md
+.ai-platform/evidence/T050/review.md
+.ai-platform/evidence/T050/release-notes.md
+.ai-platform/evidence/T050/tags.md
+.ai-platform/evidence/T050/ci.md'
 
 for file in $required; do
 	require_file "$file"
@@ -607,17 +614,18 @@ for review in .ai-platform/evidence/T026/review-3.md .ai-platform/evidence/T026/
 done
 
 require_line docs/f0-acceptance-report.md '- Status: Accepted'
-require_match docs/f0-acceptance-report.md '^- Distribution status: (Prepared|Released)$'
+require_line docs/f0-acceptance-report.md '- Distribution status: Released'
 require_line docs/f0-acceptance-report.md '- Target version: v0.3.0-alpha.2'
 require_line docs/f0-acceptance-report.md '- Version tags: v0.3.0-alpha.2, components/postgres/v0.3.0-alpha.2, components/governedpostgres/v0.3.0-alpha.2, components/oidc/v0.3.0-alpha.2, components/otel/v0.3.0-alpha.2'
 require_line docs/f0-acceptance-report.md '- Frozen baseline tag: v0.3.0-alpha.1'
 require_line .ai-platform/docs/release-report.md '- Report version: 5.0'
-require_match .ai-platform/docs/release-report.md '^- Status: (Candidate_accepted|Remote_verified)$'
+require_line .ai-platform/docs/release-report.md '- Status: Remote_verified'
 require_line .ai-platform/docs/release-report.md '- Technical F0 acceptance: Accepted'
 require_line .ai-platform/docs/release-report.md '- Engineering readiness: Accepted'
-require_match .ai-platform/docs/release-report.md '^- Distribution status: (Prepared|Released)$'
+require_line .ai-platform/docs/release-report.md '- Distribution status: Released'
 require_line .ai-platform/docs/release-report.md '- Version tags: v0.3.0-alpha.2, components/postgres/v0.3.0-alpha.2, components/governedpostgres/v0.3.0-alpha.2, components/oidc/v0.3.0-alpha.2, components/otel/v0.3.0-alpha.2'
-require_match .ai-platform/docs/release-report.md '^- Remote consumer verification: (Pending|Passed)$'
+require_line .ai-platform/docs/release-report.md '- Remote consumer verification: Passed'
+require_line .ai-platform/docs/release-report.md '- Latest supported release: v0.3.0-alpha.2'
 require_line .ai-platform/docs/release-report.md '- Owner-selected redistribution license: Apache-2.0'
 require_line .ai-platform/docs/release-report.md '- Target version: v0.3.0-alpha.2'
 
@@ -644,7 +652,8 @@ require_literal docs/guides/rulary-bootstrap.md 'Rulary is a separate product re
 require_literal .ai-platform/memory/constitution.md 'The empty Core has no database'
 require_literal .ai-platform/docs/product-design.md 'Start with a small Go application. Add only the components the product needs.'
 require_literal .ai-platform/docs/product-design.md '`v0.3.0-alpha.2` is the current Production Foundation security maintenance release.'
-require_literal .ai-platform/docs/tasks.md '- Active implementation work graph: `.ai-platform/specs/012-security-maintenance-release/tasks.md`'
+require_line .ai-platform/docs/tasks.md '- Active implementation work graph: None'
+require_line .ai-platform/docs/tasks.md '- Latest completed work graph: `.ai-platform/specs/012-security-maintenance-release/tasks.md`'
 require_line .ai-platform/specs/011-design-partner-validation/spec.md '- Status: Ready_For_User_Review'
 require_line .ai-platform/specs/011-design-partner-validation/spec.md '- Execution authorization: Not granted'
 require_line .ai-platform/specs/012-security-maintenance-release/spec.md '- Status: Confirmed'
@@ -672,6 +681,25 @@ case "$maintenance_status" in
 		;;
 	*) fail "T049 has an invalid maintenance state: $maintenance_status" ;;
 esac
+
+publication_status=$(awk '
+	index($0, "## T050:") == 1 { active=1; next }
+	/^## / { active=0 }
+	active && /^Status: / { print substr($0, 9); exit }
+' .ai-platform/specs/012-security-maintenance-release/tasks.md)
+if test "$publication_status" != Completed; then
+	fail "T050 must be Completed in the security maintenance work graph: $publication_status"
+fi
+require_literal .ai-platform/docs/tasks.md '| T050 | Completed |'
+require_line .ai-platform/specs/012-security-maintenance-release/packets/T050.yaml 'status: Completed'
+require_line .ai-platform/evidence/T050/summary.md '- Status: Completed'
+require_line .ai-platform/evidence/T050/summary.md '- Candidate commit: `762f76dd54f8b2d8a0f9490e1c41e10876a3aae4`'
+require_line .ai-platform/evidence/T050/summary.md '- Candidate tag: `v0.3.0-alpha.2`'
+require_line .ai-platform/evidence/T050/test-results.md '- Result: Passed'
+require_line .ai-platform/evidence/T050/review.md '- Verdict: Pass'
+for severity in P0 P1 P2; do
+	require_line .ai-platform/evidence/T050/review.md "- $severity: 0"
+done
 
 legacy_paths='README.md SECURITY.md docs .ai-platform/docs .ai-platform/memory examples/counter'
 if legacy=$(rg -n -i 'use (the )?sqlite|sqlite adapter is (supported|available)|modernc|databasepath|sqlitetest' $legacy_paths \

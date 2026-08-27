@@ -142,6 +142,10 @@ var currentDocsFiles = []string{
 	".ai-platform/evidence/T047/test-results.md", ".ai-platform/evidence/T047/review.md",
 	".ai-platform/evidence/T049/summary.md", ".ai-platform/evidence/T049/diff.patch",
 	".ai-platform/evidence/T049/test-results.md", ".ai-platform/evidence/T049/review.md",
+	".ai-platform/evidence/T050/summary.md", ".ai-platform/evidence/T050/diff.patch",
+	".ai-platform/evidence/T050/test-results.md", ".ai-platform/evidence/T050/review.md",
+	".ai-platform/evidence/T050/release-notes.md", ".ai-platform/evidence/T050/tags.md",
+	".ai-platform/evidence/T050/ci.md",
 	"starter/templates/admin/README.md.tmpl",
 }
 
@@ -226,6 +230,16 @@ func TestCheckDocsRejectsUnresolvedCurrentClosureFinding(t *testing.T) {
 	}
 	output, err := runCurrentDocsCheck(t, repository)
 	if err == nil || !strings.Contains(output, want) {
+		t.Fatalf("check-docs = %v, output=%q", err, output)
+	}
+}
+
+func TestCheckDocsRejectsUnresolvedCurrentReleaseFinding(t *testing.T) {
+	repository := currentDocsFixture(t)
+	path := filepath.Join(repository, ".ai-platform/evidence/T050/review.md")
+	replaceCurrentDocs(t, path, "- P1: 0", "- P1: 1")
+	output, err := runCurrentDocsCheck(t, repository)
+	if err == nil || !strings.Contains(output, "- P1: 0") {
 		t.Fatalf("check-docs = %v, output=%q", err, output)
 	}
 }

@@ -4,7 +4,7 @@ task_id: T050
 feature_id: 012-security-maintenance-release
 mode: execute_one_task
 title: Coordinated Publication And Remote Verification
-status: Pending
+status: Completed
 adapter: direct
 goal: Publish the accepted v0.3.0-alpha.2 candidate through one immutable five-tag train and prove hosted and remote consumption.
 requirements: [FR-007, FR-008, NFR-004, NFR-005, SC-004, SC-005, SC-006]
@@ -24,15 +24,15 @@ work_unit:
   requirements: [FR-007, FR-008, NFR-004, NFR-005, SC-004, SC-005, SC-006]
   depends_on: [T049]
 codebase_context:
-  relevant_paths: [release evidence, canonical reports, Git refs, GitHub Actions, GitHub prerelease]
+  relevant_paths: [release evidence, canonical reports, F0 acceptance report, documentation checker, Git refs, GitHub Actions, GitHub prerelease]
   preserve: [candidate commit, immutable historical tags, canonical origin, no local replacement]
   forbidden: [moving or deleting a published tag, changing candidate source after tags, presenting pending verification as complete]
 execution_constraints:
-  allowed_files: [.ai-platform/docs/release-report.md, .ai-platform/docs/tasks.md, .ai-platform/specs/012-security-maintenance-release/**, .ai-platform/evidence/T050/**]
+  allowed_files: [.ai-platform/docs/release-report.md, .ai-platform/docs/tasks.md, docs/f0-acceptance-report.md, scripts/check-docs.sh, scripts/check_docs_test.go, .ai-platform/specs/012-security-maintenance-release/**, .ai-platform/evidence/T050/**]
   conflicts_with: [all source changes]
   worktree: clean committed candidate required before live refs
   delegation: direct execution because delegation was not requested
-allowed_files: [.ai-platform/docs/release-report.md, .ai-platform/docs/tasks.md, .ai-platform/specs/012-security-maintenance-release/**, .ai-platform/evidence/T050/**]
+allowed_files: [.ai-platform/docs/release-report.md, .ai-platform/docs/tasks.md, docs/f0-acceptance-report.md, scripts/check-docs.sh, scripts/check_docs_test.go, .ai-platform/specs/012-security-maintenance-release/**, .ai-platform/evidence/T050/**]
 tdd:
   red: Tag-mode preflight rejects absent release tags.
   green: Push five annotated tags and pass hosted and remote release gates.
