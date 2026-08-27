@@ -81,6 +81,7 @@ var currentDocsFiles = []string{
 	".ai-platform/specs/010-production-foundation/packets/T046.yaml",
 	".ai-platform/specs/010-production-foundation/packets/T047.yaml",
 	".ai-platform/specs/010-production-foundation/packets/T048.yaml",
+	".ai-platform/specs/011-design-partner-validation/spec.md",
 	".ai-platform/evidence/T024/summary.md", ".ai-platform/evidence/T024/diff.patch", ".ai-platform/evidence/T024/test-results.md",
 	".ai-platform/evidence/T025/summary.md", ".ai-platform/evidence/T025/diff.patch", ".ai-platform/evidence/T025/test-results.md",
 	".ai-platform/evidence/T026/summary.md", ".ai-platform/evidence/T026/diff.patch", ".ai-platform/evidence/T026/test-results.md",
@@ -158,6 +159,16 @@ func TestCheckDocsRejectsCurrentTaskStateDrift(t *testing.T) {
 	replaceCurrentDocs(t, path, "| T025 | Completed |", "| T025 | In_Progress |")
 	output, err := runCurrentDocsCheck(t, repository)
 	if err == nil || !strings.Contains(output, "T025 must be Completed") {
+		t.Fatalf("check-docs = %v, output=%q", err, output)
+	}
+}
+
+func TestCheckDocsRejectsUnauthorizedNextMilestoneState(t *testing.T) {
+	repository := currentDocsFixture(t)
+	path := filepath.Join(repository, ".ai-platform/specs/011-design-partner-validation/spec.md")
+	replaceCurrentDocs(t, path, "- Status: Ready_For_User_Review", "- Status: Confirmed")
+	output, err := runCurrentDocsCheck(t, repository)
+	if err == nil || !strings.Contains(output, "- Status: Ready_For_User_Review") {
 		t.Fatalf("check-docs = %v, output=%q", err, output)
 	}
 }

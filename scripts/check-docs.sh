@@ -155,6 +155,7 @@ docs/zh-CN/operations/observability.md
 .ai-platform/specs/010-production-foundation/packets/T046.yaml
 .ai-platform/specs/010-production-foundation/packets/T047.yaml
 .ai-platform/specs/010-production-foundation/packets/T048.yaml
+.ai-platform/specs/011-design-partner-validation/spec.md
 .ai-platform/evidence/T024/summary.md
 .ai-platform/evidence/T024/diff.patch
 .ai-platform/evidence/T024/test-results.md
@@ -632,6 +633,9 @@ require_literal docs/guides/rulary-bootstrap.md 'Rulary is a separate product re
 require_literal .ai-platform/memory/constitution.md 'The empty Core has no database'
 require_literal .ai-platform/docs/product-design.md 'Start with a small Go application. Add only the components the product needs.'
 require_literal .ai-platform/docs/product-design.md '`v0.3.0-alpha.1` is the current Production Foundation release.'
+require_literal .ai-platform/docs/tasks.md '- Active implementation work graph: None'
+require_line .ai-platform/specs/011-design-partner-validation/spec.md '- Status: Ready_For_User_Review'
+require_line .ai-platform/specs/011-design-partner-validation/spec.md '- Execution authorization: Not granted'
 
 legacy_paths='README.md SECURITY.md docs .ai-platform/docs .ai-platform/memory examples/counter'
 if legacy=$(rg -n -i 'use (the )?sqlite|sqlite adapter is (supported|available)|modernc|databasepath|sqlitetest' $legacy_paths \

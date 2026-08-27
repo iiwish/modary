@@ -1,11 +1,25 @@
-# Current Delivery Work Graph
+# Current Delivery State
 
-- Version: 10.0
+- Version: 11.0
 - Status: Confirmed
-- Last updated: 2026-08-04
+- Last updated: 2026-08-10
+- Active implementation work graph: None
+- Latest completed work graph: `.ai-platform/specs/010-production-foundation/tasks.md`
+- Proposed next contract: `.ai-platform/specs/011-design-partner-validation/spec.md`
 
-The active work graph is
-`.ai-platform/specs/010-production-foundation/tasks.md`.
+## Current Gate
+
+The v0.3 Production Foundation work graph is closed. T042 through T048 are
+completed, `v0.3.0-alpha.1` is released, and remote verification is recorded in
+`.ai-platform/docs/release-report.md`.
+
+The Design Partner Validation specification is `Ready_For_User_Review`. It is
+not an active work graph and grants no planning or execution authority. No new
+task ID is reserved until the owner confirms that requirements contract. After
+confirmation, checklist, technical plan, work graph, analysis, and execution
+packets remain separate approval-gated artifacts.
+
+## Delivery Ledger
 
 | Task | State | Acceptance object |
 |---|---|---|
@@ -35,55 +49,51 @@ The active work graph is
 | T026 | Completed | Alpha 3 framework and copied-out consumer acceptance |
 | T027 | Completed | Immutable Alpha 3 release and remote verification |
 
-## T028: Product Contract And Research
+Feature-scoped specifications, plans, work graphs, packets, and evidence under
+`.ai-platform/specs/002-framework-decoupling/` through
+`.ai-platform/specs/010-production-foundation/` remain the canonical history for
+their accepted delivery slices.
+
+## T048: v0.3 Coordinated Release And Remote Verification
 
 Status: Completed
 Priority: P0
-Dependencies: T027
-Blocks: T029
-Story / Requirement: PR-001, PR-002, and PR-003
+Dependencies: T047
+Blocks: None
+Story / Requirement: US-006, NFR-007, NFR-008, SC-006
 Parallel: No
-Conflicts with: every implementation task under feature 007
+Conflicts with: tags, release identity, canonical reports, and main branch publication
 
-Goal: establish the canonical lightweight componentized Go framework contract
-from owner input, current competitor evidence, and relevant Gin-Vue-Admin Issue
-themes.
+Goal: publish the accepted Production Foundation source through one coordinated
+five-module immutable tag train and verify hosted and local remote consumption.
 
-Allowed files: canonical governance documents, feature 007 artifacts, T028
-evidence, and documentation-checker expectations for those artifacts.
+Allowed files: release/version/docs/automation and T048 evidence; Git refs,
+GitHub Actions, and GitHub prerelease only after clean candidate approval gates.
 
-Test targets: product-scope consistency, research source integrity, Profile and
-component boundary completeness, documentation integrity, link validity, and
-strict delivery-artifact validation.
+Test targets: clean worktree, canonical origin, five module versions and tags,
+hosted main and tag CI, normal Go proxy resolution, copied-out remote consumers,
+release metadata, and immutable tag objects.
 
-Deliverables: confirmed constitution and product contract, competitor research,
-feature spec, technical plan, work graph, checklist, analysis, execution packet,
-and T028 review evidence.
+Deliverables: candidate commit, annotated tags, hosted CI, remote verification,
+GitHub prerelease, final release report, and evidence.
 
-Acceptance criteria: the artifacts agree that Core is database-free, Admin and
-Governed capabilities are optional, generation is create-only, omitted
-components are absent, and Alpha 3 is immutable. No Critical or High ambiguity
-remains.
+Acceptance criteria: all tags peel to one accepted commit; all five modules
+resolve at `v0.3.0-alpha.1` without replacement; GitHub prerelease and final
+record are published; no tag moves.
 
-Definition of Done: documentation and strict artifact checks pass, the research
-does not present historical Issues as current defects, and review finds no
-unresolved P0 through P2 issue.
+Definition of Done: release and remote gates pass, the final record commit is
+pushed, hosted CI passes, and the worktree is clean.
 
 Validation commands:
-- `./scripts/check-docs.sh`
-- `./scripts/check-doc-links.sh`
-- `python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 007-component-framework-refoundation --task-id T028 --strict`
-- `git diff --check`
+- `make release-readiness VERSION=v0.3.0-alpha.1`
+- `make remote-consumer VERSION=v0.3.0-alpha.1`
+- `python3 /Users/iiwish/.codex/skills/ai-delivery-governor/scripts/validate_delivery_artifacts.py --root /Users/iiwish/self/modary --feature-id 010-production-foundation --task-id T048 --strict`
+- `git status --short`
 
-TDD plan: documentation-only exception; strict artifact, documentation, and
-link validation replace behavior TDD.
+TDD plan: release-fixture tests provide RED/GREEN behavior before live refs;
+publication follows immutable stop conditions and has no destructive retry.
 
-Packet path: `.ai-platform/specs/007-component-framework-refoundation/packets/T028.yaml`
+Packet path: `.ai-platform/specs/010-production-foundation/packets/T048.yaml`
 
-Evidence required: `.ai-platform/evidence/T028/summary.md`, `diff.patch`,
-`test-results.md`, and `review.md`.
-
-Completed component-framework, PostgreSQL, task, release, and onboarding work
-remains available as historical governance under features 002 through 007. The immutable
-`v0.1.0-alpha.3` release remains accepted and remotely consumable while feature
-008 defines the active React-only Admin delivery contract.
+Evidence required: `.ai-platform/evidence/T048/summary.md`, `diff.patch`,
+`test-results.md`, `review.md`, release notes, tag objects, CI, and release URLs.
